@@ -298,6 +298,7 @@ async function startYouTubeSession(job) {
     },
     status: {
       privacyStatus: 'private',
+      publishAt: job.scheduledAt,
       selfDeclaredMadeForKids: !!job.madeForKids,
       containsSyntheticMedia: !!job.containsSyntheticMedia
     }
@@ -401,7 +402,7 @@ async function uploadJobToYouTube(jobId) {
       db = await readDb();
       job = db.jobs.find(x => x.id === jobId);
       job.youtubeVideoId = q.videoId;
-      job.status = 'waiting_publish';
+      job.status = 'scheduled_youtube';
       job.youtubeUploadOffset = job.fileSize;
       job.updatedAt = nowIso();
       await writeDb(db);
@@ -466,7 +467,7 @@ async function uploadJobToYouTube(jobId) {
       job = db.jobs.find(x => x.id === jobId);
       job.youtubeVideoId = data.id;
       job.youtubeUploadOffset = job.fileSize;
-      job.status = 'waiting_publish';
+      job.status = 'scheduled_youtube';
       job.updatedAt = nowIso();
       await writeDb(db);
       await safeDelete(job.filePath);
@@ -477,39 +478,73 @@ async function uploadJobToYouTube(jobId) {
   }
 }
 
-async function publishJob(jobId) {
+async function fetchYouTubeStatus(videoId) {
+  const r = await youtubeFetch(`https://www.googleapis.com/youtube/v3/videos?part=status&id=${encodeURIComponent(videoId)}`);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error?.message || `Gagal membaca status YouTube (${r.status})`);
+  const video = data.items?.[0];
+  if (!video) throw new Error('Video YouTube tidak ditemukan');
+  return video.status || {};
+}
+
+// Migrasi job versi lama: video sudah ter-upload sebagai Private tetapi belum memakai publishAt.
+// Setelah fungsi ini berhasil, YouTube Studio akan menampilkannya sebagai Scheduled.
+async function scheduleExistingPrivateJob(jobId) {
   let db = await readDb();
   const job = db.jobs.find(x => x.id === jobId);
   if (!job?.youtubeVideoId) throw new Error('Video YouTube belum tersedia');
-  job.status = 'publishing';
-  job.error = null;
-  job.updatedAt = nowIso();
-  await writeDb(db);
 
-  const body = {
-    id: job.youtubeVideoId,
-    status: {
-      privacyStatus: 'public',
-      selfDeclaredMadeForKids: !!job.madeForKids,
-      containsSyntheticMedia: !!job.containsSyntheticMedia
-    }
+  const current = await fetchYouTubeStatus(job.youtubeVideoId);
+  const status = {
+    privacyStatus: 'private',
+    publishAt: job.scheduledAt,
+    selfDeclaredMadeForKids: current.selfDeclaredMadeForKids ?? !!job.madeForKids,
+    containsSyntheticMedia: current.containsSyntheticMedia ?? !!job.containsSyntheticMedia
   };
+  if (typeof current.embeddable === 'boolean') status.embeddable = current.embeddable;
+  if (current.license) status.license = current.license;
+  if (typeof current.publicStatsViewable === 'boolean') status.publicStatsViewable = current.publicStatsViewable;
+
   const r = await youtubeFetch('https://www.googleapis.com/youtube/v3/videos?part=status', {
     method: 'PUT',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(body)
+    body: JSON.stringify({ id: job.youtubeVideoId, status })
   });
   if (!r.ok) {
     const d = await r.json().catch(() => ({}));
-    throw new Error(d.error?.message || `Gagal mempublikasikan video (${r.status})`);
+    throw new Error(d.error?.message || `Gagal menjadwalkan video di YouTube (${r.status})`);
   }
+
   db = await readDb();
   const fresh = db.jobs.find(x => x.id === jobId);
-  fresh.status = 'published';
-  fresh.publishedAt = nowIso();
-  fresh.updatedAt = nowIso();
-  await writeDb(db);
+  if (fresh) {
+    fresh.status = 'scheduled_youtube';
+    fresh.error = null;
+    fresh.updatedAt = nowIso();
+    await writeDb(db);
+  }
 }
+
+// Sinkronkan status sesudah waktu tayang agar dashboard berubah menjadi "Tayang".
+// Proses publikasinya sendiri dilakukan oleh scheduler native YouTube.
+async function syncScheduledJob(jobId) {
+  let db = await readDb();
+  const job = db.jobs.find(x => x.id === jobId);
+  if (!job?.youtubeVideoId) return;
+  const status = await fetchYouTubeStatus(job.youtubeVideoId);
+
+  if (status.privacyStatus === 'public') {
+    db = await readDb();
+    const fresh = db.jobs.find(x => x.id === jobId);
+    if (fresh) {
+      fresh.status = 'published';
+      fresh.publishedAt = nowIso();
+      fresh.updatedAt = nowIso();
+      await writeDb(db);
+    }
+  }
+}
+
 async function safeDelete(file) { try { await fsp.unlink(file); } catch {} }
 
 let workerBusy = false;
@@ -518,13 +553,25 @@ async function workerTick() {
   workerBusy = true;
   try {
     const db = await readDb();
-    const publishable = db.jobs
-      .filter(j => j.status === 'waiting_publish' && new Date(j.scheduledAt).getTime() <= Date.now())
+    // Migrasi otomatis job lama yang sudah Private: pasang publishAt sekarang,
+    // tidak menunggu jam tayang.
+    const legacyPrivate = db.jobs
+      .filter(j => j.status === 'waiting_publish' && j.youtubeVideoId)
       .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))[0];
-    if (publishable) {
-      await publishJob(publishable.id);
+    if (legacyPrivate) {
+      await scheduleExistingPrivateJob(legacyPrivate.id);
       return;
     }
+
+    // Sesudah waktu tayang, hanya sinkronkan status. YouTube yang menerbitkan.
+    const syncable = db.jobs
+      .filter(j => j.status === 'scheduled_youtube' && new Date(j.scheduledAt).getTime() <= Date.now())
+      .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))[0];
+    if (syncable) {
+      await syncScheduledJob(syncable.id);
+      return;
+    }
+
     const uploadable = db.jobs
       .filter(j => ['queued_upload', 'uploading_youtube'].includes(j.status) && j.receivedBytes === j.fileSize)
       .sort((a, b) => a.order - b.order)[0];
@@ -535,7 +582,7 @@ async function workerTick() {
   } catch (e) {
     console.error('Worker error:', e.message);
     const db = await readDb();
-    const current = db.jobs.find(j => ['uploading_youtube', 'publishing'].includes(j.status));
+    const current = db.jobs.find(j => ['uploading_youtube', 'waiting_publish', 'scheduled_youtube'].includes(j.status));
     if (current) {
       current.status = current.youtubeVideoId ? 'waiting_publish' : 'failed';
       current.error = e.message;
@@ -569,7 +616,7 @@ const server = http.createServer(async (req, res) => {
     const pathname = u.pathname;
 
     if (req.method === 'GET' && pathname === '/api/health')
-      return json(res, 200, { ok: true, version: '3.0.0', time: nowIso() });
+      return json(res, 200, { ok: true, version: '3.1.0', time: nowIso() });
 
     if (req.method === 'GET' && pathname === '/api/session')
       return json(res, 200, { authenticated: isAuthed(req), configMissing: configMissing(), appUrl: APP_URL });
@@ -692,7 +739,7 @@ const server = http.createServer(async (req, res) => {
       const db = await readDb();
       const job = db.jobs.find(x => x.id === cancelMatch[1]);
       if (!job) return json(res, 404, { error: 'Job tidak ditemukan' });
-      if (['published', 'publishing', 'uploading_youtube'].includes(job.status))
+      if (['published', 'scheduled_youtube', 'uploading_youtube'].includes(job.status))
         return json(res, 409, { error: 'Job sedang/selesai diproses dan tidak dapat dibatalkan' });
       job.status = 'cancelled';
       job.updatedAt = nowIso();
@@ -711,7 +758,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Cloud v3.0 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Cloud v3.1 listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));
