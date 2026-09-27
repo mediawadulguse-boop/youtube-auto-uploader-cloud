@@ -106,6 +106,39 @@ async function readJson(req, max = 1024 * 1024) {
   catch { throw Object.assign(new Error('JSON tidak valid'), { status: 400 }); }
 }
 function cleanStr(v, max = 5000) { return String(v ?? '').trim().slice(0, max); }
+
+// YouTube membatasi total snippet.tags hingga 500 karakter.
+// Koma pemisah dan tanda kutip implisit untuk tag yang mengandung spasi ikut dihitung.
+// Gunakan batas 480 sebagai buffer agar metadata tidak ditolak.
+function normalizeYouTubeTags(values) {
+  if (!Array.isArray(values)) return [];
+  const result = [];
+  const seen = new Set();
+  let total = 0;
+
+  for (const raw of values) {
+    let tag = String(raw ?? '')
+      .replace(/[\u0000-\u001F\u007F]/g, ' ')
+      .replace(/[",<>]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 100)
+      .trim();
+
+    if (!tag) continue;
+    const key = tag.toLocaleLowerCase('id-ID');
+    if (seen.has(key)) continue;
+
+    const contribution = tag.length + (tag.includes(' ') ? 2 : 0) + (result.length ? 1 : 0);
+    if (total + contribution > 480) continue;
+
+    seen.add(key);
+    result.push(tag);
+    total += contribution;
+  }
+  return result;
+}
+
 function id() { return crypto.randomUUID(); }
 function nowIso() { return new Date().toISOString(); }
 function publicJob(j) {
@@ -210,7 +243,7 @@ async function createJob(body) {
     mimeType: cleanStr(body.mimeType || 'application/octet-stream', 120),
     title: cleanStr(body.title || fileName.replace(/\.[^.]+$/, ''), 100),
     description: cleanStr(body.description, 5000),
-    tags: Array.isArray(body.tags) ? body.tags.map(x => cleanStr(x, 100)).filter(Boolean).slice(0, 30) : [],
+    tags: normalizeYouTubeTags(body.tags),
     categoryId: cleanStr(body.categoryId || '22', 10),
     madeForKids: Boolean(body.madeForKids),
     containsSyntheticMedia: Boolean(body.containsSyntheticMedia),
@@ -259,9 +292,9 @@ async function appendChunk(req, job, offset) {
 async function startYouTubeSession(job) {
   const metadata = {
     snippet: {
-      title: job.title,
-      description: job.description || '',
-      categoryId: job.categoryId || '22'
+      title: cleanStr(job.title, 100),
+      description: cleanStr(job.description, 5000),
+      categoryId: cleanStr(job.categoryId || '22', 10)
     },
     status: {
       privacyStatus: 'private',
@@ -269,20 +302,51 @@ async function startYouTubeSession(job) {
       containsSyntheticMedia: !!job.containsSyntheticMedia
     }
   };
-  if (job.tags?.length) metadata.snippet.tags = job.tags;
-  const r = await youtubeFetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json; charset=UTF-8',
-      'x-upload-content-length': String(job.fileSize),
-      'x-upload-content-type': job.mimeType || 'application/octet-stream'
-    },
-    body: JSON.stringify(metadata)
-  });
-  if (!r.ok) {
+
+  const safeTags = normalizeYouTubeTags(job.tags);
+  if (safeTags.length) metadata.snippet.tags = safeTags;
+
+  const requestSession = async payload => {
+    const r = await youtubeFetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json; charset=UTF-8',
+        'x-upload-content-length': String(job.fileSize),
+        'x-upload-content-type': job.mimeType || 'application/octet-stream'
+      },
+      body: JSON.stringify(payload)
+    });
+    if (r.ok) return r;
+
     const d = await r.json().catch(() => ({}));
+    const reasons = Array.isArray(d.error?.errors) ? d.error.errors.map(x => x.reason) : [];
+
+    // Fallback defensif: jika YouTube tetap menolak keyword,
+    // buat sesi tanpa tags agar video tidak gagal hanya karena metadata tag.
+    if (reasons.includes('invalidTags') && payload.snippet.tags) {
+      const withoutTags = {
+        ...payload,
+        snippet: { ...payload.snippet }
+      };
+      delete withoutTags.snippet.tags;
+      const retry = await youtubeFetch('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json; charset=UTF-8',
+          'x-upload-content-length': String(job.fileSize),
+          'x-upload-content-type': job.mimeType || 'application/octet-stream'
+        },
+        body: JSON.stringify(withoutTags)
+      });
+      if (retry.ok) return retry;
+      const rd = await retry.json().catch(() => ({}));
+      throw new Error(rd.error?.message || `Gagal membuat sesi upload YouTube (${retry.status})`);
+    }
+
     throw new Error(d.error?.message || `Gagal membuat sesi upload YouTube (${r.status})`);
-  }
+  };
+
+  const r = await requestSession(metadata);
   const location = r.headers.get('location');
   if (!location) throw new Error('YouTube tidak mengembalikan resumable upload URL');
   return location;
