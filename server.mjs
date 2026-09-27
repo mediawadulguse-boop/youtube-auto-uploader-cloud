@@ -107,6 +107,25 @@ async function readJson(req, max = 1024 * 1024) {
 }
 function cleanStr(v, max = 5000) { return String(v ?? '').trim().slice(0, max); }
 
+function normalizeHttpUrl(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  try {
+    const u = new URL(raw);
+    if (!['http:', 'https:'].includes(u.protocol)) return '';
+    return u.toString().slice(0, 2048);
+  } catch {
+    return '';
+  }
+}
+
+function buildYoutubeDescription(base, relatedUrl) {
+  const url = normalizeHttpUrl(relatedUrl);
+  const suffix = url ? `\n\nKonten terkait:\n${url}` : '';
+  const maxBase = Math.max(0, 5000 - suffix.length);
+  return cleanStr(base, maxBase) + suffix;
+}
+
 // YouTube membatasi total snippet.tags hingga 500 karakter.
 // Koma pemisah dan tanda kutip implisit untuk tag yang mengandung spasi ikut dihitung.
 // Gunakan batas 480 sebagai buffer agar metadata tidak ditolak.
@@ -243,6 +262,7 @@ async function createJob(body) {
     mimeType: cleanStr(body.mimeType || 'application/octet-stream', 120),
     title: cleanStr(body.title || fileName.replace(/\.[^.]+$/, ''), 100),
     description: cleanStr(body.description, 5000),
+    relatedUrl: normalizeHttpUrl(body.relatedUrl),
     tags: normalizeYouTubeTags(body.tags),
     categoryId: cleanStr(body.categoryId || '22', 10),
     madeForKids: Boolean(body.madeForKids),
@@ -293,7 +313,7 @@ async function startYouTubeSession(job) {
   const metadata = {
     snippet: {
       title: cleanStr(job.title, 100),
-      description: cleanStr(job.description, 5000),
+      description: buildYoutubeDescription(job.description, job.relatedUrl),
       categoryId: cleanStr(job.categoryId || '22', 10)
     },
     status: {
@@ -616,7 +636,7 @@ const server = http.createServer(async (req, res) => {
     const pathname = u.pathname;
 
     if (req.method === 'GET' && pathname === '/api/health')
-      return json(res, 200, { ok: true, version: '3.1.0', time: nowIso() });
+      return json(res, 200, { ok: true, version: '3.2.0', time: nowIso() });
 
     if (req.method === 'GET' && pathname === '/api/session')
       return json(res, 200, { authenticated: isAuthed(req), configMissing: configMissing(), appUrl: APP_URL });
@@ -758,7 +778,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Cloud v3.1 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Cloud v3.2 listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));
