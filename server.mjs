@@ -119,6 +119,25 @@ function normalizeHttpUrl(value) {
   }
 }
 
+function extractYouTubeVideoId(value) {
+  const raw = String(value ?? '').trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(raw)) return raw;
+  try {
+    const u = new URL(raw);
+    if (u.hostname === 'youtu.be') {
+      const id = u.pathname.split('/').filter(Boolean)[0];
+      return /^[A-Za-z0-9_-]{11}$/.test(id || '') ? id : '';
+    }
+    if (u.hostname.endsWith('youtube.com')) {
+      const watch = u.searchParams.get('v');
+      if (/^[A-Za-z0-9_-]{11}$/.test(watch || '')) return watch;
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (['shorts','live','embed'].includes(parts[0]) && /^[A-Za-z0-9_-]{11}$/.test(parts[1] || '')) return parts[1];
+    }
+  } catch {}
+  return '';
+}
+
 function buildYoutubeDescription(base, relatedUrl) {
   const url = normalizeHttpUrl(relatedUrl);
   const suffix = url ? `\n\nKonten terkait:\n${url}` : '';
@@ -262,7 +281,9 @@ async function createJob(body) {
     mimeType: cleanStr(body.mimeType || 'application/octet-stream', 120),
     title: cleanStr(body.title || fileName.replace(/\.[^.]+$/, ''), 100),
     description: cleanStr(body.description, 5000),
-    relatedUrl: normalizeHttpUrl(body.relatedUrl),
+    relatedVideoId: cleanStr(body.relatedVideoId, 32),
+    relatedVideoTitle: cleanStr(body.relatedVideoTitle, 200),
+    relatedVideoUrl: normalizeHttpUrl(body.relatedVideoUrl),
     tags: normalizeYouTubeTags(body.tags),
     categoryId: cleanStr(body.categoryId || '22', 10),
     madeForKids: Boolean(body.madeForKids),
@@ -313,7 +334,7 @@ async function startYouTubeSession(job) {
   const metadata = {
     snippet: {
       title: cleanStr(job.title, 100),
-      description: buildYoutubeDescription(job.description, job.relatedUrl),
+      description: cleanStr(job.description, 5000),
       categoryId: cleanStr(job.categoryId || '22', 10)
     },
     status: {
@@ -636,7 +657,7 @@ const server = http.createServer(async (req, res) => {
     const pathname = u.pathname;
 
     if (req.method === 'GET' && pathname === '/api/health')
-      return json(res, 200, { ok: true, version: '3.2.0', time: nowIso() });
+      return json(res, 200, { ok: true, version: '3.3.0', time: nowIso() });
 
     if (req.method === 'GET' && pathname === '/api/session')
       return json(res, 200, { authenticated: isAuthed(req), configMissing: configMissing(), appUrl: APP_URL });
@@ -721,6 +742,35 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true });
     }
 
+    if (req.method === 'GET' && pathname === '/api/youtube/related-video') {
+      const videoId = extractYouTubeVideoId(u.searchParams.get('url') || '');
+      if (!videoId) return json(res, 400, { error: 'Link/ID video YouTube tidak valid' });
+
+      const r = await youtubeFetch(`https://www.googleapis.com/youtube/v3/videos?part=snippet,status&id=${encodeURIComponent(videoId)}`);
+      const data = await r.json().catch(() => ({}));
+      if (!r.ok) return json(res, r.status, { error: data.error?.message || 'Gagal membaca video terkait' });
+
+      const video = data.items?.[0];
+      if (!video) return json(res, 404, { error: 'Video terkait tidak ditemukan' });
+
+      const db = await readDb();
+      if (db.channel?.id && video.snippet?.channelId !== db.channel.id)
+        return json(res, 400, { error: 'Video terkait harus berasal dari channel YouTube yang sama' });
+
+      const privacyStatus = video.status?.privacyStatus || '';
+      if (!['public','unlisted'].includes(privacyStatus))
+        return json(res, 400, { error: 'Video terkait harus berstatus Public atau Unlisted' });
+
+      return json(res, 200, {
+        video: {
+          id: videoId,
+          title: video.snippet?.title || videoId,
+          privacyStatus,
+          url: `https://youtu.be/${videoId}`
+        }
+      });
+    }
+
     if (req.method === 'POST' && pathname === '/api/jobs') {
       const body = await readJson(req);
       const job = await createJob(body);
@@ -778,7 +828,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Cloud v3.2 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Cloud v3.3 listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));
