@@ -522,7 +522,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/logout')
       return json(res, 200, { ok: true }, { 'set-cookie': sessionCookie('', 0) });
 
-    if ((pathname.startsWith('/api/') || pathname.startsWith('/auth/')) && !isAuthed(req))
+    const isOAuthCallback = pathname === '/auth/google/callback';
+    if ((pathname.startsWith('/api/') || (pathname.startsWith('/auth/') && !isOAuthCallback)) && !isAuthed(req))
       return json(res, 401, { error: 'Silakan login' });
 
     if (req.method === 'GET' && pathname === '/api/state') {
