@@ -5,6 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { URL } from 'node:url';
 import { ContentStore, CONTENT_STAGES } from './content-store.mjs';
+import { YouTubeAnalytics, ANALYTICS_SCOPES, hasAnalyticsAccess, analyticsRange } from './analytics.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -22,6 +23,9 @@ const WORKER_INTERVAL_MS = Math.max(2000, Number(process.env.WORKER_INTERVAL_MS 
 const YT_CHUNK = Math.max(1, Number(process.env.YOUTUBE_CHUNK_MB || 8)) * 1024 * 1024;
 const MAX_BROWSER_CHUNK = 16 * 1024 * 1024;
 const YOUTUBE_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
+const analytics = new YouTubeAnalytics(youtubeFetch);
+let tokenGeneration = 0;
+let refreshPromise = null;
 
 await fsp.mkdir(UPLOAD_DIR, { recursive: true });
 
@@ -209,17 +213,31 @@ function decrypt(payload) {
   decipher.setAuthTag(Buffer.from(payload.tag, 'base64'));
   return JSON.parse(Buffer.concat([decipher.update(Buffer.from(payload.data, 'base64')), decipher.final()]).toString('utf8'));
 }
-async function saveToken(token) { await fsp.writeFile(TOKEN_FILE, JSON.stringify(encrypt(token)), { mode: 0o600 }); }
+let tokenWriteChain = Promise.resolve();
+async function saveToken(token, generation = tokenGeneration) {
+  const payload = JSON.stringify(encrypt(token));
+  const work = tokenWriteChain.catch(() => {}).then(async () => {
+    if (generation !== tokenGeneration) throw new Error('Koneksi YouTube berubah. Ulangi permintaan.');
+    const tmp = TOKEN_FILE + '.tmp';
+    await fsp.writeFile(tmp, payload, { mode: 0o600 });
+    if (generation !== tokenGeneration) { await fsp.unlink(tmp).catch(() => {}); throw new Error('Koneksi YouTube berubah. Ulangi permintaan.'); }
+    await fsp.rename(tmp, TOKEN_FILE);
+  });
+  tokenWriteChain = work; return work;
+}
 async function loadToken() {
   try { return decrypt(JSON.parse(await fsp.readFile(TOKEN_FILE, 'utf8'))); }
   catch (e) { if (e.code !== 'ENOENT') console.error('Token read/decrypt error', e.message); return null; }
 }
-async function deleteToken() { try { await fsp.unlink(TOKEN_FILE); } catch {} }
+async function deleteToken() {
+  const work = tokenWriteChain.catch(() => {}).then(async () => { try { await fsp.unlink(TOKEN_FILE); } catch (e) { if (e.code !== 'ENOENT') throw e; } });
+  tokenWriteChain = work; return work;
+}
 
 async function oauthToken(params) {
   const body = new URLSearchParams(params);
   const r = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(20_000)
   });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(`OAuth token gagal (${r.status}): ${data.error_description || data.error || 'unknown error'}`);
@@ -230,6 +248,9 @@ async function getAccessToken() {
   if (!token?.refresh_token && !token?.access_token) throw new Error('Akun YouTube belum terhubung');
   if (token.access_token && token.expires_at && token.expires_at > Date.now() + 60_000) return token.access_token;
   if (!token.refresh_token) return token.access_token;
+  if (refreshPromise) return refreshPromise;
+  const generation = tokenGeneration;
+  const work = (async () => {
   const fresh = await oauthToken({
     client_id: GOOGLE_CLIENT_ID,
     client_secret: GOOGLE_CLIENT_SECRET,
@@ -241,8 +262,12 @@ async function getAccessToken() {
     refresh_token: fresh.refresh_token || token.refresh_token,
     expires_at: Date.now() + (fresh.expires_in || 3600) * 1000
   };
-  await saveToken(merged);
+  if (generation !== tokenGeneration) throw new Error('Koneksi YouTube berubah. Ulangi permintaan.');
+  await saveToken(merged, generation);
   return merged.access_token;
+  })();
+  refreshPromise = work;
+  try { return await work; } finally { if (refreshPromise === work) refreshPromise = null; }
 }
 async function youtubeFetch(url, options = {}, retryAuth = true) {
   const access = await getAccessToken();
@@ -251,13 +276,14 @@ async function youtubeFetch(url, options = {}, retryAuth = true) {
   const r = await fetch(url, { ...options, headers });
   if (r.status === 401 && retryAuth) {
     const token = await loadToken();
-    if (token) { token.expires_at = 0; await saveToken(token); }
+    if (token?.access_token === access) { token.expires_at = 0; await saveToken(token); }
     return youtubeFetch(url, options, false);
   }
   return r;
 }
-async function fetchChannel() {
-  const r = await youtubeFetch('https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true');
+async function fetchChannel(accessToken) {
+  const url = 'https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true';
+  const r = accessToken ? await fetch(url, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(20_000) }) : await youtubeFetch(url);
   const data = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(data.error?.message || `Gagal membaca channel (${r.status})`);
   const c = data.items?.[0];
@@ -660,7 +686,7 @@ setTimeout(workerTick, 1000).unref();
 
 async function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  if (!['index.html', 'app.js', 'content.js', 'content.css'].includes(rel)) return false;
+  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css'].includes(rel)) return false;
   try {
     const data = await fsp.readFile(path.join(PUBLIC_DIR, rel));
     const type = rel.endsWith('.js') ? 'text/javascript; charset=utf-8' : rel.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
@@ -678,7 +704,7 @@ const server = http.createServer(async (req, res) => {
     const pathname = u.pathname;
 
     if (req.method === 'GET' && pathname === '/api/health')
-      return json(res, 200, { ok: true, version: '4.0.0', time: nowIso() });
+      return json(res, 200, { ok: true, version: '4.1.0', time: nowIso() });
 
     if (req.method === 'GET' && pathname === '/api/session')
       return json(res, 200, { authenticated: isAuthed(req), configMissing: configMissing(), appUrl: APP_URL });
@@ -705,9 +731,27 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         channel: db.channel,
         youtubeConnected: !!token,
+        analyticsAuthorized: hasAnalyticsAccess(token),
         jobs: db.jobs.map(publicJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         redirectUri: `${APP_URL}/auth/google/callback`
       });
+    }
+
+    if (req.method === 'GET' && pathname === '/api/analytics') {
+      const range = analyticsRange(u.searchParams);
+      const token = await loadToken(), db = await readDb();
+      if (!token || !db.channel?.id) return json(res, 409, { code: 'not_connected', error: 'Hubungkan akun YouTube terlebih dahulu.' }, { 'cache-control': 'no-store' });
+      if (!hasAnalyticsAccess(token)) return json(res, 403, { code: 'authorization_required', error: 'Klik Hubungkan Analytics untuk memberikan izin baca laporan channel.' }, { 'cache-control': 'no-store' });
+      const channelId = db.channel.id, generation = tokenGeneration;
+      try {
+        const report = await analytics.get(channelId, range);
+        if (generation !== tokenGeneration) return json(res, 409, { code: 'channel_changed', error: 'Koneksi channel berubah. Muat ulang.' }, { 'cache-control': 'no-store' });
+        const jobs = db.jobs.filter(j => j.youtubeVideoId && j.status !== 'cancelled');
+        return json(res, 200, { ...report, connectedChannel: db.channel, topVideos: report.topVideos?.map(v => {
+          const job = jobs.find(j => j.youtubeVideoId === v.id);
+          return { ...v, title: v.title || job?.title || v.id, contentId: job?.contentId || null };
+        }) ?? null }, { 'cache-control': 'no-store' });
+      } catch (e) { return json(res, e.status || 502, { code: e.code || 'upstream_error', error: e.message }, { 'cache-control': 'no-store' }); }
     }
 
     if (req.method === 'GET' && pathname === '/api/contents') {
@@ -754,13 +798,14 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/auth/google') {
       if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET)
         return text(res, 503, 'GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET belum diset.');
-      const nonce = crypto.randomBytes(24).toString('base64url');
+      const includeAnalytics = u.searchParams.get('analytics') === '1';
+      const nonce = (includeAnalytics ? 'analytics.' : '') + crypto.randomBytes(24).toString('base64url');
       const state = `${nonce}.${hmac(nonce)}`;
       const p = new URLSearchParams({
         client_id: GOOGLE_CLIENT_ID,
         redirect_uri: `${APP_URL}/auth/google/callback`,
         response_type: 'code',
-        scope: YOUTUBE_SCOPE,
+        scope: [YOUTUBE_SCOPE, ...(includeAnalytics ? ANALYTICS_SCOPES : [])].join(' '),
         access_type: 'offline',
         prompt: 'consent',
         include_granted_scopes: 'true',
@@ -777,7 +822,8 @@ const server = http.createServer(async (req, res) => {
       const expected = parseCookies(req).yt_oauth_state || '';
       if (!state || !safeEqual(state, expected))
         return text(res, 400, 'OAuth state tidak valid. Ulangi proses koneksi.');
-      if (u.searchParams.get('error')) return redirect(res, '/?oauth=denied');
+      const returnTo = state.startsWith('analytics.') ? '&view=analytics' : '';
+      if (u.searchParams.get('error')) return redirect(res, '/?oauth=denied' + returnTo);
       const code = u.searchParams.get('code');
       if (!code) return text(res, 400, 'Authorization code tidak ditemukan.');
       const tok = await oauthToken({
@@ -788,15 +834,25 @@ const server = http.createServer(async (req, res) => {
         grant_type: 'authorization_code'
       });
       tok.expires_at = Date.now() + (tok.expires_in || 3600) * 1000;
-      await saveToken(tok);
-      const channel = await fetchChannel();
+      const granted = new Set(String(tok.scope || '').split(/\s+/));
+      if (!granted.has(YOUTUBE_SCOPE) && !granted.has('https://www.googleapis.com/auth/youtube'))
+        return text(res, 400, 'Izin pengelolaan YouTube belum diberikan. Koneksi sebelumnya dipertahankan. Ulangi dan centang izin upload serta Analytics yang diminta.');
+      // Validate the newly selected channel before replacing the working encrypted token.
+      const channel = await fetchChannel(tok.access_token);
       const db = await readDb();
+      const previous = await loadToken();
+      const previousScopes = new Set(String(previous?.scope || '').split(/\s+/));
+      if (!tok.refresh_token && db.channel?.id === channel.id && [...granted].every(s => previousScopes.has(s))) tok.refresh_token = previous?.refresh_token;
+      if (!tok.refresh_token) return text(res, 400, 'Google belum memberikan izin akses offline. Koneksi sebelumnya dipertahankan. Ulangi proses Hubungkan YouTube / Analytics.');
+      tokenGeneration++; refreshPromise = null; analytics.clear();
+      await saveToken(tok);
       db.channel = channel;
       await writeDb(db);
-      return redirect(res, '/?oauth=ok');
+      return redirect(res, '/?oauth=ok' + returnTo, { 'set-cookie': 'yt_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' + (APP_URL.startsWith('https://') ? '; Secure' : '') });
     }
 
     if (req.method === 'POST' && pathname === '/api/youtube/disconnect') {
+      tokenGeneration++; refreshPromise = null; analytics.clear();
       await deleteToken();
       const db = await readDb();
       db.channel = null;
@@ -890,7 +946,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Content Hub v4.0 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Content Hub v4.1 listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));
