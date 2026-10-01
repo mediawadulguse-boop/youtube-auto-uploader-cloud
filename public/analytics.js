@@ -1,5 +1,6 @@
 const analyticsUi = { mode:'channel', period: '28', startDate: '', endDate: '', metric: 'views', data: null, error: null, loading: false, key: '', serial: 0, loadedAt: 0 };
 const analyticsOAuthMessages = {
+  monetary_required: 'Izin baca pendapatan belum diberikan. Hubungkan kembali dan centang izin pendapatan.',
   denied: 'Persetujuan Google dibatalkan. Koneksi sebelumnya tetap tersedia.',
   authorization_required: 'Izin Analytics belum lengkap. Hubungkan kembali dan centang izin Analytics serta melihat akun YouTube.',
   not_connected: 'Hubungkan channel YouTube terlebih dahulu melalui menu Upload & Antrean.',
@@ -15,7 +16,7 @@ let analyticsOAuthIssue = analyticsOAuthMessages[new URLSearchParams(location.se
 const anNumber = (value, digits = 0) => Number(value || 0).toLocaleString('id-ID', { maximumFractionDigits: digits });
 const anDate = value => value ? new Date(value + 'T12:00:00Z').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
 function anDuration(value) { const s = Math.round(value || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
-function analyticsChannelKey() { return `${state.server?.channel?.id || ''}:${!!state.server?.youtubeConnected}:${!!state.server?.analyticsAuthorized}`; }
+function analyticsChannelKey() { return `${state.server?.channel?.id || ''}:${!!state.server?.youtubeConnected}:${!!state.server?.analyticsAuthorized}:${!!state.server?.monetaryAuthorized}`; }
 function anChange(value, previous) {
   if (previous === null || previous === undefined) return '<span class="an-delta">Perbandingan belum tersedia</span>';
   if (!previous) return `<span class="an-delta">${value ? 'Periode sebelumnya 0' : 'Sama dengan periode sebelumnya'}</span>`;

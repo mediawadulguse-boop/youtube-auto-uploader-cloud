@@ -36,6 +36,7 @@ const PRODUCTION_STATUS = {
 };
 const PUBLICATION_STATUS = {
   not_uploaded:{label:'Belum upload',tone:'neutral',icon:'cloud'},
+  linked_youtube:{label:'Terhubung YouTube',tone:'blue',icon:'play'},
   receiving:{label:'Masuk Cloud',tone:'teal',icon:'cloud'},
   queued_upload:{label:'Antre YouTube',tone:'amber',icon:'clock'},
   uploading_youtube:{label:'Upload YouTube',tone:'blue',icon:'upload'},

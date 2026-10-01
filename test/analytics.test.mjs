@@ -157,7 +157,7 @@ test('Analytics consent succeeds when Data API quota is exhausted, without touch
   assert.equal(await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8'), uploadBefore);
   const token = await readToken('analytics'); assert.equal(token.channel_id, 'channel-test'); assert.equal(token.scope, ANALYTICS_SCOPES.join(' '));
   const response = await request('/api/analytics?days=90'); assert.equal(response.status, 200);
-  const report = await response.json(); assert.equal(report.summary.views, 120); assert.equal(report.channel, null); assert.equal(report.warnings.filter(w => w.code === 'quota_exceeded').length, 2);
+  const report = await response.json(); assert.equal(report.summary.views, 120); assert.equal(report.channel, null); assert.equal(report.warnings.filter(w => w.code === 'quota_exceeded').length, 1);
   dataQuota = false;
 });
 test('concurrent requests refresh once per credential; disconnect removes access and cached reports', async () => {

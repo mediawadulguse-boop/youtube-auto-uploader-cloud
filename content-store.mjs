@@ -34,7 +34,7 @@ const defaults = () => ({
   ]
 });
 const blank = () => ({
-  title: 'Konten baru', stage: 'idea', pillarId: '', format: 'shorts', priority: 'normal', owner: '',
+  youtubeVideoId:'', title: 'Konten baru', stage: 'idea', pillarId: '', format: 'shorts', priority: 'normal', owner: '',
   deadline: null, plannedPublishAt: null, brief: '', audience: '', hook: '', script: '', cta: '',
   productionNotes: '', description: '', tags: '', sources: [], assets: [], archived: false,
   checklist: { script: false, video: false, thumbnail: false, review: false }
@@ -45,6 +45,7 @@ function normalize(input, db, base = blank()) {
   for (const [key, limit] of Object.entries({title: 200, owner: 100, brief: 20000, audience: 2000, hook: 5000, script: 160000, cta: 5000, productionNotes: 20000, description: 5000, tags: 2000})) {
     if (key in input) out[key] = text(input[key], limit);
   }
+  if('youtubeVideoId' in input){if(typeof input.youtubeVideoId!=='string'||(input.youtubeVideoId&&!/^[A-Za-z0-9_-]{11}$/.test(input.youtubeVideoId)))throw fail('ID video tidak valid');out.youtubeVideoId=input.youtubeVideoId;}
   out.title = out.title.trim();
   if (!out.title) throw fail('Judul konten wajib diisi');
   for (const [key, options] of Object.entries({stage: db.columns.map(c=>c.id), format: ['shorts','long','live','other'], priority: ['low','normal','high']})) {
@@ -126,6 +127,7 @@ export class ContentStore {
       if(typeof body?.title!=='string'||!body.title.trim())throw fail('Judul konten wajib diisi');
       const now = new Date().toISOString();
       const content = { ...normalize(body, db, {...blank(),stage:db.columns[0].id}), id: crypto.randomUUID(), revision: 1, createdAt: now, updatedAt: now, history: [] };
+      if(content.youtubeVideoId&&db.contents.some(c=>c.youtubeVideoId===content.youtubeVideoId))throw fail('Video sudah terhubung ke konten produksi lain.',409);
       db.contents.unshift(content); return content;
     });
   }
@@ -140,7 +142,8 @@ export class ContentStore {
       if (!fields) throw fail('Versi tidak ditemukan', 404);
       // A historical snapshot can reference a deleted column; retain the current valid stage.
       const restore = body.restoreRevision!==undefined&&!db.columns.some(c=>c.id===fields.stage)?{...fields,stage:item.stage}:fields;
-      const updated = normalize(restore, db, item);
+      const updated = normalize(body.restoreRevision!==undefined?{...restore,youtubeVideoId:item.youtubeVideoId||''}:restore, db, item);
+      if(updated.youtubeVideoId&&db.contents.some(c=>c.id!==id&&c.youtubeVideoId===updated.youtubeVideoId))throw fail('Video sudah terhubung ke konten produksi lain.',409);
       await guard(item, updated);
       const comparable = c => JSON.stringify(Object.fromEntries(Object.keys(blank()).map(k => [k, c[k]])));
       if (comparable(item) === comparable(updated)) return item;
@@ -153,7 +156,7 @@ export class ContentStore {
       const item = db.contents.find(c => c.id === id);
       if (!item) throw fail('Konten tidak ditemukan', 404);
       const now = new Date().toISOString();
-      const copy = { ...snapshot(item), id: crypto.randomUUID(), title: (item.title + ' (salinan)').slice(0,200), stage: db.columns[0].id, archived: false, plannedPublishAt: null, deadline: null, checklist: blank().checklist, revision: 1, createdAt: now, updatedAt: now, history: [] };
+      const copy = { ...snapshot(item), youtubeVideoId:'', id: crypto.randomUUID(), title: (item.title + ' (salinan)').slice(0,200), stage: db.columns[0].id, archived: false, plannedPublishAt: null, deadline: null, checklist: blank().checklist, revision: 1, createdAt: now, updatedAt: now, history: [] };
       db.contents.unshift(copy); return copy;
     });
   }

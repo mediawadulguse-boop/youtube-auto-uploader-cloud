@@ -6,7 +6,9 @@ import crypto from 'node:crypto';
 import { URL } from 'node:url';
 import { ContentStore } from './content-store.mjs';
 import { NotesStore } from './notes-store.mjs';
-import { YouTubeAnalytics, ANALYTICS_SCOPES, hasAnalyticsAccess, analyticsRange, analyticsError, reportRows, validateVideoId } from './analytics.mjs';
+import { ANALYTICS_SCOPES, hasAnalyticsAccess, analyticsRange, analyticsError, reportRows, validateVideoId } from './analytics.mjs';
+import { YouTubeManager } from './youtube-manager.mjs';
+import { StudioAnalytics, MONETARY_SCOPE, hasMonetaryAccess } from './studio-analytics.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -26,7 +28,8 @@ const WORKER_INTERVAL_MS = Math.max(2000, Number(process.env.WORKER_INTERVAL_MS 
 const YT_CHUNK = Math.max(1, Number(process.env.YOUTUBE_CHUNK_MB || 8)) * 1024 * 1024;
 const MAX_BROWSER_CHUNK = 16 * 1024 * 1024;
 const YOUTUBE_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
-const analytics = new YouTubeAnalytics(analyticsFetch);
+const analytics = new StudioAnalytics(analyticsFetch, { file:path.join(DATA_DIR,'analytics.json'), monetary:async()=>hasMonetaryAccess(await loadAnalyticsToken()) });
+const youtubeManager=new YouTubeManager(youtubeFetch);
 let tokenGeneration = 0;
 let analyticsTokenGeneration = 0;
 const refreshPromises = new Map();
@@ -333,6 +336,7 @@ async function createJobUnlocked(body) {
     const data = await contentStore.read();
     const content = data.contents.find(c => c.id === contentId);
     if (!content || content.archived) throw Object.assign(new Error('Konten tidak tersedia untuk upload'), { status: 400 });
+    if(content.youtubeVideoId)throw Object.assign(new Error('Konten sudah terhubung ke video YouTube. Duplikasikan konten untuk membuat video baru.'),{status:409});
     const db = await readDb();
     if (db.jobs.some(j => j.contentId === contentId && !['cancelled', 'failed'].includes(j.status)))
       throw Object.assign(new Error('Konten ini sudah memiliki antrean upload. Periksa antrean terlebih dahulu.'), { status: 409 });
@@ -346,6 +350,7 @@ async function createJobUnlocked(body) {
   const job = {
     id: jobId,
     contentId: contentId || null,
+    channelId:(await readDb()).channel?.id||null,
     order: Number(body.order || Date.now()),
     fileName,
     fileSize,
@@ -710,7 +715,7 @@ setTimeout(workerTick, 1000).unref();
 
 async function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'features.css'].includes(rel)) return false;
+  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'features.css'].includes(rel)) return false;
   try {
     const data = await fsp.readFile(path.join(PUBLIC_DIR, rel));
     const type = rel.endsWith('.js') ? 'text/javascript; charset=utf-8' : rel.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
@@ -722,13 +727,25 @@ async function serveStatic(res, pathname) {
   }
 }
 
+let studioSyncBusy=false;
+async function studioSyncTick(){
+  if(studioSyncBusy)return;studioSyncBusy=true;
+  try{
+    const db=await readDb();if(!db.channel?.id||!hasAnalyticsAccess(await loadAnalyticsToken()))return;
+    const c=await analytics.store.read(db.channel.id);
+    if(!c.catalog.lastSync||c.catalog.status==='partial'||Date.now()-Date.parse(c.catalog.lastSync)>86400000)await analytics.syncCatalog(db.channel.id);
+    if(c.reporting.job&&(!c.reporting.lastSync||Date.now()-Date.parse(c.reporting.lastSync)>6*3600000))await analytics.syncReach(db.channel.id);
+  }catch(e){console.error('Analytics sync:',e.code||e.message)}finally{studioSyncBusy=false}
+}
+setInterval(studioSyncTick,30*60*1000).unref();setTimeout(studioSyncTick,15000).unref();
+
 const server = http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, APP_URL);
     const pathname = u.pathname;
 
     if (req.method === 'GET' && pathname === '/api/health')
-      return json(res, 200, { ok: true, version: '4.3.2', time: nowIso() });
+      return json(res, 200, { ok: true, version: '4.4.0', time: nowIso() });
 
     if (req.method === 'GET' && pathname === '/api/session')
       return json(res, 200, { authenticated: isAuthed(req), configMissing: configMissing(), appUrl: APP_URL });
@@ -756,9 +773,21 @@ const server = http.createServer(async (req, res) => {
         channel: db.channel,
         youtubeConnected: !!token,
         analyticsAuthorized: hasAnalyticsAccess(await loadAnalyticsToken()),
+        monetaryAuthorized: hasMonetaryAccess(await loadAnalyticsToken()),
         jobs: db.jobs.map(publicJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         redirectUri: `${APP_URL}/auth/google/callback`
       });
+    }
+
+    if (pathname === '/api/analytics/sync' && req.method === 'POST') {
+      const db=await readDb(),token=await loadAnalyticsToken();
+      if(!db.channel?.id||!await loadToken())return json(res,409,{code:'not_connected',error:'Hubungkan YouTube terlebih dahulu.'});
+      if(!hasAnalyticsAccess(token))return json(res,403,{code:'authorization_required',error:'Hubungkan Analytics terlebih dahulu.'});
+      const body=await readJson(req),generation=tokenGeneration,channelId=db.channel.id;
+      if(!['catalog','reach'].includes(body.section))return json(res,400,{error:'Pilih sinkronisasi katalog atau Reach.'});
+      const result=body.section==='catalog'?await analytics.syncCatalog(channelId,{force:true}):await analytics.syncReach(channelId,{force:true});
+      if(generation!==tokenGeneration)return json(res,409,{code:'channel_changed',error:'Koneksi channel berubah.'});
+      return json(res,200,{section:body.section,...result},{'cache-control':'no-store'});
     }
 
     if (req.method === 'GET' && pathname === '/api/analytics') {
@@ -771,12 +800,38 @@ const server = http.createServer(async (req, res) => {
       try {
         const report = await analytics.get(channelId, range);
         if (generation !== tokenGeneration) return json(res, 409, { code: 'channel_changed', error: 'Koneksi channel berubah. Muat ulang.' }, { 'cache-control': 'no-store' });
-        const jobs = db.jobs.filter(j => j.youtubeVideoId && j.status !== 'cancelled');
+        const jobs = db.jobs.filter(j => j.youtubeVideoId && j.status !== 'cancelled' && (!j.channelId||j.channelId===channelId));
+        const productions=(await contentStore.read()).contents;
         return json(res, 200, { ...report, connectedChannel: db.channel, topVideos: report.topVideos?.map(v => {
           const job = jobs.find(j => j.youtubeVideoId === v.id);
-          return { ...v, title: v.title || job?.title || v.id, contentId: job?.contentId || null };
+          return { ...v, title: v.title || job?.title || 'Judul belum tersedia', contentId: job?.contentId || productions.find(c=>c.youtubeVideoId===v.id)?.id || null };
         }) ?? null }, { 'cache-control': 'no-store' });
       } catch (e) { return json(res, e.status || 502, { code: e.code || 'upstream_error', error: e.message }, { 'cache-control': 'no-store' }); }
+    }
+
+    const studioManageMatch=pathname.match(/^\/api\/analytics\/videos\/([A-Za-z0-9_-]{11})\/(details|thumbnail|comments|reply|playlists|production)$/);
+    if(studioManageMatch){
+      const [,id,action]=studioManageMatch,db=await readDb();
+      if(!db.channel?.id||!await loadToken())return json(res,409,{error:'Hubungkan YouTube terlebih dahulu.'});
+      const channelId=db.channel.id,generation=tokenGeneration;
+      let result;
+      if(action==='details'&&req.method==='GET')result=await youtubeManager.details(channelId,id);
+      else if(action==='details'&&req.method==='PATCH'){result=await youtubeManager.save(channelId,id,await readJson(req));await analytics.store.mutate(channelId,c=>{if(c.videos[id]){c.videos[id].snippet={...c.videos[id].snippet,...result.snippet};c.videos[id].metadataUpdatedAt=nowIso();c.videos[id].dataUpdatedAt=null}});analytics.cache.clear();}
+      else if(action==='thumbnail'&&req.method==='POST'){result=await youtubeManager.thumbnail(channelId,id,await readJson(req,4*1024*1024));await analytics.store.mutate(channelId,c=>{if(c.videos[id])c.videos[id].dataUpdatedAt=null});analytics.cache.clear();}
+      else if(action==='comments'&&req.method==='GET')result=await youtubeManager.comments(channelId,id,(u.searchParams.get('pageToken')||'').slice(0,1000));
+      else if(action==='reply'&&req.method==='POST')result=await youtubeManager.reply(channelId,id,await readJson(req));
+      else if(action==='playlists'&&req.method==='GET')result=await youtubeManager.playlists(channelId,id);
+      else if(action==='playlists'&&req.method==='POST')result=await youtubeManager.addPlaylist(channelId,id,await readJson(req));
+      else if(action==='production'&&req.method==='POST'){
+        const body=await readJson(req),catalog=await analytics.store.read(channelId),video=catalog.videos[id];
+        if(video?.snippet?.channelId!==channelId)await youtubeManager.ownVideo(channelId,id);
+        const data=await contentStore.read();
+        if(body.contentId){const content=data.contents.find(c=>c.id===body.contentId);if(!content)throw Object.assign(Error('Konten tidak ditemukan.'),{status:404});if(content.youtubeVideoId&&content.youtubeVideoId!==id)throw Object.assign(Error('Konten sudah terhubung ke video lain.'),{status:409});result={content:await contentStore.update(content.id,{revision:body.revision,youtubeVideoId:id})};}
+        else{const old=data.contents.find(c=>c.youtubeVideoId===id);result={content:old||await contentStore.create({title:body.title,youtubeVideoId:id,format:body.format||'other',pillarId:body.pillarId||''})};}
+        analytics.cache.clear();
+      } else return json(res,405,{error:'Metode tidak didukung.'});
+      if(generation!==tokenGeneration)return json(res,409,{error:'Koneksi channel berubah. Muat ulang.'});
+      return json(res,200,result,{'cache-control':'no-store'});
     }
 
     const videoAnalyticsMatch=pathname.match(/^\/api\/analytics\/videos(?:\/([^/]+))?$/);
@@ -789,14 +844,14 @@ const server = http.createServer(async (req, res) => {
       try{
         const report=id?await analytics.getVideo(db.channel.id,id,range):await analytics.listVideos(db.channel.id,range);
         if(generation!==tokenGeneration)return json(res,409,{code:'channel_changed',error:'Koneksi channel berubah. Muat ulang.'},{'cache-control':'no-store'});
-        const jobs=db.jobs.filter(j=>j.youtubeVideoId&&j.status!=='cancelled');
-        if(id){const job=jobs.find(j=>j.youtubeVideoId===id);return json(res,200,{...report,connectedChannel:db.channel,video:{...report.video,title:report.video.title||job?.title||id,contentId:job?.contentId||null}},{'cache-control':'no-store'});}
-        return json(res,200,{...report,connectedChannel:db.channel,videos:report.videos.map(v=>{const job=jobs.find(j=>j.youtubeVideoId===v.id);return {...v,title:v.title||job?.title||v.id,contentId:job?.contentId||null}})},{'cache-control':'no-store'});
+        const jobs=db.jobs.filter(j=>j.youtubeVideoId&&j.status!=='cancelled');const productions=(await contentStore.read()).contents;
+        if(id){const job=jobs.find(j=>j.youtubeVideoId===id);return json(res,200,{...report,connectedChannel:db.channel,video:{...report.video,title:report.video.title||job?.title||'Judul belum tersedia',contentId:job?.contentId||productions.find(c=>c.youtubeVideoId===id)?.id||null}},{'cache-control':'no-store'});}
+        return json(res,200,{...report,connectedChannel:db.channel,videos:report.videos.map(v=>{const job=jobs.find(j=>j.youtubeVideoId===v.id);return {...v,title:v.title||job?.title||'Judul belum tersedia',contentId:job?.contentId||productions.find(c=>c.youtubeVideoId===v.id)?.id||null}})},{'cache-control':'no-store'});
       }catch(e){return json(res,e.status||502,{code:e.code||'upstream_error',error:e.message},{'cache-control':'no-store'});}
     }
     if (req.method === 'GET' && pathname === '/api/contents') {
       const data = await contentStore.read();
-      const fields = ['id','title','stage','pillarId','format','priority','owner','deadline','plannedPublishAt','checklist','archived','revision','createdAt','updatedAt'];
+      const fields = ['id','title','stage','pillarId','format','priority','owner','deadline','plannedPublishAt','checklist','archived','revision','createdAt','updatedAt','youtubeVideoId'];
       return json(res, 200, {
         pillars: data.pillars, stages: data.columns.map(c=>c.id), columns: data.columns, boardRevision: data.boardRevision,
         contents: data.contents.map(c => ({ ...Object.fromEntries(fields.map(k => [k,c[k]])), scriptLength: c.script.length }))
@@ -861,13 +916,14 @@ const server = http.createServer(async (req, res) => {
       if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET)
         return text(res, 503, 'GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET belum diset.');
       const includeAnalytics = u.searchParams.get('analytics') === '1';
-      const nonce = (includeAnalytics ? 'analytics.' : '') + crypto.randomBytes(24).toString('base64url');
+      const monetary = includeAnalytics && u.searchParams.get('monetary') === '1';
+      const nonce = (includeAnalytics ? (monetary?'analytics.money.':'analytics.') : '') + crypto.randomBytes(24).toString('base64url');
       const state = `${nonce}.${hmac(nonce)}`;
       const p = new URLSearchParams({
         client_id: GOOGLE_CLIENT_ID,
         redirect_uri: `${APP_URL}/auth/google/callback`,
         response_type: 'code',
-        scope: (includeAnalytics ? ANALYTICS_SCOPES : [YOUTUBE_SCOPE]).join(' '),
+        scope: (includeAnalytics ? [...ANALYTICS_SCOPES,...(monetary?[MONETARY_SCOPE]:[])] : [YOUTUBE_SCOPE]).join(' '),
         access_type: 'offline',
         prompt: 'consent',
         include_granted_scopes: 'true',
@@ -902,6 +958,7 @@ const server = http.createServer(async (req, res) => {
       const db = await readDb();
       if (isAnalytics) {
         if (!db.channel?.id || !await loadToken()) return redirect(res, '/?view=analytics&oauth=not_connected');
+        if (state.startsWith('analytics.money.')&&!hasMonetaryAccess(tok)) return redirect(res, '/?view=analytics&oauth=monetary_required');
         if (!hasAnalyticsAccess(tok)) return redirect(res, '/?view=analytics&oauth=authorization_required');
         // Analytics consent never replaces the upload token. Validate ownership via the Analytics API itself.
         await validateAnalyticsChannel(tok.access_token, db.channel.id);
@@ -939,6 +996,7 @@ const server = http.createServer(async (req, res) => {
       await deleteToken();
       await deleteToken('analytics');
       const db = await readDb();
+      if(db.channel?.id)await analytics.store.remove(db.channel.id);
       db.channel = null;
       await writeDb(db);
       return json(res, 200, { ok: true });
@@ -1030,7 +1088,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Content Hub v4.3.2 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Content Hub v4.4.0 listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));
