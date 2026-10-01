@@ -12,3 +12,31 @@ body{font-size:14px;-webkit-font-smoothing:antialiased}button,a,input,select,tex
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{scroll-behavior:auto!important;transition:none!important;animation:none!important}}
 
 @media(max-width:620px){.kanban-card .card-options{opacity:1;background:transparent;min-width:32px;min-height:32px;right:1px;top:2px}.kanban-title{padding-right:20px}.kanban-labels{padding-right:24px}}
+
+/* Status has a fixed palette; pillar labels keep their custom colors. */
+.status-badge{--status-bg:#f1f3f6;--status-fg:#526178;--status-line:#d7dee7;display:inline-flex;align-items:center;gap:5px;max-width:100%;min-height:23px;padding:3px 8px;border:1px solid var(--status-line);border-radius:999px;font-size:10px;font-weight:650;line-height:1.35;color:var(--status-fg);background:var(--status-bg);vertical-align:middle;text-transform:none;letter-spacing:0}
+.status-badge>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.status-icon{width:13px;height:13px;flex:none;vertical-align:middle}
+.status-tone-neutral{--status-bg:#f1f3f6;--status-fg:#526178;--status-line:#d7dee7}
+.status-tone-blue{--status-bg:#eaf2ff;--status-fg:#2157ad;--status-line:#c3d6f5}
+.status-tone-amber{--status-bg:#fff4d9;--status-fg:#8b5b00;--status-line:#ecd79e}
+.status-tone-purple{--status-bg:#f3edff;--status-fg:#6f42ba;--status-line:#d9c7f5}
+.status-tone-rose{--status-bg:#fff0f6;--status-fg:#9e3565;--status-line:#edc7d8}
+.status-tone-green{--status-bg:#e7f5ed;--status-fg:#216e4e;--status-line:#b5dbc5}
+.status-tone-teal{--status-bg:#e3f5f5;--status-fg:#19686b;--status-line:#afd8da}
+.status-tone-red{--status-bg:#ffedeb;--status-fg:#ae2e24;--status-line:#f1c2bc}
+.status-publication{background:#fff}
+.content-status-row{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin-top:9px}
+.column-head .status-badge{background:var(--status-bg);padding:4px 8px;border-radius:999px;font-size:11px;min-height:26px}
+.column-head .status-badge>span{background:transparent;padding:0}
+.column-head .column-name{min-width:0;display:flex;align-items:center}
+.card-meta .status-badge{font-size:10px}
+.calendar-status-row{display:flex;flex-wrap:wrap;gap:3px;margin-top:5px;max-width:100%}
+.calendar-status-row .status-badge{min-height:19px;font-size:9px;gap:3px;padding:2px 5px}
+.calendar-status-row .status-icon{width:11px;height:11px}
+.content-table .status-badge{font-size:10px}
+#editorStatusBadges .content-status-row{margin-top:8px}
+.jobTop .status-badge{flex:none;max-width:155px;font-size:9px}
+.agenda-list .calendar-status-row .status-badge{font-size:10px;min-height:23px;padding:3px 7px}
+.agenda-list .calendar-status-row .status-icon{width:13px;height:13px}
+@media(max-width:620px){.status-badge{font-size:10px;min-height:24px}.content-status-row{gap:5px}.editor-header .status-badge{font-size:10px}.jobTop .status-badge{max-width:140px}.column-head .status-badge{font-size:11px}}
