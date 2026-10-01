@@ -1,4 +1,5 @@
 const notesUi={notes:[],q:'',category:null,categories:[],categoriesRevision:1,serial:0,editing:null};
+HubRichText.attach($('#noteForm').elements.body);
 const noteDraftKey=id=>'yt-note-draft-'+id;
 function renderNoteCategories(selected=$('#noteForm').elements.category.value){
   const categories=[...(notesUi.categories||[])].sort((a,b)=>a.localeCompare(b,'id-ID'));
@@ -28,8 +29,8 @@ async function createNote(fields={},draftId=null){
   const note={id:draftId||crypto.randomUUID(),revision:0,title:'',body:'',category:notesUi.category||'',tags:[],pinned:false,archived:false,...fields};
   notesUi.editing={note,isNew:true,dirty:false,epoch:0,saving:null,conflict:false};fillNote(note);noteActions();$('#noteConflict').classList.add('hide');$('#noteSaveIndicator').textContent='Draft baru · belum disimpan';$('#noteEditor').showModal();if(fields.title||fields.body||fields.tags?.length)markNoteDirty();return note.id;
 }
-function noteFields(){const f=$('#noteForm');return {title:f.elements.title.value,category:f.elements.category.value,body:f.elements.body.value,tags:f.elements.tags.value.split(',').map(t=>t.trim()).filter(Boolean),pinned:f.elements.pinned.checked,archived:notesUi.editing.note.archived}}
-function fillNote(note){const f=$('#noteForm');for(const k of ['title','body'])f.elements[k].value=note[k];renderNoteCategories(note.category);f.elements.tags.value=note.tags.join(', ');f.elements.pinned.checked=note.pinned;$('#noteEditorHeading').textContent=note.title||'Note baru';$('#archiveNote').textContent=note.archived?'Pulihkan arsip':'Arsipkan';noteStats();}
+function noteFields(){const f=$('#noteForm');return {title:f.elements.title.value,category:f.elements.category.value,body:f.elements.body.value,bodyHtml:HubRichText.html(f.elements.body),tags:f.elements.tags.value.split(',').map(t=>t.trim()).filter(Boolean),pinned:f.elements.pinned.checked,archived:notesUi.editing.note.archived}}
+function fillNote(note){const f=$('#noteForm');for(const k of ['title','body'])f.elements[k].value=note[k];HubRichText.set(f.elements.body,note.body,note.bodyHtml);renderNoteCategories(note.category);f.elements.tags.value=note.tags.join(', ');f.elements.pinned.checked=note.pinned;$('#noteEditorHeading').textContent=note.title||'Note baru';$('#archiveNote').textContent=note.archived?'Pulihkan arsip':'Arsipkan';noteStats();}
 function noteStats(){const body=$('#noteForm').elements.body.value;$('#noteWordCount').textContent=`${body.trim().split(/\s+/).filter(Boolean).length.toLocaleString('id-ID')} kata · ${body.length.toLocaleString('id-ID')} karakter`;}
 async function openNote(id){
   if(notesUi.editing&&!await closeNote())return;
@@ -46,7 +47,7 @@ async function saveNote(){
 async function closeNote(){if(notesUi.editing?.saving)return false;if(notesUi.editing?.dirty&&!confirm('Tutup tanpa menyimpan perubahan? Draft yang berisi teks tetap dapat dipulihkan.'))return false;notesUi.editing=null;$('#noteEditor').close();return true;}
 $('#noteForm').oninput=markNoteDirty;$('#noteForm').onchange=markNoteDirty;$('#noteForm').onsubmit=e=>{e.preventDefault();saveNote()};$('#saveNote').onclick=saveNote;$('#closeNoteEditor').onclick=closeNote;
 $('#noteEditor').addEventListener('cancel',e=>{e.preventDefault();closeNote()});
-$('#copyNote').onclick=async()=>{try{await navigator.clipboard.writeText($('#noteForm').elements.body.value);toast('Isi catatan disalin.')}catch{const t=$('#noteForm').elements.body;t.focus();t.select();toast('Pilih Salin pada teks yang disorot.')}};
+$('#copyNote').onclick=async()=>{try{await navigator.clipboard.writeText($('#noteForm').elements.body.value);toast('Isi catatan disalin.')}catch{const t=$('#noteForm').elements.body;HubRichText.select(t);toast('Pilih Salin pada teks yang disorot.')}};
 $('#duplicateNote').onclick=async()=>{const fields=noteFields();fields.title=(fields.title+' (salinan)').slice(0,200);fields.archived=false;if(await closeNote())await createNote(fields)};
 $('#archiveNote').onclick=async()=>{const edit=notesUi.editing;if(!edit||edit.isNew)return;if(edit.dirty)return toast('Simpan perubahan sebelum mengubah arsip.');try{const r=await api('/api/notes/'+edit.note.id,{method:'PATCH',body:JSON.stringify({revision:edit.note.revision,archived:!edit.note.archived})});edit.note=r.note;await closeNote();void loadNotes();toast('Status arsip diperbarui.')}catch(e){noteConflict(e.message)}};
 $('#deleteNote').onclick=async()=>{const n=notesUi.editing;if(!n||n.isNew||n.saving||!confirm('Hapus catatan ini secara permanen?'))return;try{await api('/api/notes/'+n.note.id,{method:'DELETE',body:JSON.stringify({revision:n.note.revision})});try{localStorage.removeItem(noteDraftKey(n.note.id))}catch{}notesUi.editing=null;$('#noteEditor').close();void loadNotes();toast('Catatan dihapus.')}catch(e){noteConflict(e.message)}};

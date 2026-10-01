@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { richField, RICH_FIELDS } from './rich-text.mjs';
 
 export const CONTENT_STAGES = ['idea', 'script', 'production', 'editing', 'review', 'ready'];
 export const COLUMN_ICONS = ['bulb','pen','camera','scissors','eye','check','cloud','clock','upload','calendar','play','alert'];
@@ -36,7 +37,7 @@ const defaults = () => ({
 const blank = () => ({
   youtubeVideoId:'', title: 'Konten baru', stage: 'idea', pillarId: '', format: 'shorts', priority: 'normal', owner: '',
   deadline: null, plannedPublishAt: null, brief: '', audience: '', hook: '', script: '', cta: '',
-  productionNotes: '', description: '', tags: '', sources: [], assets: [], archived: false,
+  productionNotes: '', richText: {}, description: '', tags: '', sources: [], assets: [], archived: false,
   checklist: { script: false, video: false, thumbnail: false, review: false }
 });
 function normalize(input, db, base = blank()) {
@@ -44,6 +45,12 @@ function normalize(input, db, base = blank()) {
   const out = { ...base };
   for (const [key, limit] of Object.entries({title: 200, owner: 100, brief: 20000, audience: 2000, hook: 5000, script: 160000, cta: 5000, productionNotes: 20000, description: 5000, tags: 2000})) {
     if (key in input) out[key] = text(input[key], limit);
+  }
+  if('richText' in input&&(!input.richText||typeof input.richText!=='object'||Array.isArray(input.richText)||Object.keys(input.richText).some(k=>!RICH_FIELDS.includes(k))))throw fail('Format naskah tidak valid');
+  out.richText={};
+  for(const key of RICH_FIELDS){
+    const rich=richField({...(Object.hasOwn(input,key)?{[key]:input[key]}:{}),...('richText' in input?{html:input.richText[key]??''}:{})},{...base,html:base.richText?.[key]},key,'html',({script:160000,hook:5000,cta:5000})[key]||20000);
+    out[key]=rich.text;if(rich.html)out.richText[key]=rich.html;
   }
   if('youtubeVideoId' in input){if(typeof input.youtubeVideoId!=='string'||(input.youtubeVideoId&&!/^[A-Za-z0-9_-]{11}$/.test(input.youtubeVideoId)))throw fail('ID video tidak valid');out.youtubeVideoId=input.youtubeVideoId;}
   out.title = out.title.trim();
@@ -144,7 +151,7 @@ export class ContentStore {
       if (!fields) throw fail('Versi tidak ditemukan', 404);
       // A historical snapshot can reference a deleted column; retain the current valid stage.
       const restore = body.restoreRevision!==undefined&&!db.columns.some(c=>c.id===fields.stage)?{...fields,stage:item.stage}:fields;
-      const updated = normalize(body.restoreRevision!==undefined?{...restore,youtubeVideoId:item.youtubeVideoId||''}:restore, db, item);
+      const updated = normalize(body.restoreRevision!==undefined?{...restore,richText:restore.richText||{},youtubeVideoId:item.youtubeVideoId||''}:restore, db, body.restoreRevision!==undefined?{...item,richText:{}}:item);
       if(updated.youtubeVideoId&&db.contents.some(c=>c.id!==id&&c.youtubeVideoId===updated.youtubeVideoId))throw fail('Video sudah terhubung ke konten produksi lain.',409);
       await guard(item, updated);
       const comparable = c => JSON.stringify(Object.fromEntries(Object.keys(blank()).map(k => [k, c[k]])));

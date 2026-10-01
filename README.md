@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.5.0
+# YouTube Content Hub v4.6.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -15,6 +15,7 @@ Status memakai badge ikon + warna + teks di Kanban, dashboard, kalender, daftar,
 - **Kanban:** Ide → Naskah → Produksi → Editing → Review → Siap Upload. Papan bergaya Trello dengan kolom abu-abu, kartu putih, label pilar, badge deadline/checklist, dan inisial penanggung jawab. Tambah kartu langsung pada kolom, geser kartu pada desktop, atau gunakan tombol pindah kartu pada ponsel. Papan dapat digeser horizontal, dan posisi scroll/draft kartu dipertahankan saat sinkronisasi. Melalui tombol **Kolom**, tambah/ubah nama, warna, ikon, urutan, dan penanda selesai (maksimal 24 kolom). Saat menghapus kolom, pilih kolom tujuan; seluruh kartu termasuk arsip dipindahkan tanpa kehilangan script/riset/jadwal. Perubahan kolom tidak menjalankan upload. Urutan kartu manual belum tersedia.
 - **Note:** simpan catatan dengan kategori custom (maksimal 100 kategori, nama 60 karakter), isi multiline, tag, pin, pencarian isi, duplikasi, dan arsip. Note baru maupun perubahan Note disimpan hanya dengan tombol **Simpan**, menggunakan pemeriksaan revisi. Membuka atau menutup editor tidak membuat Note otomatis. Draft lokal berisi teks dapat dipulihkan; judul kosong ditolak. Kategori hanya dibuat melalui **Tambah kategori**, dipilih dari daftar di editor, serta dapat diubah/dihapus melalui pengaturan kategori. Menghapus kategori mempertahankan isi Note dan memindahkannya ke Tanpa kategori. Isi dapat disalin untuk digunakan saat produksi.
 - **Semua Konten:** cari berdasarkan judul/penanggung jawab; filter pilar, tahap, format, dan arsip.
+- **Format teks:** Note, brief, hook, script, CTA, dan rencana produksi memakai toolbar bold, italic, underline, coret, ukuran huruf, huruf BESAR/kecil (teks yang diblok), daftar poin/nomor, link, hapus format, undo/redo. URL http/https, www, dan email terdeteksi otomatis; link dapat dibuka dari isi atau daftar link di bawah editor. Format tersimpan bersama teks biasa untuk pencarian/salin, draft lokal, duplikasi, dan riwayat konten. Note tetap disimpan melalui tombol Simpan. Deskripsi/judul YouTube tetap teks biasa. HTML dibersihkan di browser dan server; gambar/script/style dari paste tidak disimpan.
 - **Editor:** brief, audiens, penanggung jawab, deadline, hook, script lengkap, CTA, rencana produksi, deskripsi/tag YouTube, dan checklist.
 - **Riset & aset:** simpan catatan fakta/angka dan tautan sumber, dokumen, gambar, atau bahan video. Status verifikasi ditandai secara manual. Lampiran berupa tautan; aplikasi belum menyediakan penyimpanan berkas riset langsung.
 - **Penyimpanan konten:** konten baru menjadi draft lokal sampai tombol Simpan ditekan. Membuka kalender/editor tanpa mengisi judul tidak membuat konten otomatis. Setelah konten dibuat, perubahan konten yang valid disimpan ke server setelah satu detik; bahan riset/aset yang seluruh kolomnya kosong tidak disimpan. Draft lokal dipertahankan jika penyimpanan gagal. Perubahan dari tab lain menghasilkan konflik versi; pengguna dapat memuat versi server atau menyimpan draft sebagai salinan.
@@ -69,11 +70,11 @@ Detail video mempunyai tab **Kelola video** untuk memuat/mengedit judul, deskrip
 
 **Hubungkan ke produksi** menghubungkan video yang diunggah di luar aplikasi ke konten yang sudah ada, atau membuat konten baru setelah **Simpan hubungan** ditekan. Judul kosong ditolak, pilar hanya dipilih dari yang sudah ada. Script, riset, Note, kategori, serta kolom Kanban sebelumnya tetap disimpan dengan aturan yang sama. Fitur copyright/Content ID, eligibility YPP, pembayaran AdSense, editor video dan seluruh metrik khusus Studio belum tersedia; link Studio disediakan pada detail video.
 
-Penyimpanan versi ini tetap berbasis JSON pada satu instance. Migrasi PostgreSQL merupakan tahap terpisah yang belum dijalankan; tidak diperlukan untuk menggunakan Analytics yang ditambahkan di v4.4.
+Jika `DATABASE_URL` dikonfigurasi, penyimpanan memakai PostgreSQL dengan migrasi JSON yang diverifikasi dan backup sebelum impor. Tanpa variabel ini, mode JSON tetap tersedia untuk pengembangan lokal. Lihat [DATA-RECOVERY.md](DATA-RECOVERY.md) untuk backup dan pemulihan.
 
 ## Menjalankan dan menguji
 
-Node.js 22 atau lebih baru. Tidak ada dependency produksi tambahan.
+Node.js 22 atau lebih baru. Jalankan `npm ci` untuk memasang dependency PostgreSQL dan sanitasi teks.
 
 ```sh
 npm start

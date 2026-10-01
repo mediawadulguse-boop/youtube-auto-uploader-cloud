@@ -87,3 +87,11 @@ test('persisted scripts survive reload; corrupted files are never replaced',asyn
   const corrupt=path.join(dir,'corrupt.json');await fs.writeFile(corrupt,'{broken');const bad=new ContentStore(corrupt);await assert.rejects(bad.read(),e=>e.status===503);assert.equal(await fs.readFile(corrupt,'utf8'),'{broken');
   const broken=new ContentStore(path.join(dir,'write-failure.json'));const write=fs.writeFile;let first=true;fs.writeFile=async(...args)=>{if(first){first=false;throw Error('Disk error')}return write(...args)};try{await assert.rejects(broken.create({title:'Unsaved'}));}finally{fs.writeFile=write}assert.equal((await broken.read()).contents.length,0);await broken.create({title:'Recovered'});assert.equal((await broken.read()).contents[0].title,'Recovered');
 });
+
+test('rich text routes expose editor assets, sanitize content, search plain text and omit large Note markup from lists',async()=>{
+ for(const file of ['rich-text.js','rich-text.css'])assert.equal((await fetch(base+'/'+file)).status,200);
+ let r=await request('/api/notes','POST',{title:'Formatted API Note',bodyHtml:'<b>Searchable phrase</b><a href="javascript:alert(1)">Unsafe</a>'});assert.equal(r.status,201);assert.equal(r.data.note.body,'Searchable phraseUnsafe');assert.ok(!r.data.note.bodyHtml.includes('javascript:'));
+ const list=(await request('/api/notes?q=Searchable')).data.notes;assert.equal(list.length,1);assert.equal(list[0].bodyHtml,undefined);assert.equal(list[0].preview,'Searchable phraseUnsafe');
+ const id=r.data.note.id;r=await request('/api/notes/'+id,'PATCH',{revision:1,bodyHtml:'<i>Searchable phrase</i>'});assert.equal(r.data.note.revision,2);
+ r=await request('/api/contents','POST',{title:'Formatted API Script',richText:{script:'<b>Script</b>'}});assert.equal(r.status,201);const c=r.data.content;r=await request('/api/contents/'+c.id,'PATCH',{revision:c.revision,richText:{script:'<u>Updated</u>'}});assert.equal(r.data.content.script,'Updated');assert.equal(r.data.content.richText.script,'<u>Updated</u>');
+});

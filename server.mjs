@@ -702,7 +702,7 @@ setTimeout(workerTick, 1000).unref();
 
 async function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'history.js', 'storage.js', 'features.css'].includes(rel)) return false;
+  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'history.js', 'storage.js', 'features.css', 'rich-text.js', 'rich-text.css'].includes(rel)) return false;
   try {
     const data = await fsp.readFile(path.join(PUBLIC_DIR, rel));
     const type = rel.endsWith('.js') ? 'text/javascript; charset=utf-8' : rel.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
@@ -755,8 +755,8 @@ const server = http.createServer(async (req, res) => {
     const pathname = u.pathname;
 
     if (req.method === 'GET' && pathname === '/api/health'){
-      if(storage)try{await storage.pool.query('SELECT 1')}catch{return json(res,503,{ok:false,version:'4.5.0',storage:'postgresql',error:'Penyimpanan belum tersedia'})}
-      return json(res, 200, { ok: true, version: '4.5.0',storage:storage?'postgresql':'json', time: nowIso() });
+      if(storage)try{await storage.pool.query('SELECT 1')}catch{return json(res,503,{ok:false,version:'4.6.0',storage:'postgresql',error:'Penyimpanan belum tersedia'})}
+      return json(res, 200, { ok: true, version: '4.6.0',storage:storage?'postgresql':'json', time: nowIso() });
     }
 
     if (req.method === 'GET' && pathname === '/api/session')
@@ -895,20 +895,20 @@ const server = http.createServer(async (req, res) => {
     if(pathname==='/api/notes'&&req.method==='GET'){
       const db=await notesStore.read(),q=(u.searchParams.get('q')||'').slice(0,300).toLocaleLowerCase('id-ID'),kind=u.searchParams.get('kind'),category=u.searchParams.get('category'),archived=u.searchParams.get('archived')==='1';
       const notes=db.notes.filter(n=>n.archived===archived&&(!kind||n.kind===kind)&&(category===null||n.category.toLocaleLowerCase('id-ID')===category.toLocaleLowerCase('id-ID'))&&(!q||[n.title,n.body,n.category,...n.tags].join(' ').toLocaleLowerCase('id-ID').includes(q))).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||b.updatedAt.localeCompare(a.updatedAt));
-      return json(res,200,{categories:db.categories,categoriesRevision:db.categoriesRevision,notes:notes.map(n=>{const {body,...rest}=n;return {...rest,preview:body.slice(0,280),bodyLength:body.length}})},{'cache-control':'no-store'});
+      return json(res,200,{categories:db.categories,categoriesRevision:db.categoriesRevision,notes:notes.map(n=>{const {body,bodyHtml,...rest}=n;return {...rest,preview:body.slice(0,280),bodyLength:body.length}})},{'cache-control':'no-store'});
     }
     if(pathname==='/api/note-categories'&&req.method==='POST')return json(res,201,await notesStore.createCategory(await readJson(req)));
     if(pathname==='/api/note-categories'&&['PATCH','DELETE'].includes(req.method))return json(res,200,await notesStore.changeCategory(await readJson(req),req.method==='DELETE'));
-    if(pathname==='/api/notes'&&req.method==='POST')return json(res,201,{note:await notesStore.create(await readJson(req))});
+    if(pathname==='/api/notes'&&req.method==='POST')return json(res,201,{note:await notesStore.create(await readJson(req,4*1024*1024))});
     const noteMatch=pathname.match(/^\/api\/notes\/([0-9a-f-]{36})$/i);
     if(noteMatch){
       const id=noteMatch[1];
       if(req.method==='GET'){const db=await notesStore.read(),note=db.notes.find(n=>n.id===id);if(!note)return json(res,404,{error:'Catatan tidak ditemukan'});return json(res,200,{note},{'cache-control':'no-store'});}
-      if(req.method==='PATCH')return json(res,200,{note:await notesStore.update(id,await readJson(req))});
+      if(req.method==='PATCH')return json(res,200,{note:await notesStore.update(id,await readJson(req,4*1024*1024))});
       if(req.method==='DELETE'){const body=await readJson(req);return json(res,200,await notesStore.remove(id,body?.revision));}
     }
     if (req.method === 'POST' && pathname === '/api/contents')
-      return json(res, 201, { content: await contentStore.create(await readJson(req)) });
+      return json(res, 201, { content: await contentStore.create(await readJson(req,12*1024*1024)) });
     if (req.method === 'POST' && pathname === '/api/pillars')
       return json(res, 200, { pillar: await contentStore.savePillar(await readJson(req)) });
     const contentMatch = pathname.match(/^\/api\/contents\/([0-9a-f-]+)(?:\/(duplicate))?$/i);
@@ -924,7 +924,7 @@ const server = http.createServer(async (req, res) => {
       }
       const linkedJobs = () => readDb().then(db => db.jobs.filter(j => j.contentId === contentId && !['cancelled','failed'].includes(j.status)));
       if (!contentMatch[2] && req.method === 'PATCH') {
-        const body = await readJson(req);
+        const body = await readJson(req,12*1024*1024);
         const content = await contentStore.update(contentId, body, async (old, next) => {
           if (old.plannedPublishAt !== next.plannedPublishAt && (await linkedJobs()).length)
             throw Object.assign(new Error('Jadwal sudah terhubung ke upload YouTube. Kelola jadwal di YouTube Studio.'), { status: 409 });
@@ -1116,7 +1116,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Content Hub v4.5.0 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Content Hub v4.6.0 listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));
