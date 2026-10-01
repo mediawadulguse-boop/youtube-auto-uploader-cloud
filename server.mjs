@@ -12,6 +12,7 @@ import { YouTubeManager } from './youtube-manager.mjs';
 import { StudioAnalytics, MONETARY_SCOPE, hasMonetaryAccess } from './studio-analytics.mjs';
 import { PostgresStorage } from './postgres-store.mjs';
 import { gzipSync } from 'node:zlib';
+import { APP_VERSION, RELEASES } from './releases.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -702,7 +703,7 @@ setTimeout(workerTick, 1000).unref();
 
 async function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'history.js', 'storage.js', 'features.css', 'rich-text.js', 'rich-text.css'].includes(rel)) return false;
+  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'history.js', 'storage.js', 'features.css', 'rich-text.js', 'rich-text.css', 'updates.js', 'storage.css'].includes(rel)) return false;
   try {
     const data = await fsp.readFile(path.join(PUBLIC_DIR, rel));
     const type = rel.endsWith('.js') ? 'text/javascript; charset=utf-8' : rel.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
@@ -755,8 +756,8 @@ const server = http.createServer(async (req, res) => {
     const pathname = u.pathname;
 
     if (req.method === 'GET' && pathname === '/api/health'){
-      if(storage)try{await storage.pool.query('SELECT 1')}catch{return json(res,503,{ok:false,version:'4.6.0',storage:'postgresql',error:'Penyimpanan belum tersedia'})}
-      return json(res, 200, { ok: true, version: '4.6.0',storage:storage?'postgresql':'json', time: nowIso() });
+      if(storage)try{await storage.pool.query('SELECT 1')}catch{return json(res,503,{ok:false,version:APP_VERSION,storage:'postgresql',error:'Penyimpanan belum tersedia'})}
+      return json(res, 200, { ok: true, version:APP_VERSION,storage:storage?'postgresql':'json', time: nowIso() });
     }
 
     if (req.method === 'GET' && pathname === '/api/session')
@@ -778,14 +779,14 @@ const server = http.createServer(async (req, res) => {
     if ((pathname.startsWith('/api/') || (pathname.startsWith('/auth/') && !isOAuthCallback)) && !isAuthed(req))
       return json(res, 401, { error: 'Silakan login' });
 
+    if(req.method==='GET'&&pathname==='/api/releases')return json(res,200,{currentVersion:APP_VERSION,releases:RELEASES},{'cache-control':'no-store'});
     if(req.method==='GET'&&pathname==='/api/storage')return json(res,200,storage?await storage.status():{mode:'json',ready:true,backups:[]},{'cache-control':'no-store'});
     if(pathname==='/api/analytics/diagnostics'&&req.method==='GET'){const db=await readDb();return json(res,200,db.channel?.id?(await analytics.store.read(db.channel.id)).validation||{channel:'not_checked',video:'not_checked',errors:[]}:{channel:'not_authorized',errors:[]},{'cache-control':'no-store'});}
     if(pathname==='/api/analytics/diagnostics'&&req.method==='POST'){const db=await readDb(),c=db.channel?.id?await analytics.store.read(db.channel.id):null;if(c?.validation?.checkedAt&&Date.now()-Date.parse(c.validation.checkedAt)<60000)return json(res,200,c.validation);if(db.channel?.id&&hasAnalyticsAccess(await loadAnalyticsToken())){analytics.clear();await analytics.syncDaily(db.channel.id,{force:true});await analytics.syncReach(db.channel.id,{force:true});}return json(res,200,await verifyAnalytics(),{'cache-control':'no-store'});}
     if(req.method==='POST'&&pathname==='/api/storage/backups'){
       if(!storage)return json(res,409,{error:'Backup PostgreSQL belum tersedia pada mode JSON.'});
-      const backups=await storage.listBackups(),last=backups.find(b=>b.kind==='manual');
-      if(last&&Date.now()-Date.parse(last.createdAt)<60000)return json(res,429,{error:'Tunggu satu menit sebelum membuat backup berikutnya.'});
-      return json(res,201,await storage.backup('manual'),{'cache-control':'no-store'});
+      try{return json(res,201,await storage.backup('manual',{minIntervalMs:60000}),{'cache-control':'no-store'})}
+      catch(e){if(e.status===429)return json(res,429,{error:e.message,retryAfter:e.retryAfter},{'retry-after':String(e.retryAfter),'cache-control':'no-store'});throw e}
     }
     const backupMatch=pathname.match(/^\/api\/storage\/backups\/([a-f0-9-]{36})$/);
     if(req.method==='GET'&&backupMatch){
@@ -1116,7 +1117,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Content Hub v4.6.0 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Content Hub v${APP_VERSION} listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));

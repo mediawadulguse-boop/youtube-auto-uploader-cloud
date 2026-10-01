@@ -32,3 +32,17 @@ test('backup survives restart, verifies checksum, mirrors gzip, keeps bounded re
  await storage.mutate('notes',db=>{db.notes=[]});await assert.rejects(storage.restore(full.bundle,'bad digest'));assert.equal((await storage.read('notes')).notes.length,0);await storage.restore(full.bundle,full.digest);assert.equal((await storage.read('notes')).notes.length,1);
  for(let i=0;i<12;i++)await storage.backup('manual');const points=await storage.listBackups();assert.equal(points.filter(p=>p.kind==='manual').length,10);assert.equal(points.filter(p=>p.kind==='daily').length,1);const today=points.find(p=>p.kind==='daily');await fs.unlink(path.join(dir,'backups',today.id+'.json.gz'));await storage.backup('daily');assert.ok(await fs.stat(path.join(dir,'backups',today.id+'.json.gz')));
 }));
+test('concurrent daily mirrors do not collide and manual cooldown is atomic across storage clients',()=>setup(async({dir,storage,pool})=>{
+ await storage.initialize(()=>seed(dir));await Promise.all([storage.backup('daily'),storage.backup('daily'),storage.backup('daily')]);
+ assert.equal((await storage.listBackups()).filter(b=>b.kind==='daily').length,1);assert.ok((await storage.status()).backups.every(b=>b.volumeCopy==='ready'));
+ const other=new PostgresStorage(pool,{backupDir:path.join(dir,'backups')}),results=await Promise.allSettled([storage.backup('manual',{minIntervalMs:60000}),other.backup('manual',{minIntervalMs:60000})]);
+ assert.equal(results.filter(r=>r.status==='fulfilled').length,1);const error=results.find(r=>r.status==='rejected').reason;assert.equal(error.status,429);assert.ok(error.retryAfter>0);
+ assert.equal((await storage.listBackups()).filter(b=>b.kind==='manual').length,1);assert.ok((await storage.status()).manualAvailableAt);assert.equal((await fs.readdir(storage.backupDir)).filter(n=>n.endsWith('.tmp')).length,0);
+}));
+test('volume mirror failure preserves successful database backup, download data and warning after restart',()=>setup(async({dir,storage,pool})=>{
+ await storage.initialize(()=>seed(dir));const bad=path.join(dir,'not-a-directory');await fs.writeFile(bad,'blocked');storage.backupDir=bad;
+ const backup=await storage.backup('manual');assert.equal(backup.mirror,'error');assert.ok(backup.warning);const full=await storage.getBackup(backup.id);assert.equal(checksum(full.bundle),full.digest);
+ const restarted=new PostgresStorage(pool,{backupDir:bad}),status=await restarted.status();assert.ok(status.ready);assert.ok(status.backupWarning);assert.equal(status.backups.find(b=>b.id===backup.id).volumeCopy,'missing');
+ storage.backupDir=path.join(dir,'backups');await storage.backup('daily');assert.equal((await storage.status()).backups.find(b=>b.id===backup.id).volumeCopy,'missing');
+ await assert.rejects(storage.backup('invalid'),e=>e.status===400);
+}));

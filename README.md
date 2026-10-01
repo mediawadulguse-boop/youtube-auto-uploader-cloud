@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.6.0
+# YouTube Content Hub v4.6.1
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -7,6 +7,12 @@ Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script seb
 Sidebar pada desktop dan menu drawer pada ponsel; dashboard, kalender, library, upload, Analytics, serta editor mengikuti ukuran layar. Editor menjadi layar penuh pada ponsel. Menu dapat digunakan dengan keyboard, fokus terjaga pada drawer, dan input mobile berukuran 16px untuk menghindari zoom otomatis. Kanban menyerupai struktur visual Trello dengan identitas Content Hub.
 
 Status memakai badge ikon + warna + teks di Kanban, dashboard, kalender, daftar, editor, dan antrean. Tahap produksi memakai badge berisi warna: Ide abu-abu, Naskah biru, Produksi amber, Editing ungu, Review pink, Siap Upload hijau. Publikasi memakai badge berbingkai: Belum upload, Masuk Cloud, Antre YouTube, Upload YouTube, Menyiapkan Jadwal, Terjadwal YouTube, Tayang, Gagal, dan Dibatalkan. Warna status tetap konsisten dan terpisah dari warna pilar.
+
+## Data & Backup dan riwayat update
+
+Halaman Data & Backup tidak dibuat ulang oleh sinkronisasi empat detik. Status dimuat saat halaman dibuka atau melalui **Muat ulang**; proses backup, pesan hasil, dan scroll tetap tersedia. Pemeriksaan Analytics mempunyai status/error sendiri. Backup manual memakai cooldown satu menit di dalam transaksi untuk menolak permintaan bersamaan. Unduhan memeriksa status HTTP dan format gzip; kegagalan ditampilkan pada halaman. Jika salinan volume gagal dibuat, backup PostgreSQL tetap tersedia untuk unduhan dan peringatan salinan volume ditampilkan.
+
+Menu **Riwayat Update** menampilkan versi terpasang, tanggal WIB, catatan fitur/perbaikan, pencarian, dan filter jenis perubahan. Riwayat rilis dikelola di `releases.mjs`, terpisah dari riwayat perubahan naskah.
 
 ## Pengelolaan konten
 

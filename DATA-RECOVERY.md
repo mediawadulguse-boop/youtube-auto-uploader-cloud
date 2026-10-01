@@ -1,4 +1,4 @@
-# Penyimpanan dan pemulihan v4.5
+# Penyimpanan dan pemulihan v4.6.1
 
 `DATABASE_URL` mengaktifkan PostgreSQL. Empat model versioned (upload, produksi,
 Note/kategori, Analytics per channel) disimpan sebagai JSONB dengan row lock dan
@@ -13,7 +13,11 @@ tidak beralih ke database kosong. File OAuth terenkripsi dan video tetap di `/da
 
 Backup harian menyimpan 14 salinan; manual menyimpan 10. Snapshot konsisten memakai
 satu SELECT, disimpan dalam tabel `app_backups` dan gzip di volume `/data/backups`.
-Unduhan tersedia lewat menu Data & Backup, hanya setelah login. Backup aplikasi
+Unduhan tersedia lewat menu Data & Backup, hanya setelah login. Backup manual memakai
+cooldown satu menit di dalam transaksi. Proses snapshot dan mirror diserialkan; file
+sementara memakai nama unik. Jika penulisan mirror gagal, snapshot PostgreSQL tetap
+tersimpan dan bisa diunduh. Status menandai salinan volume yang hilang, termasuk
+setelah restart. Backup aplikasi
 tidak memuat token OAuth, password, ataupun file video. Backup volume Railway
 melengkapi backup aplikasi untuk pemulihan database/volume secara menyeluruh.
 
