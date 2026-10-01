@@ -4,8 +4,9 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { URL } from 'node:url';
-import { ContentStore, CONTENT_STAGES } from './content-store.mjs';
-import { YouTubeAnalytics, ANALYTICS_SCOPES, hasAnalyticsAccess, analyticsRange, analyticsError, reportRows } from './analytics.mjs';
+import { ContentStore } from './content-store.mjs';
+import { NotesStore } from './notes-store.mjs';
+import { YouTubeAnalytics, ANALYTICS_SCOPES, hasAnalyticsAccess, analyticsRange, analyticsError, reportRows, validateVideoId } from './analytics.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -17,6 +18,7 @@ const DATA_DIR = process.env.DATA_DIR || path.resolve('data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const contentStore = new ContentStore(path.join(DATA_DIR, 'contents.json'));
+const notesStore = new NotesStore(path.join(DATA_DIR, 'notes.json'));
 const TOKEN_FILE = path.join(DATA_DIR, 'youtube-token.enc.json');
 const ANALYTICS_TOKEN_FILE = path.join(DATA_DIR, 'youtube-analytics-token.enc.json');
 const PUBLIC_DIR = path.resolve('public');
@@ -708,7 +710,7 @@ setTimeout(workerTick, 1000).unref();
 
 async function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js'].includes(rel)) return false;
+  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'features.css'].includes(rel)) return false;
   try {
     const data = await fsp.readFile(path.join(PUBLIC_DIR, rel));
     const type = rel.endsWith('.js') ? 'text/javascript; charset=utf-8' : rel.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
@@ -726,7 +728,7 @@ const server = http.createServer(async (req, res) => {
     const pathname = u.pathname;
 
     if (req.method === 'GET' && pathname === '/api/health')
-      return json(res, 200, { ok: true, version: '4.2.1', time: nowIso() });
+      return json(res, 200, { ok: true, version: '4.3.0', time: nowIso() });
 
     if (req.method === 'GET' && pathname === '/api/session')
       return json(res, 200, { authenticated: isAuthed(req), configMissing: configMissing(), appUrl: APP_URL });
@@ -777,13 +779,48 @@ const server = http.createServer(async (req, res) => {
       } catch (e) { return json(res, e.status || 502, { code: e.code || 'upstream_error', error: e.message }, { 'cache-control': 'no-store' }); }
     }
 
+    const videoAnalyticsMatch=pathname.match(/^\/api\/analytics\/videos(?:\/([^/]+))?$/);
+    if(req.method==='GET'&&videoAnalyticsMatch){
+      const range=analyticsRange(u.searchParams),id=videoAnalyticsMatch[1];if(id)validateVideoId(id);
+      const db=await readDb(),token=await loadAnalyticsToken();
+      if(!await loadToken()||!db.channel?.id)return json(res,409,{code:'not_connected',error:'Hubungkan akun YouTube terlebih dahulu.'},{'cache-control':'no-store'});
+      if(!hasAnalyticsAccess(token))return json(res,403,{code:'authorization_required',error:'Hubungkan Analytics untuk memberikan izin baca.'},{'cache-control':'no-store'});
+      const generation=tokenGeneration;
+      try{
+        const report=id?await analytics.getVideo(db.channel.id,id,range):await analytics.listVideos(db.channel.id,range);
+        if(generation!==tokenGeneration)return json(res,409,{code:'channel_changed',error:'Koneksi channel berubah. Muat ulang.'},{'cache-control':'no-store'});
+        const jobs=db.jobs.filter(j=>j.youtubeVideoId&&j.status!=='cancelled');
+        if(id){const job=jobs.find(j=>j.youtubeVideoId===id);return json(res,200,{...report,connectedChannel:db.channel,video:{...report.video,title:report.video.title||job?.title||id,contentId:job?.contentId||null}},{'cache-control':'no-store'});}
+        return json(res,200,{...report,connectedChannel:db.channel,videos:report.videos.map(v=>{const job=jobs.find(j=>j.youtubeVideoId===v.id);return {...v,title:v.title||job?.title||v.id,contentId:job?.contentId||null}})},{'cache-control':'no-store'});
+      }catch(e){return json(res,e.status||502,{code:e.code||'upstream_error',error:e.message},{'cache-control':'no-store'});}
+    }
     if (req.method === 'GET' && pathname === '/api/contents') {
       const data = await contentStore.read();
       const fields = ['id','title','stage','pillarId','format','priority','owner','deadline','plannedPublishAt','checklist','archived','revision','createdAt','updatedAt'];
       return json(res, 200, {
-        pillars: data.pillars, stages: CONTENT_STAGES,
+        pillars: data.pillars, stages: data.columns.map(c=>c.id), columns: data.columns, boardRevision: data.boardRevision,
         contents: data.contents.map(c => ({ ...Object.fromEntries(fields.map(k => [k,c[k]])), scriptLength: c.script.length }))
       });
+    }
+    if (pathname === '/api/columns' && req.method === 'POST')
+      return json(res,201,await contentStore.saveColumn(await readJson(req)));
+    if (pathname === '/api/columns/order' && req.method === 'POST')
+      return json(res,200,await contentStore.reorderColumns(await readJson(req)));
+    const columnMatch=pathname.match(/^\/api\/columns\/([a-z0-9-]{1,60})$/);
+    if(columnMatch&&req.method==='PATCH')return json(res,200,await contentStore.saveColumn(await readJson(req),columnMatch[1]));
+    if(columnMatch&&req.method==='DELETE')return json(res,200,await contentStore.removeColumn(columnMatch[1],await readJson(req)));
+    if(pathname==='/api/notes'&&req.method==='GET'){
+      const db=await notesStore.read(),q=(u.searchParams.get('q')||'').slice(0,300).toLocaleLowerCase('id-ID'),kind=u.searchParams.get('kind'),archived=u.searchParams.get('archived')==='1';
+      const notes=db.notes.filter(n=>n.archived===archived&&(!kind||n.kind===kind)&&(!q||[n.title,n.body,...n.tags].join(' ').toLocaleLowerCase('id-ID').includes(q))).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||b.updatedAt.localeCompare(a.updatedAt));
+      return json(res,200,{notes:notes.map(n=>{const {body,...rest}=n;return {...rest,preview:body.slice(0,280),bodyLength:body.length}})},{'cache-control':'no-store'});
+    }
+    if(pathname==='/api/notes'&&req.method==='POST')return json(res,201,{note:await notesStore.create(await readJson(req))});
+    const noteMatch=pathname.match(/^\/api\/notes\/([0-9a-f-]{36})$/i);
+    if(noteMatch){
+      const id=noteMatch[1];
+      if(req.method==='GET'){const db=await notesStore.read(),note=db.notes.find(n=>n.id===id);if(!note)return json(res,404,{error:'Catatan tidak ditemukan'});return json(res,200,{note},{'cache-control':'no-store'});}
+      if(req.method==='PATCH')return json(res,200,{note:await notesStore.update(id,await readJson(req))});
+      if(req.method==='DELETE'){const body=await readJson(req);return json(res,200,await notesStore.remove(id,body?.revision));}
     }
     if (req.method === 'POST' && pathname === '/api/contents')
       return json(res, 201, { content: await contentStore.create(await readJson(req)) });
@@ -991,7 +1028,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Content Hub v4.2.1 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Content Hub v4.3.0 listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));

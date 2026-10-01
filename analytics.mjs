@@ -2,6 +2,8 @@ export const ANALYTICS_SCOPE = 'https://www.googleapis.com/auth/yt-analytics.rea
 export const READONLY_SCOPE = 'https://www.googleapis.com/auth/youtube.readonly';
 export const ANALYTICS_SCOPES = [ANALYTICS_SCOPE, READONLY_SCOPE];
 const METRICS = ['views', 'estimatedMinutesWatched', 'averageViewDuration', 'subscribersGained', 'subscribersLost', 'likes', 'comments', 'shares'];
+const VIDEO_METRICS = [...METRICS,'averageViewPercentage'];
+export function validateVideoId(id){if(typeof id!=='string'||!/^[A-Za-z0-9_-]{11}$/.test(id))throw Object.assign(new Error('ID video YouTube harus berisi 11 karakter.'),{status:400});return id;}
 const DAY_MS = 86_400_000;
 
 export function hasAnalyticsAccess(token) {
@@ -90,10 +92,63 @@ export class YouTubeAnalytics {
     const work = this.fetchReport(channelId, range).then(data => {
       if (generation !== this.generation) throw Object.assign(new Error('Koneksi channel berubah. Muat ulang Analytics.'), { status: 409, code: 'channel_changed' });
       this.cache.delete(key); if (!data.warnings.length) this.cache.set(key, { at: this.now(), data });
-      while (this.cache.size > 12) this.cache.delete(this.cache.keys().next().value);
+      while (this.cache.size > 24) this.cache.delete(this.cache.keys().next().value);
       return { ...data, cached: false };
     }).finally(() => { if (this.pending.get(key) === work) this.pending.delete(key); });
     this.pending.set(key, work); return work;
+  }
+  async cachedReport(key,run){
+    const generation=this.generation,cached=this.cache.get(key);
+    if(cached&&this.now()-cached.at<this.ttl)return {...cached.data,cached:true};
+    if(this.pending.has(key))return this.pending.get(key);
+    const work=run().then(data=>{
+      if(generation!==this.generation)throw Object.assign(new Error('Koneksi channel berubah. Muat ulang.'),{status:409,code:'channel_changed'});
+      this.cache.delete(key);if(!data.warnings.length)this.cache.set(key,{at:this.now(),data});while(this.cache.size>24)this.cache.delete(this.cache.keys().next().value);
+      return {...data,cached:false};
+    }).finally(()=>{if(this.pending.get(key)===work)this.pending.delete(key)});
+    this.pending.set(key,work);return work;
+  }
+  async videoMetadata(ids){
+    const items=[];
+    // videos.list accepts up to 50 IDs. Stop at the first quota/error response.
+    for(let i=0;i<ids.length;i+=50){const data=await this.request('https://www.googleapis.com/youtube/v3/videos?'+new URLSearchParams({part:'snippet,contentDetails,statistics,status',id:ids.slice(i,i+50).join(',')}));items.push(...(data.items||[]));}
+    return items;
+  }
+  async listVideos(channelId,range){
+    return this.cachedReport(`videos:${channelId}:${range.startDate}:${range.endDate}`,async()=>{
+      const rows=await this.report(channelId,range,{metrics:VIDEO_METRICS.join(','),dimensions:'video',sort:'-views',maxResults:'200'}),warnings=[];
+      let metadata=[];try{if(rows.length)metadata=await this.videoMetadata(rows.map(x=>x.video))}catch(e){warnings.push({section:'videoDetails',code:e.code||'upstream_error',message:e.message})}
+      const byId=new Map(metadata.map(x=>[x.id,x]));
+      return {range,generatedAt:new Date(this.now()).toISOString(),warnings,limit:200,videos:rows.map(row=>{const item=byId.get(row.video);return {id:row.video,...metrics(row),averageViewPercentage:Number(row.averageViewPercentage||0),title:item?.snippet?.title||null,thumbnail:item?.snippet?.thumbnails?.medium?.url||null,publishedAt:item?.snippet?.publishedAt||null}})};
+    });
+  }
+  async getVideo(channelId,id,range){
+    validateVideoId(id);
+    return this.cachedReport(`video:${channelId}:${id}:${range.startDate}:${range.endDate}`,()=>this.fetchVideo(channelId,id,range));
+  }
+  async fetchVideo(channelId,id,range){
+    const filters=`video==${id}`,extra={filters,metrics:VIDEO_METRICS.join(',')};
+    const totals=await this.report(channelId,range,extra),warnings=[];
+    const optional=async(section,run)=>{try{return await run()}catch(e){warnings.push({section,code:e.code||'upstream_error',message:e.message});return null}};
+    const limited={filters,metrics:'views,estimatedMinutesWatched'};
+    const [daily,previous,traffic,devices,countries,subscribed,retention,metadata,searchTerms]=await Promise.all([
+      optional('daily',()=>this.report(channelId,range,{...extra,dimensions:'day',sort:'day'})),
+      optional('previous',()=>this.report(channelId,{startDate:range.previousStart,endDate:range.previousEnd},extra)),
+      optional('traffic',()=>this.report(channelId,range,{...limited,dimensions:'insightTrafficSourceType'})),
+      optional('devices',()=>this.report(channelId,range,{...limited,dimensions:'deviceType'})),
+      optional('countries',()=>this.report(channelId,range,{...limited,dimensions:'country'})),
+      optional('subscribed',()=>this.report(channelId,range,{...limited,dimensions:'subscribedStatus'})),
+      optional('retention',()=>this.report(channelId,range,{filters,dimensions:'elapsedVideoTimeRatio',metrics:'audienceWatchRatio,relativeRetentionPerformance',sort:'elapsedVideoTimeRatio'})),
+      optional('videoDetails',()=>this.videoMetadata([id])),
+      optional('searchTerms',()=>this.report(channelId,range,{filters:filters+';insightTrafficSourceType==YT_SEARCH',dimensions:'insightTrafficSourceDetail',metrics:'views,estimatedMinutesWatched',sort:'-views',maxResults:'25'}))
+    ]);
+    const item=metadata?.find(x=>x.id===id);
+    if(item?.snippet?.channelId&&item.snippet.channelId!==channelId)throw Object.assign(new Error('Video ini bukan milik channel yang terhubung.'),{status:404,code:'wrong_channel'});
+    const videoMetrics=row=>({...metrics(row),averageViewPercentage:Number(row?.averageViewPercentage||0)});
+    const breakdown=(rows,dimension)=>rows===null?null:rows.map(row=>({key:row[dimension],views:Number(row.views||0),watchHours:Number(row.estimatedMinutesWatched||0)/60})).sort((a,b)=>b.views-a.views);
+    return {range,id,generatedAt:new Date(this.now()).toISOString(),warnings,hasData:totals.length>0,summary:videoMetrics(totals[0]),previous:previous===null?null:{...videoMetrics(previous[0]),hasData:previous.length>0},daily:daily===null?null:daily.map(row=>({day:row.day,...videoMetrics(row)})),lastReportedDay:daily?.at(-1)?.day||null,
+      video:{id,title:item?.snippet?.title||null,thumbnail:item?.snippet?.thumbnails?.medium?.url||null,publishedAt:item?.snippet?.publishedAt||null,duration:item?.contentDetails?.duration||null,privacyStatus:item?.status?.privacyStatus||null,lifetime:item?.statistics?{views:Number(item.statistics.viewCount||0),likes:item.statistics.likeCount===undefined?null:Number(item.statistics.likeCount),comments:item.statistics.commentCount===undefined?null:Number(item.statistics.commentCount)}:null},
+      traffic:breakdown(traffic,'insightTrafficSourceType'),devices:breakdown(devices,'deviceType'),countries:breakdown(countries,'country'),subscribed:breakdown(subscribed,'subscribedStatus'),searchTerms:breakdown(searchTerms,'insightTrafficSourceDetail'),retention:retention===null?null:retention.map(row=>({position:Number(row.elapsedVideoTimeRatio),watchRatio:Number(row.audienceWatchRatio),relativePerformance:Number(row.relativeRetentionPerformance)}))};
   }
   async fetchReport(channelId, range) {
     const totals = await this.report(channelId, range);

@@ -63,9 +63,12 @@ const STATUS_ICONS = {
 function statusIcon(name){return `<svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${STATUS_ICONS[name]||STATUS_ICONS.clock}</svg>`}
 function statusBadge(kind,value){
   const production=kind==='production',definitions=production?PRODUCTION_STATUS:PUBLICATION_STATUS;
-  const meta=Object.hasOwn(definitions,value)?definitions[value]:{label:production?'Tahap lainnya':(value||'Belum upload'),tone:'neutral',icon:'clock'};
+  let meta=Object.hasOwn(definitions,value)?definitions[value]:{label:production?'Tahap lainnya':(value||'Belum upload'),tone:'neutral',icon:'clock'};
+  const column=production?window.boardColumns?.find(c=>c.id===value):null;
+  if(column)meta={...meta,label:column.name,icon:column.icon};
+  const colorStyle=column&&/^#[0-9a-f]{6}$/i.test(column.color)?` style="--status-bg:color-mix(in srgb,${column.color} 12%,white);--status-line:color-mix(in srgb,${column.color} 30%,white);--status-fg:#172b4d"`:'';
   const accessible=(production?'Tahap produksi: ':'Status publikasi: ')+meta.label;
-  return `<span class="status-badge status-${production?'production':'publication'} status-tone-${meta.tone}" data-status-kind="${production?'production':'publication'}" data-status-value="${esc(value||'not_uploaded')}" title="${esc(accessible)}" aria-label="${esc(accessible)}">${statusIcon(meta.icon)}<span>${esc(meta.label)}</span></span>`;
+  return `<span class="status-badge status-${production?'production':'publication'} status-tone-${meta.tone}" ${colorStyle} data-status-kind="${production?'production':'publication'}" data-status-value="${esc(value||'not_uploaded')}" title="${esc(accessible)}" aria-label="${esc(accessible)}">${statusIcon(meta.icon)}<span>${esc(meta.label)}</span></span>`;
 }
 async function boot(){const sess=await api('/api/session');if(!sess.authenticated){$('#loginView').classList.remove('hide');if(sess.configMissing?.length){$('#configWarning').classList.remove('hide');$('#configWarning').textContent='Cloud belum lengkap: '+sess.configMissing.join(', ')}return}$('#appView').classList.remove('hide');await refresh();setInterval(refresh,4000)}
 $('#loginBtn').onclick=async()=>{try{await api('/api/login',{method:'POST',body:JSON.stringify({password:$('#loginPassword').value})});location.reload()}catch(e){toast(e.message)}};

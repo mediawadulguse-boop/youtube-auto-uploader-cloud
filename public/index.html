@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/content.css">
 <link rel="stylesheet" href="/analytics.css">
 <link rel="stylesheet" href="/ui.css">
+<link rel="stylesheet" href="/features.css">
 
 </head>
 <body>
@@ -30,9 +31,10 @@
       <button data-view="library"><span data-icon="folder"></span>Semua Konten</button>
       <button data-view="upload"><span data-icon="upload"></span>Upload & Antrean</button>
       <button data-view="analytics"><span data-icon="chart"></span>YouTube Analytics</button>
+      <button data-view="notes"><span data-icon="text"></span>Notes & Prompt</button>
       <button data-view="settings"><span data-icon="layers"></span>Pilar Konten</button>
     </div>
-    <div class="sidebar-bottom"><div class="workspace-note"><span data-icon="spark"></span><strong>Mulai dari sebuah ide.</strong><p>Simpan naskah dan riset,<br>lalu wujudkan menjadi konten.</p></div><button id="logoutBtn" class="btn logout"><span data-icon="logout"></span>Keluar<span class="version">v4.2.1</span></button></div>
+    <div class="sidebar-bottom"><div class="workspace-note"><span data-icon="spark"></span><strong>Mulai dari sebuah ide.</strong><p>Simpan naskah dan riset,<br>lalu wujudkan menjadi konten.</p></div><button id="logoutBtn" class="btn logout"><span data-icon="logout"></span>Keluar<span class="version">v4.3.0</span></button></div>
   </nav>
   <main class="workspace">
   <section id="contentHub">
@@ -80,5 +82,18 @@
 <dialog id="moveCardDialog" class="move-dialog" aria-labelledby="moveCardHeading">
   <form id="moveCardForm"><div class="move-dialog-head"><h2 id="moveCardHeading">Pindahkan kartu</h2><button type="button" id="closeMoveCard" class="icon-button" aria-label="Tutup" data-icon="close"></button></div><p id="moveCardTitle"></p><label for="moveCardStage">Pindahkan ke tahap</label><select id="moveCardStage" name="stage"></select><div id="moveCardError" class="notice hide" role="alert"></div><button class="btn primary" id="confirmMoveCard">Pindahkan</button></form>
 </dialog>
-<script src="/app.js"></script><script src="/analytics.js"></script><script src="/ui.js"></script><script src="/content.js"></script>
+<dialog id="columnManager" class="content-editor column-manager" aria-labelledby="columnManagerTitle">
+  <div class="editor-header"><div><span class="eyebrow">KANBAN WORKFLOW</span><h2 id="columnManagerTitle">Atur kolom</h2></div><button id="closeColumnManager" class="btn">Tutup</button></div>
+  <div class="column-manager-body"><p class="hint">Ubah nama, warna, ikon, dan urutan. Tandai kolom selesai untuk menghitung progres produksi.</p><div id="columnManagerError" class="notice hide" role="alert"></div><div id="columnManagerList"></div>
+    <form id="columnForm"><h3 id="columnFormTitle">Tambah kolom</h3><input name="id" type="hidden"><label>Nama kolom<input name="name" maxlength="60" required placeholder="Contoh: Riset atau Revisi"></label><div class="column-form-pair"><label>Warna<input name="color" type="color" value="#3263e7"></label><label>Ikon<select name="icon"></select></label></div><label class="inline-check"><input name="isDone" type="checkbox"> Kolom selesai / siap publikasi</label><div class="feature-actions"><button class="btn primary">Simpan kolom</button><button type="button" id="resetColumnForm" class="btn">Kolom baru</button></div></form>
+    <section id="removeColumnPanel" class="hide"><h3>Hapus kolom</h3><p id="removeColumnDescription" class="hint"></p><label for="columnMoveTo">Pindahkan semua kartu ke</label><select id="columnMoveTo"></select><button id="confirmRemoveColumn" class="btn danger">Pindahkan kartu & hapus kolom</button></section>
+  </div>
+</dialog>
+<dialog id="noteEditor" class="content-editor note-editor" aria-labelledby="noteEditorHeading">
+  <div class="editor-header"><div><span class="eyebrow">NOTES & PROMPT</span><h2 id="noteEditorHeading">Catatan baru</h2></div><button id="closeNoteEditor" class="btn">Tutup</button></div>
+  <div class="editor-toolbar"><span id="noteSaveIndicator" role="status">Tersimpan</span><button id="saveNote" class="btn mini">Simpan</button><button id="copyNote" class="btn mini">Salin isi</button><button id="duplicateNote" class="btn mini">Duplikasi</button><button id="archiveNote" class="btn mini">Arsipkan</button><button id="deleteNote" class="btn mini danger">Hapus</button></div>
+  <div id="noteConflict" class="notice hide" role="alert"><span id="noteConflictText"></span><button id="reloadNote" class="btn mini">Muat versi server</button><button id="copyNoteDraft" class="btn mini">Simpan salinan draft</button></div>
+  <form id="noteForm"><label>Judul<input name="title" maxlength="200" required></label><div class="editor-fields"><label>Jenis<select name="kind"><option value="note">Catatan</option><option value="prompt">Prompt</option></select></label><label>Tag<input name="tags" placeholder="YouTube, thumbnail, script" maxlength="500"></label></div><label class="inline-check"><input name="pinned" type="checkbox"> Pin catatan ini</label><label>Isi<textarea name="body" rows="18" maxlength="160000" placeholder="Simpan prompt atau tulis catatan di sini…"></textarea></label><div id="noteWordCount" class="hint"></div></form>
+</dialog>
+<script src="/app.js"></script><script src="/analytics.js"></script><script src="/ui.js"></script><script src="/notes.js"></script><script src="/board-settings.js"></script><script src="/video-analytics.js"></script><script src="/content.js"></script>
 </body></html>

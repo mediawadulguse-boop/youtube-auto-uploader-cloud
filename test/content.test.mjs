@@ -44,6 +44,16 @@ test('validation preserves data, pillars and authenticated static assets',async(
   assert.equal((await request('/api/pillars','POST',{name:'Unsafe',color:'red;display:none'})).status,400);
   assert.equal((await fetch(base+'/content.css')).status,200);assert.equal((await fetch(base+'/content.js')).status,200);
 });
+test('Notes and columns APIs require login and support full-body search and custom stages',async()=>{
+ assert.equal((await request('/api/notes','GET',undefined,false)).status,401);assert.equal((await request('/api/columns','POST',{name:'Private'},false)).status,401);
+ const note=(await request('/api/notes','POST',{title:'Prompt produksi',kind:'prompt',body:'Baris pembuka\n'+('x'.repeat(300))+'\nkataunik',tags:['Produksi']})).data.note;
+ const search=await request('/api/notes?q=kataunik&kind=prompt');assert.equal(search.status,200);assert.equal(search.data.notes.length,1);assert.equal(search.data.notes[0].body,undefined);assert.equal(search.data.notes[0].preview.length,280);assert.equal((await request('/api/notes/'+note.id)).data.note.body,note.body);
+ assert.equal((await request('/api/notes/'+note.id,'PATCH',{revision:1,archived:true})).status,200);assert.equal((await request('/api/notes?q=kataunik')).data.notes.length,0);assert.equal((await request('/api/notes?q=kataunik&archived=1')).data.notes.length,1);
+ let board=(await request('/api/contents')).data;const added=await request('/api/columns','POST',{boardRevision:board.boardRevision,name:'Riset',color:'#abcdef',icon:'eye',isDone:false});assert.equal(added.status,201);const col=added.data.column;
+ const c=(await request('/api/contents','POST',{title:'Custom',stage:col.id,script:'Data aman'})).data.content;assert.equal(c.stage,col.id);
+ assert.equal((await request('/api/columns/'+col.id,'DELETE',{boardRevision:added.data.boardRevision,moveTo:'idea'})).status,200);assert.equal((await request('/api/contents/'+c.id)).data.content.script,'Data aman');
+ for(const asset of ['notes.js','board-settings.js','video-analytics.js','features.css'])assert.equal((await fetch(base+'/'+asset)).status,200);
+});
 test('upload linking prevents duplicate jobs and locks the YouTube schedule',async()=>{
   const c=(await request('/api/contents','POST',{title:'Video terhubung',plannedPublishAt:'2026-10-10T02:00:00Z'})).data.content;
   const body={contentId:c.id,title:c.title,fileName:'final.mp4',fileSize:4,scheduledAt:new Date(Date.now()+3600000).toISOString()};

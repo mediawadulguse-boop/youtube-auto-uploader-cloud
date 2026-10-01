@@ -12,9 +12,22 @@ const fakeScopes = [uploadScope, ...ANALYTICS_SCOPES].join(' ');
 const range = analyticsRange(new URLSearchParams('days=7'), Date.parse('2026-10-01T15:00:00Z'));
 function report(params, multiplier = 1) {
   const dimension = params.get('dimensions'), names = params.get('metrics').split(',');
-  const values = { views: 120, estimatedMinutesWatched: 180, averageViewDuration: 90, subscribersGained: 8, subscribersLost: 3, likes: 9, comments: 4, shares: 2 };
-  return { columnHeaders: [...(dimension ? [{ name: dimension, columnType: 'DIMENSION', dataType: 'STRING' }] : []), ...names.map(name => ({ name, columnType: 'METRIC', dataType: 'FLOAT' }))], rows: [...(dimension === 'day' ? [params.get('startDate'), params.get('endDate')] : [dimension === 'video' ? 'abcdefghijk' : null])].map(value => [...(dimension ? [value] : []), ...names.map(name => values[name] * multiplier)]) };
+  const values = { views: 120, estimatedMinutesWatched: 180, averageViewDuration: 90, averageViewPercentage:42, audienceWatchRatio:1.2, relativeRetentionPerformance:.6, subscribersGained: 8, subscribersLost: 3, likes: 9, comments: 4, shares: 2 };
+  const dimensions={video:'abcdefghijk',elapsedVideoTimeRatio:.5,insightTrafficSourceType:'YT_SEARCH',insightTrafficSourceDetail:'riset video',country:'ID',deviceType:'MOBILE',subscribedStatus:'SUBSCRIBED'};
+  return { columnHeaders: [...(dimension ? [{ name: dimension, columnType: 'DIMENSION', dataType: 'STRING' }] : []), ...names.map(name => ({ name, columnType: 'METRIC', dataType: 'FLOAT' }))], rows: [...(dimension === 'day' ? [params.get('startDate'), params.get('endDate')] : [dimensions[dimension]??null])].map(value => [...(dimension ? [value] : []), ...names.map(name => values[name] * multiplier)]) };
 }
+test('per-video reports isolate channel/video, preserve retention units, partial failures and cache invalidation',async()=>{
+ const urls=[];let quota=false,retentionError=false,wrong=false;
+ const api=new YouTubeAnalytics(async url=>{const u=new URL(url);urls.push(u);if(u.hostname.includes('youtubeanalytics')){if(retentionError&&u.searchParams.get('dimensions')==='elapsedVideoTimeRatio')return Response.json({error:{message:'Unavailable'}},{status:503});return Response.json(report(u.searchParams))}if(quota)return Response.json({error:{errors:[{reason:'quotaExceeded'}]}},{status:403});return Response.json({items:[{id:'abcdefghijk',snippet:{title:'Literal <script>',channelId:wrong?'other':'channelA'},statistics:{viewCount:'999'}}]})});
+ const detail=await api.getVideo('channelA','abcdefghijk',range);assert.equal(detail.summary.views,120);assert.equal(detail.summary.averageViewPercentage,42);assert.equal(detail.summary.watchHours,3);assert.equal(detail.retention[0].watchRatio,1.2);assert.equal(detail.video.lifetime.views,999);assert.equal(detail.video.lifetime.likes,null);assert.equal(detail.searchTerms[0].key,'riset video');assert.equal(detail.daily.length,2);
+ const reports=urls.filter(u=>u.hostname.includes('youtubeanalytics'));assert.equal(reports.length,9);assert.ok(reports.every(u=>u.searchParams.get('ids')==='channel==channelA'&&u.searchParams.get('filters').startsWith('video==abcdefghijk')));
+ assert.equal((await api.getVideo('channelA','abcdefghijk',range)).cached,true);assert.equal(urls.length,10);
+ await assert.rejects(api.getVideo('channelA','bad;filters',range),e=>e.status===400);assert.equal(urls.length,10);
+ api.clear();quota=true;retentionError=true;const partial=await api.getVideo('channelA','abcdefghijk',range);assert.equal(partial.summary.views,120);assert.equal(partial.retention,null);assert.equal(partial.video.lifetime,null);assert.equal(partial.warnings.length,2);assert.equal(api.cache.size,0);
+ quota=false;retentionError=false;wrong=true;await assert.rejects(api.getVideo('channelA','abcdefghijk',range),e=>e.code==='wrong_channel');wrong=false;
+ const listing=await api.listVideos('channelA',range);assert.equal(listing.videos[0].averageViewPercentage,42);assert.equal(listing.limit,200);assert.equal(urls.find(u=>u.searchParams.get('dimensions')==='video').searchParams.get('maxResults'),'200');
+ let release;const blocker=new Promise(r=>release=r);const pending=new YouTubeAnalytics(async url=>{await blocker;const u=new URL(url);return Response.json(u.hostname.includes('youtubeanalytics')?report(u.searchParams):{items:[]})});const work=pending.getVideo('channelA','abcdefghijk',range);pending.clear();release();await assert.rejects(work,e=>e.code==='channel_changed');assert.equal(pending.cache.size,0);
+});
 test('Pacific dates, custom validation, metrics mapping and error classification', () => {
   const r = analyticsRange(new URLSearchParams('days=28'), Date.parse('2026-10-01T06:30:00Z')); // still Sep 30 in Pacific
   assert.equal(r.endDate, '2026-09-29'); assert.equal(r.startDate, '2026-09-02'); assert.equal(r.previousEnd, '2026-09-01'); assert.equal(r.days, 28);
@@ -110,10 +123,13 @@ async function connect(code, analytics = true) {
 }
 test('authenticated routes and incremental consent; old upload connection remains usable', async () => {
   assert.equal((await request('/api/analytics', { authed: false })).status, 401);
+  assert.equal((await request('/api/analytics/videos/abcdefghijk', { authed: false })).status, 401);
+  assert.equal((await request('/api/analytics/videos/not-valid')).status,400);
   assert.equal((await request('/api/analytics')).status, 409);
   assert.equal((await request('/api/analytics?days=999')).status, 400);
   const legacy = await connect('legacy', false); assert.equal(legacy.response.status, 302); assert.equal(legacy.location.searchParams.get('scope'), uploadScope);
   const denied = await request('/api/analytics'); assert.equal(denied.status, 403); assert.equal((await denied.json()).code, 'authorization_required');
+  assert.equal((await request('/api/analytics/videos/abcdefghijk')).status,403);
   const state = await (await request('/api/state')).json(); assert.equal(state.youtubeConnected, true); assert.equal(state.analyticsAuthorized, false); assert.equal(state.access_token, undefined);
   const uploadBefore = await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8');
   assert.equal((await connect('same-no-refresh')).response.headers.get('location'), '/?view=analytics&oauth=offline_required');
@@ -121,6 +137,8 @@ test('authenticated routes and incremental consent; old upload connection remain
   const good = await connect('good'); assert.equal(good.response.status, 302); assert.equal(good.response.headers.get('location'), '/?oauth=ok&view=analytics'); assert.equal(good.location.searchParams.get('scope'), ANALYTICS_SCOPES.join(' ')); assert.equal(good.location.searchParams.get('include_granted_scopes'), 'true');
   assert.equal(await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8'), uploadBefore);
   const api = await request('/api/analytics?days=7'); assert.equal(api.status, 200); assert.equal(api.headers.get('cache-control'), 'no-store'); const d = await api.json(); assert.equal(d.summary.views, 120); assert.equal(d.topVideos[0].title, 'Video from API'); assert.equal(d.connectedChannel.id, 'channel-test'); assert.equal(d.access_token, undefined); assert.equal(d.refresh_token, undefined);
+  const video=await request('/api/analytics/videos/abcdefghijk?days=7');assert.equal(video.status,200);assert.equal(video.headers.get('cache-control'),'no-store');const vd=await video.json();assert.equal(vd.summary.averageViewPercentage,42);assert.equal(vd.video.title,'Video from API');assert.equal(vd.retention[0].position,.5);assert.equal(vd.access_token,undefined);
+  const listing=await request('/api/analytics/videos?days=7');assert.equal(listing.status,200);assert.equal((await listing.json()).videos[0].id,'abcdefghijk');
   assert.equal((await request('/analytics.js')).status, 200); assert.equal((await request('/analytics.css')).status, 200);
   assert.equal((await readToken()).refresh_token, 'test-refresh'); assert.ok(!String(await fs.readFile(path.join(directory, 'youtube-token.enc.json'))).includes('test-refresh'));
 });

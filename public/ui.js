@@ -1,5 +1,6 @@
 // Small, local icon set: no external fonts, scripts, or requests.
 const HUB_ICONS = {
+  pin:'<path d="m9 3 6 0-1 6 4 4v2h-5v6m-2-6H6v-2l4-4Z"/>',
   dashboard:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
   calendar:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2m4 0h2M8 18h2"/>',
   board:'<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16M6 8v5m6-5v8m6-8v3"/>',

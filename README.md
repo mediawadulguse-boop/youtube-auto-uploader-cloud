@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.2.1
+# YouTube Content Hub v4.3.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -12,7 +12,8 @@ Status memakai badge ikon + warna + teks di Kanban, dashboard, kalender, daftar,
 
 - **Dashboard:** konten aktif, konten siap upload, jadwal YouTube, progres produksi, deadline terlambat, dan upload gagal.
 - **Kalender:** tampilan bulan, minggu, dan agenda; rencana tayang atau deadline produksi; seluruh tanggal konten menggunakan WIB (`Asia/Jakarta`). Kalender juga menampilkan pekerjaan upload lama yang belum terhubung ke konten.
-- **Kanban:** Ide → Naskah → Produksi → Editing → Review → Siap Upload. Papan bergaya Trello dengan kolom abu-abu, kartu putih, label pilar, badge deadline/checklist, dan inisial penanggung jawab. Tambah kartu langsung pada kolom, geser kartu pada desktop, atau gunakan tombol pindah kartu pada ponsel. Papan dapat digeser horizontal, dan posisi scroll/draft kartu dipertahankan saat sinkronisasi. Tahap produksi tetap menggunakan enam tahap tetap; belum menyediakan kolom custom atau urutan kartu manual.
+- **Kanban:** Ide → Naskah → Produksi → Editing → Review → Siap Upload. Papan bergaya Trello dengan kolom abu-abu, kartu putih, label pilar, badge deadline/checklist, dan inisial penanggung jawab. Tambah kartu langsung pada kolom, geser kartu pada desktop, atau gunakan tombol pindah kartu pada ponsel. Papan dapat digeser horizontal, dan posisi scroll/draft kartu dipertahankan saat sinkronisasi. Melalui tombol **Kolom**, tambah/ubah nama, warna, ikon, urutan, dan penanda selesai (maksimal 24 kolom). Saat menghapus kolom, pilih kolom tujuan; seluruh kartu termasuk arsip dipindahkan tanpa kehilangan script/riset/jadwal. Perubahan kolom tidak menjalankan upload. Urutan kartu manual belum tersedia.
+- **Notes & Prompt:** simpan catatan atau prompt dengan isi multiline, tag, pin, pencarian isi, duplikasi, dan arsip. Autosave dengan pemeriksaan revisi; draft lokal dapat dipulihkan atau disimpan sebagai salinan jika ada konflik. Isi dapat disalin untuk digunakan saat produksi.
 - **Semua Konten:** cari berdasarkan judul/penanggung jawab; filter pilar, tahap, format, dan arsip.
 - **Editor:** brief, audiens, penanggung jawab, deadline, hook, script lengkap, CTA, rencana produksi, deskripsi/tag YouTube, dan checklist.
 - **Riset & aset:** simpan catatan fakta/angka dan tautan sumber, dokumen, gambar, atau bahan video. Status verifikasi ditandai secara manual. Lampiran berupa tautan; aplikasi belum menyediakan penyimpanan berkas riset langsung.
@@ -42,13 +43,15 @@ Pengaturan Related Video untuk Shorts tetap diselesaikan di YouTube Studio melal
 
 Menu **YouTube Analytics** menggunakan laporan resmi untuk channel yang terhubung. Menampilkan views, jam tonton, durasi rata-rata, subscriber baru/berhenti/bersih, likes, komentar, shares, tren harian, dan 10 video teratas. Pilih 7/28/90/365 hari atau rentang khusus maksimal 366 hari. Ringkasan dibandingkan dengan rentang tanggal sebelumnya yang sama panjang. Ekspor CSV berisi ringkasan, angka harian, serta video teratas. Video yang terhubung ke konten aplikasi menyediakan tombol untuk membuka script dan produksi.
 
+Tab **Per video** menyediakan daftar hingga 200 video teratas dalam periode terpilih. Klik video, tombol detail pada ringkasan channel, atau masukkan URL/ID untuk membuka video lain milik channel yang terhubung. Detail mencakup metrik periode, perbandingan periode sebelumnya, persentase rata-rata ditonton, tren harian, retensi per posisi video, sumber trafik, perangkat, negara, status subscriber, dan kata pencarian YouTube (hingga 25 baris). Total sepanjang waktu dari Data API ditampilkan terpisah. Bagian tanpa data atau gagal dimuat diberi keterangan; rincian dapat dibatasi privasi/ketersediaan laporan YouTube. Ekspor CSV mengikuti daftar/detail yang sedang terbuka.
+
 1. Aktifkan **YouTube Analytics API** pada proyek Google Cloud yang sama dengan OAuth aplikasi: https://console.cloud.google.com/apis/library/youtubeanalytics.googleapis.com.
 2. Jika OAuth consent screen memakai daftar scope, tambahkan `https://www.googleapis.com/auth/yt-analytics.readonly` dan `https://www.googleapis.com/auth/youtube.readonly`. Tetap gunakan test user/konfigurasi publik sesuai pengaturan proyek Google yang berlaku.
 3. Login aplikasi → **YouTube Analytics** → **Hubungkan Analytics**. Pilih akun/channel yang sama dan izinkan semua scope yang diminta. Koneksi Analytics menggunakan token terpisah dan divalidasi melalui YouTube Analytics API untuk ID channel yang sudah terhubung. Token upload tidak diganti oleh persetujuan Analytics.
 
 Laporan berakhir paling lambat kemarin menurut zona waktu YouTube (Pacific/Los Angeles); kalender produksi tetap WIB. YouTube dapat terlambat memproses dan merevisi angka. Tanggal tanpa baris tidak diisi sebagai nol. Ringkasan channel dan video menampilkan seluruh periode, bukan hanya konten yang dibuat di aplikasi. Angka subscriber total dapat dibulatkan oleh YouTube. Jam tonton Analytics tidak sama dengan jam tayang publik yang memenuhi syarat monetisasi. Pendapatan, CTR thumbnail, dan data real-time tidak termasuk integrasi ini.
 
-Cache laporan lengkap berada di memori server selama 10 menit, maksimal 12 rentang/channel. Tidak ada polling Analytics setiap empat detik, tidak ada laporan yang disimpan ke localStorage, dan token hanya dipakai server. Cache dibersihkan ketika channel dihubungkan ulang/diputus. Laporan yang gagal tidak dianggap nol; bagian opsional yang gagal ditandai. Kuota YouTube Data API yang habis dapat membuat statistik total/judul video tidak tersedia sementara laporan Analytics tetap tampil jika API tersebut tersedia. Pengambilan data ulang tidak dilakukan otomatis jika izin/API/kuota bermasalah.
+Cache laporan lengkap berada di memori server selama 10 menit, maksimal 24 laporan, dengan kunci channel/video/periode. Tidak ada polling Analytics setiap empat detik, tidak ada laporan yang disimpan ke localStorage, dan token hanya dipakai server. Cache dibersihkan ketika channel dihubungkan ulang/diputus. Laporan yang gagal tidak dianggap nol; bagian opsional yang gagal ditandai. Kuota YouTube Data API yang habis dapat membuat statistik total/judul video tidak tersedia sementara laporan Analytics tetap tampil jika API tersebut tersedia. Pengambilan data ulang tidak dilakukan otomatis jika izin/API/kuota bermasalah.
 
 ## Menjalankan dan menguji
 
@@ -60,7 +63,7 @@ npm run check
 npm test
 ```
 
-Pengujian menggunakan direktori sementara dan respons Google simulasi, tidak menghubungi YouTube. Mencakup CRUD, konflik versi, penyimpanan, hubungan konten/upload, query Analytics, cache, kuota/izin, tanggal Pacific, OAuth tambahan, pemeliharaan token lama jika koneksi gagal, refresh token serentak per jenis koneksi, serta koneksi Analytics saat kuota Data API habis.
+Pengujian menggunakan direktori sementara dan respons Google simulasi, tidak menghubungi YouTube. Mencakup CRUD Notes/konten, migrasi schema, kolom custom dan pemindahan kartu/arsip, konflik versi, penyimpanan, hubungan konten/upload, query Analytics, cache, kuota/izin, tanggal Pacific, OAuth tambahan, pemeliharaan token lama jika koneksi gagal, refresh token serentak per jenis koneksi, serta koneksi Analytics saat kuota Data API habis.
 
 ## Deployment GitHub + Railway
 
@@ -82,12 +85,14 @@ Buat `APP_SECRET` minimal 32 karakter acak. Jangan commit secret ke GitHub.
 ### Penyimpanan
 
 - `/data/db.json`: channel dan antrean upload lama maupun baru.
-- `/data/contents.json`: konten, script, bahan riset, pilar, serta riwayat.
+- `/data/contents.json`: konten, script, bahan riset, pilar, kolom Kanban custom, serta riwayat (schema v2).
+- `/data/contents.v1.backup.json`: salinan schema lama sebelum penulisan pertama setelah migrasi v4.3.
+- `/data/notes.json`: catatan dan prompt pribadi.
 - `/data/youtube-token.enc.json`: refresh token upload terenkripsi.
 - `/data/youtube-analytics-token.enc.json`: token Analytics terenkripsi, terikat pada ID channel. Token gabungan v4.1 sebelumnya tetap didukung.
 - `/data/uploads/`: video sementara.
 
-Update dari v3 mempertahankan database antrean dan token yang ada. Data konten dibuat saat pertama kali disimpan. Seluruh data tersebut perlu persistent volume agar tetap tersedia saat redeploy. Gunakan satu instance aplikasi untuk penyimpanan berbasis berkas ini; beberapa instance yang menulis volume yang sama belum didukung. File database yang rusak ditolak dan dipertahankan, bukan diganti dengan database kosong.
+Update dari v3 mempertahankan database antrean dan token yang ada. Data konten/Notes dibuat saat pertama kali disimpan. Schema konten v1 dibaca dengan enam kolom bawaan; file asli dicadangkan sebelum penulisan v2 pertama. Kolom yang telah dihapus tidak dipulihkan oleh riwayat kartu; pemulihan mempertahankan kolom aktif kartu. Seluruh data tersebut perlu persistent volume agar tetap tersedia saat redeploy. Gunakan satu instance aplikasi untuk penyimpanan berbasis berkas ini; beberapa instance yang menulis volume yang sama belum didukung. File database yang rusak ditolak dan dipertahankan, bukan diganti dengan database kosong.
 
 ## Google OAuth
 
@@ -100,6 +105,6 @@ Aplikasi meminta scope `https://www.googleapis.com/auth/youtube.force-ssl` untuk
 
 ## Keamanan dan batas versi ini
 
-Dashboard menggunakan login admin bersama, cookie HttpOnly/SameSite, dan OAuth state. API konten dan Analytics juga membutuhkan login. Validasi sumber hanya menerima URL http/https. Pemisahan akun/role, komentar tim, serta ekspor kalender/laporan produksi belum termasuk versi ini.
+Dashboard menggunakan login admin bersama, cookie HttpOnly/SameSite, dan OAuth state. API konten, Notes, kolom, dan Analytics juga membutuhkan login. Validasi sumber hanya menerima URL http/https. Pemisahan akun/role, komentar tim, serta ekspor kalender/laporan produksi belum termasuk versi ini.
 
 Status antrean: `receiving`, `queued_upload`, `uploading_youtube`, `waiting_publish`, `scheduled_youtube`, `published`, `failed`, `cancelled`.
