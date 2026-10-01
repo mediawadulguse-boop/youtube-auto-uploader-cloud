@@ -8,6 +8,7 @@ export const newChannel = () => ({videos:{},catalog:{},reporting:{},reach:{}});
 export class AnalyticsStore {
   constructor(file) { this.file=file;this.chain=Promise.resolve();this.loaded=null; }
   async load() {
+    if(this.persistence)return this.persistence.read('analytics');
     if (!this.loaded) this.loaded=(async()=>{
       try {
         const db=JSON.parse(await fs.readFile(this.file,'utf8'));
@@ -25,6 +26,7 @@ export class AnalyticsStore {
     return structuredClone((await this.load()).channels[channelId]||newChannel());
   }
   mutate(channelId,fn) {
+    if(this.persistence)return this.persistence.mutate('analytics',async db=>{const channel=db.channels[channelId]??=newChannel();return fn(channel)});
     const work=this.chain.catch(()=>{}).then(async()=>{
       const next=structuredClone(await this.load());
       const channel=next.channels[channelId]??=newChannel();

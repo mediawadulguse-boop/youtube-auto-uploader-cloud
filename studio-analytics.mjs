@@ -1,5 +1,6 @@
-import {YouTubeAnalytics,analyticsError,validateVideoId} from './analytics.mjs';
+import {YouTubeAnalytics,analyticsError,validateVideoId,analyticsRange,pacificToday} from './analytics.mjs';
 import {AnalyticsStore} from './analytics-store.mjs';
+import {saveDaily,saveSnapshot,buildDailyHistory} from './daily-history.mjs';
 
 export const MONETARY_SCOPE='https://www.googleapis.com/auth/yt-analytics-monetary.readonly';
 export const hasMonetaryAccess=token=>String(token?.scope||'').split(/\s+/).includes(MONETARY_SCOPE);
@@ -127,12 +128,28 @@ export class StudioAnalytics extends YouTubeAnalytics {
     return this.single(key,async()=>{const d=await run();if(generation!==this.generation)throw staleError();this.cache.set(key,{at:this.now(),data:d});while(this.cache.size>24)this.cache.delete(this.cache.keys().next().value);return {...d,cached:false}});
   }
   async enrich(channelId,d,id=null){
+    const generation=this.generation;
     const metadata=await this.metadata(channelId,id?[id]:(d.topVideos||[]).map(v=>v.id),{publicFallback:!id||d.hasData});d.warnings.push(...metadata.warnings);
     const byId=new Map(metadata.items.map(x=>[x.id,x]));
     if(id){const item=byId.get(id);d.video={...d.video,...(item?publicVideo(item):{}),lifetime:item?.statistics&&item.dataUpdatedAt&&this.now()-Date.parse(item.dataUpdatedAt)<30*DAY?{views:Number(item.statistics.viewCount||0),likes:item.statistics.likeCount===undefined?null:Number(item.statistics.likeCount),comments:item.statistics.commentCount===undefined?null:Number(item.statistics.commentCount)}:null};}
     else{d.topVideos=d.topVideos?.map(v=>({...v,...(byId.get(v.id)?publicVideo(byId.get(v.id)):{} )}));const c=await this.store.read(channelId);if(c.channel&&this.now()-Date.parse(c.channelUpdatedAt)<30*DAY)d.channel=c.channel;}
     const advanced=await this.advanced(channelId,d.range,id);d.warnings.push(...advanced.warnings);const {warnings:ignored,...fields}=advanced;Object.assign(d,fields);
-    const c=await this.store.read(channelId);d.reach={...aggregateReach(c.reach,d.range,id),status:c.reporting.status||'not_started',error:c.reporting.error||null,lastSync:c.reporting.lastSync||null};d.sync=c.catalog;return d;
+    if(!id)await this.persist(channelId,generation,c=>saveDaily(c,d.daily,d.range,this.now()));
+    const c=await this.store.read(channelId);d.reach={...aggregateReach(c.reach,d.range,id),status:c.reporting.status||'not_started',error:c.reporting.error||null,lastSync:c.reporting.lastSync||null};d.sync=c.catalog;if(!id)d.history=buildDailyHistory(c,d.range,this.now());return d;
+  }
+  async syncDaily(channelId,{force=false}={}){
+    return this.single('daily:'+channelId,async()=>{
+      const generation=this.generation,c=await this.store.read(channelId);
+      if(!force&&c.dailySync?.retryAt&&Date.parse(c.dailySync.retryAt)>this.now())return c.dailySync;
+      const range=analyticsRange(new URLSearchParams({days:'28'}),this.now());
+      try{const rows=await this.report(channelId,range,{metrics:'views,estimatedMinutesWatched,subscribersGained,subscribersLost',dimensions:'day',sort:'day'});
+        await this.persist(channelId,generation,channel=>saveDaily(channel,rows.map(r=>({...r,views:Number(r.views),watchHours:Number(r.estimatedMinutesWatched)/60,subscribersGained:Number(r.subscribersGained),subscribersLost:Number(r.subscribersLost),netSubscribers:Number(r.subscribersGained)-Number(r.subscribersLost)})),range,this.now()));
+      }catch(e){if(e.code==='channel_changed')throw e;await this.persist(channelId,generation,channel=>{channel.dailySync={...channel.dailySync,status:'error',error:{code:e.code||'upstream_error',message:e.message},lastAttempt:new Date(this.now()).toISOString(),retryAt:new Date(this.now()+3600000).toISOString()}});}
+      const current=await this.store.read(channelId),today=pacificToday(this.now());
+      if(force)this.backoff.delete(channelId);
+      if(!current.snapshots?.[today])try{const response=await this.dataRequest(channelId,'channels',{part:'statistics',id:channelId}),own=response.items?.find(x=>x.id===channelId);if(own?.statistics)await this.persist(channelId,generation,channel=>saveSnapshot(channel,own.statistics,this.now()));}catch(e){if(e.code==='channel_changed')throw e;await this.persist(channelId,generation,channel=>{channel.snapshotError={code:e.code||'upstream_error',message:e.message,at:new Date(this.now()).toISOString()}});}
+      this.cache.clear();return (await this.store.read(channelId)).dailySync;
+    });
   }
   async advanced(channelId,range,id){
     const warnings=[],filters=id?{filters:'video=='+id}:{},limited={...filters,metrics:'views,estimatedMinutesWatched'};
@@ -170,7 +187,7 @@ export class StudioAnalytics extends YouTubeAnalytics {
       try{
         const response=await this.dataRequest(channelId,'channels',{part:'snippet,contentDetails,statistics',id:channelId}),channel=response.items?.find(x=>x.id===channelId),playlistId=channel?.contentDetails?.relatedPlaylists?.uploads;
         if(!playlistId)throw Object.assign(Error('Playlist upload channel belum tersedia. Coba sinkronkan kembali.'),{code:'catalog_unavailable'});
-        await this.persist(channelId,generation,c=>{c.channel={id:channel.id,title:channel.snippet?.title,thumbnail:channel.snippet?.thumbnails?.default?.url||null,subscribers:channel.statistics?.hiddenSubscriberCount?null:Number(channel.statistics?.subscriberCount||0),lifetimeViews:Number(channel.statistics?.viewCount||0),videoCount:Number(channel.statistics?.videoCount||0)};c.channelUpdatedAt=new Date(this.now()).toISOString();});
+        await this.persist(channelId,generation,c=>{c.channel={id:channel.id,title:channel.snippet?.title,thumbnail:channel.snippet?.thumbnails?.default?.url||null,subscribers:channel.statistics?.hiddenSubscriberCount?null:Number(channel.statistics?.subscriberCount||0),lifetimeViews:Number(channel.statistics?.viewCount||0),videoCount:Number(channel.statistics?.videoCount||0)};c.channelUpdatedAt=new Date(this.now()).toISOString();saveSnapshot(c,channel.statistics||{},this.now());c.snapshotError=null;});
         let pageToken=state.catalog.nextPageToken||'',done=false,scanned=0;
         for(let page=0;page<4;page++){
           const data=await this.dataRequest(channelId,'playlistItems',{part:'snippet,contentDetails,status',playlistId,maxResults:'50',...(pageToken?{pageToken}:{})}),ids=[];

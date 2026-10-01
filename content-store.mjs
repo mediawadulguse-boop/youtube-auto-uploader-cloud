@@ -89,6 +89,7 @@ function snapshot(content) {
 export class ContentStore {
   constructor(file) { this.file = file; this.chain = Promise.resolve(); this.loaded = null; }
   async load() {
+    if(this.persistence)return this.persistence.read('contents');
     if (!this.loaded) this.loaded = (async () => {
       try {
         const db = JSON.parse(await fs.readFile(this.file, 'utf8'));
@@ -108,6 +109,7 @@ export class ContentStore {
   }
   async read() { return structuredClone(await this.load()); }
   mutate(fn) {
+    if(this.persistence)return this.persistence.mutate('contents',fn);
     const work = this.chain.catch(() => {}).then(async () => {
       const previous = await this.load();
       const next = structuredClone(previous);

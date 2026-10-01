@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.4.1
+# YouTube Content Hub v4.5.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -127,3 +127,9 @@ Aplikasi meminta scope `https://www.googleapis.com/auth/youtube.force-ssl` untuk
 Dashboard menggunakan login admin bersama, cookie HttpOnly/SameSite, dan OAuth state. API konten, Notes, kolom, dan Analytics juga membutuhkan login. Validasi sumber hanya menerima URL http/https. Pemisahan akun/role, komentar tim, serta ekspor kalender/laporan produksi belum termasuk versi ini.
 
 Status antrean: `receiving`, `queued_upload`, `uploading_youtube`, `waiting_publish`, `scheduled_youtube`, `published`, `failed`, `cancelled`.
+
+## PostgreSQL, backup, dan statistik harian
+
+Konfigurasi `DATABASE_URL` dengan referensi database privat Railway. Migrasi otomatis mempertahankan file asli, memverifikasi checksum, dan berhenti jika gagal. Menu **Data & Backup** menyediakan status migrasi, backup manual, unduhan, dan pemeriksaan Analytics. Petunjuk pemulihan ada di [DATA-RECOVERY.md](DATA-RECOVERY.md).
+
+Tab **Statistik Harian** menyajikan subscriber baru/berhenti/bersih, views harian, jam tonton, total channel hasil snapshot, serta perubahan jumlah video publik. Hari tanpa data tetap kosong; total sebelum pencatatan tidak diestimasi.

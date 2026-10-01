@@ -10,6 +10,8 @@ import { ANALYTICS_SCOPES, hasAnalyticsAccess, analyticsRange, analyticsError, r
 import { runUploadWorker,legacyJobAction } from './worker-policy.mjs';
 import { YouTubeManager } from './youtube-manager.mjs';
 import { StudioAnalytics, MONETARY_SCOPE, hasMonetaryAccess } from './studio-analytics.mjs';
+import { PostgresStorage } from './postgres-store.mjs';
+import { gzipSync } from 'node:zlib';
 
 const PORT = Number(process.env.PORT || 3000);
 const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -20,6 +22,7 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const DATA_DIR = process.env.DATA_DIR || path.resolve('data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+let storage=null;
 const contentStore = new ContentStore(path.join(DATA_DIR, 'contents.json'));
 const notesStore = new NotesStore(path.join(DATA_DIR, 'notes.json'));
 const TOKEN_FILE = path.join(DATA_DIR, 'youtube-token.enc.json');
@@ -43,6 +46,7 @@ function initialDb() {
 
 let dbLoad = null;
 async function readDb() {
+  if(storage){if(!dbLoad)dbLoad=storage.read('uploads');try{return await dbLoad}catch(e){dbLoad=null;throw e}}
   if (!dbLoad) dbLoad = (async () => {
     try {
       const parsed = JSON.parse(await fsp.readFile(DB_FILE, 'utf8'));
@@ -61,6 +65,7 @@ function writeDb(db) {
   db.updatedAt = new Date().toISOString();
   const payload = JSON.stringify(db, null, 2);
   writeChain = writeChain.catch(() => {}).then(async () => {
+    if(storage){await storage.write('uploads',JSON.parse(payload));return;}
     const tmp = DB_FILE + '.tmp';
     await fsp.mkdir(path.dirname(DB_FILE), { recursive: true });
     await fsp.writeFile(tmp, payload, 'utf8');
@@ -68,6 +73,18 @@ function writeDb(db) {
   });
   return writeChain;
 }
+
+if(process.env.DATABASE_URL){
+  try{
+    const candidate=await PostgresStorage.connect(process.env.DATABASE_URL,{backupDir:path.join(DATA_DIR,'backups')});
+    await candidate.initialize(async()=>({documents:{uploads:await readDb(),contents:await contentStore.load(),notes:await notesStore.load(),analytics:await analytics.store.load()},files:{uploads:DB_FILE,contents:contentStore.file,notes:notesStore.file,analytics:analytics.store.file}}));
+    storage=candidate;contentStore.persistence=storage;notesStore.persistence=storage;analytics.store.persistence=storage;dbLoad=null;
+    const status=await storage.status();console.log('Storage:',JSON.stringify({mode:'postgresql',migrationVerified:true,migratedAt:status.migratedAt,backupCount:status.backups.length}));
+  }catch(e){console.error('Storage initialization failed. Original files preserved; refusing empty fallback.',e.code||'migration_error');process.exit(1);}
+}
+let backupBusy=false;
+async function backupTick(){if(!storage||backupBusy)return;backupBusy=true;try{await storage.backup('daily')}catch(e){console.error('Backup:',e.code||'backup_failed')}finally{backupBusy=false}}
+setInterval(backupTick,3600000).unref();
 
 function json(res, status, data, headers = {}) {
   const body = JSON.stringify(data);
@@ -685,7 +702,7 @@ setTimeout(workerTick, 1000).unref();
 
 async function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'features.css'].includes(rel)) return false;
+  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'history.js', 'storage.js', 'features.css'].includes(rel)) return false;
   try {
     const data = await fsp.readFile(path.join(PUBLIC_DIR, rel));
     const type = rel.endsWith('.js') ? 'text/javascript; charset=utf-8' : rel.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
@@ -697,6 +714,27 @@ async function serveStatic(res, pathname) {
   }
 }
 
+let validationWork=null;
+async function verifyAnalytics(){
+  if(validationWork)return validationWork;
+  validationWork=(async()=>{
+    const db=await readDb(),token=await loadAnalyticsToken(),channelId=db.channel?.id;
+    if(!channelId||!hasAnalyticsAccess(token))return {channel:'not_authorized',video:'not_checked',revenue:'not_authorized',reach:'not_checked',catalog:'not_checked',errors:[]};
+    const generation=tokenGeneration,analyticsGeneration=analytics.generation;
+    const result={version:'4.5.0',checkedAt:nowIso(),channel:'not_checked',video:'not_checked',revenue:'not_authorized',errors:[]};
+    try{
+      const range=analyticsRange(new URLSearchParams({days:'7'})),report=await analytics.get(channelId,range);
+      result.channel=report.hasData?'ready':'empty';result.lastReportedDay=report.lastReportedDay;result.revenue=report.revenue?.status==='ready'?'ready':report.revenue?.status==='authorization_required'?'not_authorized':'empty';
+      const video=report.topVideos?.[0];if(video){try{const detail=await analytics.getVideo(channelId,video.id,range);result.video=detail.hasData?'ready':'empty';}catch(e){result.video='error';result.errors.push({section:'video',code:e.code||'upstream_error',message:e.message})}}
+      result.errors.push(...report.warnings.filter(w=>['daily','revenue'].includes(w.section)));
+    }catch(e){result.channel='error';result.errors.push({section:'channel',code:e.code||'upstream_error',message:e.message})}
+    const c=await analytics.store.read(channelId);result.catalog=c.catalog.status||'not_checked';result.reach=c.reporting.status||'not_started';if(c.catalog.error)result.errors.push({section:'catalog',...c.catalog.error});if(c.reporting.error)result.errors.push({section:'reach',...c.reporting.error});
+    if(generation!==tokenGeneration||analyticsGeneration!==analytics.generation)throw Object.assign(Error('Koneksi channel berubah'),{status:409});
+    await analytics.store.mutate(channelId,channel=>{channel.validation=result});
+    console.log('Analytics verification:',JSON.stringify({channel:result.channel,video:result.video,lastReportedDay:result.lastReportedDay||null,catalog:result.catalog,reach:result.reach,revenue:result.revenue,errorCodes:result.errors.map(e=>e.code)}));
+    return result;
+  })().finally(()=>{validationWork=null});return validationWork;
+}
 let studioSyncBusy=false;
 async function studioSyncTick(){
   if(studioSyncBusy)return;studioSyncBusy=true;
@@ -704,7 +742,9 @@ async function studioSyncTick(){
     const db=await readDb();if(!db.channel?.id||!hasAnalyticsAccess(await loadAnalyticsToken()))return;
     const c=await analytics.store.read(db.channel.id);
     if(!c.catalog.lastSync||c.catalog.status==='partial'||Date.now()-Date.parse(c.catalog.lastSync)>86400000)await analytics.syncCatalog(db.channel.id);
-    if(c.reporting.job&&(!c.reporting.lastSync||Date.now()-Date.parse(c.reporting.lastSync)>6*3600000))await analytics.syncReach(db.channel.id);
+    if(!c.dailySync?.lastSync||Date.now()-Date.parse(c.dailySync.lastSync)>6*3600000)await analytics.syncDaily(db.channel.id);
+    if((c.reporting.job&&(!c.reporting.lastSync||Date.now()-Date.parse(c.reporting.lastSync)>6*3600000))||(!c.reporting.job&&!c.reporting.lastAttempt))await analytics.syncReach(db.channel.id);
+    if(c.validation?.version!=='4.5.0')await verifyAnalytics();
   }catch(e){console.error('Analytics sync:',e.code||e.message)}finally{studioSyncBusy=false}
 }
 setInterval(studioSyncTick,30*60*1000).unref();setTimeout(studioSyncTick,15000).unref();
@@ -714,8 +754,10 @@ const server = http.createServer(async (req, res) => {
     const u = new URL(req.url, APP_URL);
     const pathname = u.pathname;
 
-    if (req.method === 'GET' && pathname === '/api/health')
-      return json(res, 200, { ok: true, version: '4.4.1', time: nowIso() });
+    if (req.method === 'GET' && pathname === '/api/health'){
+      if(storage)try{await storage.pool.query('SELECT 1')}catch{return json(res,503,{ok:false,version:'4.5.0',storage:'postgresql',error:'Penyimpanan belum tersedia'})}
+      return json(res, 200, { ok: true, version: '4.5.0',storage:storage?'postgresql':'json', time: nowIso() });
+    }
 
     if (req.method === 'GET' && pathname === '/api/session')
       return json(res, 200, { authenticated: isAuthed(req), configMissing: configMissing(), appUrl: APP_URL });
@@ -736,6 +778,21 @@ const server = http.createServer(async (req, res) => {
     if ((pathname.startsWith('/api/') || (pathname.startsWith('/auth/') && !isOAuthCallback)) && !isAuthed(req))
       return json(res, 401, { error: 'Silakan login' });
 
+    if(req.method==='GET'&&pathname==='/api/storage')return json(res,200,storage?await storage.status():{mode:'json',ready:true,backups:[]},{'cache-control':'no-store'});
+    if(pathname==='/api/analytics/diagnostics'&&req.method==='GET'){const db=await readDb();return json(res,200,db.channel?.id?(await analytics.store.read(db.channel.id)).validation||{channel:'not_checked',video:'not_checked',errors:[]}:{channel:'not_authorized',errors:[]},{'cache-control':'no-store'});}
+    if(pathname==='/api/analytics/diagnostics'&&req.method==='POST'){const db=await readDb(),c=db.channel?.id?await analytics.store.read(db.channel.id):null;if(c?.validation?.checkedAt&&Date.now()-Date.parse(c.validation.checkedAt)<60000)return json(res,200,c.validation);if(db.channel?.id&&hasAnalyticsAccess(await loadAnalyticsToken())){analytics.clear();await analytics.syncDaily(db.channel.id,{force:true});await analytics.syncReach(db.channel.id,{force:true});}return json(res,200,await verifyAnalytics(),{'cache-control':'no-store'});}
+    if(req.method==='POST'&&pathname==='/api/storage/backups'){
+      if(!storage)return json(res,409,{error:'Backup PostgreSQL belum tersedia pada mode JSON.'});
+      const backups=await storage.listBackups(),last=backups.find(b=>b.kind==='manual');
+      if(last&&Date.now()-Date.parse(last.createdAt)<60000)return json(res,429,{error:'Tunggu satu menit sebelum membuat backup berikutnya.'});
+      return json(res,201,await storage.backup('manual'),{'cache-control':'no-store'});
+    }
+    const backupMatch=pathname.match(/^\/api\/storage\/backups\/([a-f0-9-]{36})$/);
+    if(req.method==='GET'&&backupMatch){
+      if(!storage)return json(res,409,{error:'Backup belum tersedia'});const backup=await storage.getBackup(backupMatch[1]),body=gzipSync(JSON.stringify({...backup.bundle,digest:backup.digest}));
+      res.writeHead(200,{'content-type':'application/gzip','content-length':body.length,'cache-control':'no-store','content-disposition':`attachment; filename="content-hub-backup-${backup.id}.json.gz"`});res.end(body);return;
+    }
+
     if (req.method === 'GET' && pathname === '/api/state') {
       const db = await readDb();
       const token = await loadToken();
@@ -755,8 +812,8 @@ const server = http.createServer(async (req, res) => {
       if(!db.channel?.id||!await loadToken())return json(res,409,{code:'not_connected',error:'Hubungkan YouTube terlebih dahulu.'});
       if(!hasAnalyticsAccess(token))return json(res,403,{code:'authorization_required',error:'Hubungkan Analytics terlebih dahulu.'});
       const body=await readJson(req),generation=tokenGeneration,channelId=db.channel.id;
-      if(!['catalog','reach'].includes(body.section))return json(res,400,{error:'Pilih sinkronisasi katalog atau Reach.'});
-      const result=body.section==='catalog'?await analytics.syncCatalog(channelId,{force:true}):await analytics.syncReach(channelId,{force:true});
+      if(!['catalog','reach','daily'].includes(body.section))return json(res,400,{error:'Pilih sinkronisasi katalog, Reach, atau statistik harian.'});
+      const result=body.section==='catalog'?await analytics.syncCatalog(channelId,{force:true}):body.section==='daily'?await analytics.syncDaily(channelId,{force:true}):await analytics.syncReach(channelId,{force:true});
       if(generation!==tokenGeneration)return json(res,409,{code:'channel_changed',error:'Koneksi channel berubah.'});
       return json(res,200,{section:body.section,...result},{'cache-control':'no-store'});
     }
@@ -1059,7 +1116,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Content Hub v4.4.1 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Content Hub v4.5.0 listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));
