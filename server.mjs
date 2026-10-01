@@ -4,6 +4,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { URL } from 'node:url';
+import { ContentStore, CONTENT_STAGES } from './content-store.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -14,6 +15,7 @@ const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET || '';
 const DATA_DIR = process.env.DATA_DIR || path.resolve('data');
 const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
+const contentStore = new ContentStore(path.join(DATA_DIR, 'contents.json'));
 const TOKEN_FILE = path.join(DATA_DIR, 'youtube-token.enc.json');
 const PUBLIC_DIR = path.resolve('public');
 const WORKER_INTERVAL_MS = Math.max(2000, Number(process.env.WORKER_INTERVAL_MS || 5000));
@@ -27,27 +29,29 @@ function initialDb() {
   return { version: 1, channel: null, jobs: [], createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
 }
 
+let dbLoad = null;
 async function readDb() {
-  try {
-    const raw = await fsp.readFile(DB_FILE, 'utf8');
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed.jobs)) parsed.jobs = [];
-    return parsed;
-  } catch (e) {
-    if (e.code !== 'ENOENT') console.error('DB read error', e);
-    const db = initialDb();
-    await writeDb(db);
-    return db;
-  }
+  if (!dbLoad) dbLoad = (async () => {
+    try {
+      const parsed = JSON.parse(await fsp.readFile(DB_FILE, 'utf8'));
+      if (!Array.isArray(parsed.jobs)) throw new Error('Struktur jobs tidak valid');
+      return parsed;
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw Object.assign(new Error('Database gagal dibaca. File asli dipertahankan.'), { status: 503 });
+      const db = initialDb(); await writeDb(db); return db;
+    }
+  })();
+  try { return await dbLoad; } catch (e) { dbLoad = null; throw e; }
 }
 
 let writeChain = Promise.resolve();
 function writeDb(db) {
   db.updatedAt = new Date().toISOString();
-  writeChain = writeChain.then(async () => {
+  const payload = JSON.stringify(db, null, 2);
+  writeChain = writeChain.catch(() => {}).then(async () => {
     const tmp = DB_FILE + '.tmp';
     await fsp.mkdir(path.dirname(DB_FILE), { recursive: true });
-    await fsp.writeFile(tmp, JSON.stringify(db, null, 2), 'utf8');
+    await fsp.writeFile(tmp, payload, 'utf8');
     await fsp.rename(tmp, DB_FILE);
   });
   return writeChain;
@@ -266,7 +270,23 @@ function validSchedule(value) {
   return Number.isFinite(d.getTime()) && d.getTime() > Date.now() - 5 * 60_000;
 }
 
-async function createJob(body) {
+let jobCreateChain = Promise.resolve();
+function createJob(body) {
+  const work = jobCreateChain.catch(() => {}).then(() => createJobUnlocked(body));
+  jobCreateChain = work;
+  return work;
+}
+async function createJobUnlocked(body) {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw Object.assign(new Error('Data upload tidak valid'), { status: 400 });
+  const contentId = cleanStr(body.contentId, 100);
+  if (contentId) {
+    const data = await contentStore.read();
+    const content = data.contents.find(c => c.id === contentId);
+    if (!content || content.archived) throw Object.assign(new Error('Konten tidak tersedia untuk upload'), { status: 400 });
+    const db = await readDb();
+    if (db.jobs.some(j => j.contentId === contentId && !['cancelled', 'failed'].includes(j.status)))
+      throw Object.assign(new Error('Konten ini sudah memiliki antrean upload. Periksa antrean terlebih dahulu.'), { status: 409 });
+  }
   const fileName = cleanStr(body.fileName, 255);
   const fileSize = Number(body.fileSize);
   if (!fileName || !Number.isFinite(fileSize) || fileSize <= 0) throw Object.assign(new Error('File video tidak valid'), { status: 400 });
@@ -275,6 +295,7 @@ async function createJob(body) {
   const safeExt = path.extname(fileName).slice(0, 12).replace(/[^.a-zA-Z0-9]/g, '') || '.video';
   const job = {
     id: jobId,
+    contentId: contentId || null,
     order: Number(body.order || Date.now()),
     fileName,
     fileSize,
@@ -639,10 +660,10 @@ setTimeout(workerTick, 1000).unref();
 
 async function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  if (!['index.html', 'app.js'].includes(rel)) return false;
+  if (!['index.html', 'app.js', 'content.js', 'content.css'].includes(rel)) return false;
   try {
     const data = await fsp.readFile(path.join(PUBLIC_DIR, rel));
-    const type = rel.endsWith('.js') ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8';
+    const type = rel.endsWith('.js') ? 'text/javascript; charset=utf-8' : rel.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
     res.writeHead(200, { 'content-type': type, 'cache-control': 'no-store' });
     res.end(data);
     return true;
@@ -657,7 +678,7 @@ const server = http.createServer(async (req, res) => {
     const pathname = u.pathname;
 
     if (req.method === 'GET' && pathname === '/api/health')
-      return json(res, 200, { ok: true, version: '3.3.0', time: nowIso() });
+      return json(res, 200, { ok: true, version: '4.0.0', time: nowIso() });
 
     if (req.method === 'GET' && pathname === '/api/session')
       return json(res, 200, { authenticated: isAuthed(req), configMissing: configMissing(), appUrl: APP_URL });
@@ -687,6 +708,47 @@ const server = http.createServer(async (req, res) => {
         jobs: db.jobs.map(publicJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         redirectUri: `${APP_URL}/auth/google/callback`
       });
+    }
+
+    if (req.method === 'GET' && pathname === '/api/contents') {
+      const data = await contentStore.read();
+      const fields = ['id','title','stage','pillarId','format','priority','owner','deadline','plannedPublishAt','checklist','archived','revision','createdAt','updatedAt'];
+      return json(res, 200, {
+        pillars: data.pillars, stages: CONTENT_STAGES,
+        contents: data.contents.map(c => ({ ...Object.fromEntries(fields.map(k => [k,c[k]])), scriptLength: c.script.length }))
+      });
+    }
+    if (req.method === 'POST' && pathname === '/api/contents')
+      return json(res, 201, { content: await contentStore.create(await readJson(req)) });
+    if (req.method === 'POST' && pathname === '/api/pillars')
+      return json(res, 200, { pillar: await contentStore.savePillar(await readJson(req)) });
+    const contentMatch = pathname.match(/^\/api\/contents\/([0-9a-f-]+)(?:\/(duplicate))?$/i);
+    if (contentMatch) {
+      const contentId = contentMatch[1];
+      if (contentMatch[2] === 'duplicate' && req.method === 'POST')
+        return json(res, 201, { content: await contentStore.duplicate(contentId) });
+      if (!contentMatch[2] && req.method === 'GET') {
+        const data = await contentStore.read();
+        const content = data.contents.find(c => c.id === contentId);
+        if (!content) return json(res, 404, { error: 'Konten tidak ditemukan' });
+        return json(res, 200, { content });
+      }
+      const linkedJobs = () => readDb().then(db => db.jobs.filter(j => j.contentId === contentId && !['cancelled','failed'].includes(j.status)));
+      if (!contentMatch[2] && req.method === 'PATCH') {
+        const body = await readJson(req);
+        const content = await contentStore.update(contentId, body, async (old, next) => {
+          if (old.plannedPublishAt !== next.plannedPublishAt && (await linkedJobs()).length)
+            throw Object.assign(new Error('Jadwal sudah terhubung ke upload YouTube. Kelola jadwal di YouTube Studio.'), { status: 409 });
+        });
+        return json(res, 200, { content });
+      }
+      if (!contentMatch[2] && req.method === 'DELETE') {
+        const body = await readJson(req);
+        const result = await contentStore.remove(contentId, body?.revision, async () => {
+          if ((await linkedJobs()).length) throw Object.assign(new Error('Konten terhubung ke upload YouTube. Gunakan Arsipkan agar riwayat tetap tersedia.'), { status: 409 });
+        });
+        return json(res, 200, result);
+      }
     }
 
     if (req.method === 'GET' && pathname === '/auth/google') {
@@ -828,7 +890,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Cloud v3.3 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Content Hub v4.0 listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));

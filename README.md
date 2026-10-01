@@ -1,42 +1,54 @@
-# YouTube Auto Uploader Cloud v3
+# YouTube Content Hub v4
 
-Cloud dashboard untuk upload banyak video ke YouTube secara **bergantian** dan mengatur **jadwal tayang dari platform**.
+Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
-## Cara kerja
+## Pengelolaan konten
 
-1. Browser mengirim video ke cloud **satu per satu** dengan chunk upload.
-2. Worker cloud mengunggah setiap video ke YouTube **satu per satu** memakai resumable upload.
-3. Video masuk ke YouTube sebagai **Private**.
-4. Setelah upload YouTube selesai, file sementara di cloud dihapus.
-5. Pada waktu yang dijadwalkan, platform memanggil YouTube Data API dan mengubah video menjadi **Public**.
+- **Dashboard:** konten aktif, konten siap upload, jadwal YouTube, progres produksi, deadline terlambat, dan upload gagal.
+- **Kalender:** tampilan bulan, minggu, dan agenda; rencana tayang atau deadline produksi; seluruh tanggal konten menggunakan WIB (`Asia/Jakarta`). Kalender juga menampilkan pekerjaan upload lama yang belum terhubung ke konten.
+- **Kanban:** Ide → Naskah → Produksi → Editing → Review → Siap Upload. Geser kartu pada desktop atau buka detail untuk mengubah tahap pada ponsel.
+- **Semua Konten:** cari berdasarkan judul/penanggung jawab; filter pilar, tahap, format, dan arsip.
+- **Editor:** brief, audiens, penanggung jawab, deadline, hook, script lengkap, CTA, rencana produksi, deskripsi/tag YouTube, dan checklist.
+- **Riset & aset:** simpan catatan fakta/angka dan tautan sumber, dokumen, gambar, atau bahan video. Status verifikasi ditandai secara manual. Lampiran berupa tautan; aplikasi belum menyediakan penyimpanan berkas riset langsung.
+- **Autosave:** perubahan disimpan ke server setelah satu detik. Draft lokal dipertahankan jika penyimpanan gagal. Perubahan dari tab lain menghasilkan konflik versi; pengguna dapat memuat versi server atau menyimpan draft sebagai salinan.
+- **Riwayat:** 30 versi terakhir per konten, dengan pemulihan yang membuat versi baru. Duplikasi menyalin script/bahan dan mengosongkan tanggal/checklist untuk episode baru.
+- **Pilar:** nama dan warna dapat ditambah/diubah, konsisten pada kalender, Kanban, dan daftar.
 
-Dengan desain ini, video tidak perlu disimpan di cloud sampai tanggal tayang.
+Konten tanpa video dan tanpa tanggal tetap tersedia di Kanban/daftar. Status produksi terpisah dari status publikasi. Memindahkan kartu ke Siap Upload tidak menjalankan upload.
 
-## Deployment paling sederhana: GitHub + Railway
+### Menghubungkan konten dengan video
 
-### 1. Deploy repo
+Buka konten → Publikasi → **Siapkan Upload Video**, lalu pilih satu file final. Judul, deskripsi, tag, dan rencana tayang dibawa ke formulir upload. Tekan **Upload & Jadwalkan** untuk mengirim video. Satu konten dihubungkan dengan satu pekerjaan upload aktif; permintaan ganda ditolak.
 
-Di Railway:
+Setelah upload terhubung, kalender menampilkan waktu dari antrean YouTube. Rencana tayang dikunci agar perubahan lokal tidak memberi kesan bahwa jadwal YouTube sudah diubah. Pengaturan ulang video yang sudah terjadwal dilakukan melalui YouTube Studio. Metadata yang diedit dalam ruang konten setelah upload tidak otomatis memperbarui video di YouTube.
 
-- New Project → Deploy from GitHub Repo
-- Pilih `mediawadulguse-boop/youtube-auto-uploader-cloud`
-- Railway akan membaca `Dockerfile` secara otomatis.
+## Cara kerja upload
 
-### 2. Tambahkan Persistent Volume
+1. Browser mengirim video ke cloud satu per satu menggunakan chunk upload.
+2. Worker mengirim video satu per satu ke YouTube melalui resumable upload.
+3. Video diunggah sebagai Private dengan `status.publishAt`; YouTube Studio menampilkan Scheduled.
+4. File video sementara di cloud dihapus setelah upload selesai.
+5. YouTube menerbitkan video sesuai jadwal; worker menyinkronkan status sesudah waktu tayang.
 
-Worker menyimpan queue, token terenkripsi, dan video sementara di `/data`.
+Pengaturan Related Video untuk Shorts tetap diselesaikan di YouTube Studio melalui tombol yang tersedia.
 
-Tambahkan Railway Volume dan mount ke:
+## Menjalankan dan menguji
 
-```text
-/data
+Node.js 22 atau lebih baru. Tidak ada dependency produksi tambahan.
+
+```sh
+npm start
+npm run check
+npm test
 ```
 
-Tanpa volume, queue/token akan hilang saat instance dibuat ulang.
+Pengujian menggunakan direktori sementara, tidak menghubungi YouTube, dan mencakup CRUD, konflik versi, perubahan serentak, validasi, riwayat, penyimpanan, serta hubungan konten dengan upload.
 
-### 3. Isi environment variables
+## Deployment GitHub + Railway
 
-Gunakan `.env.example` sebagai acuan:
+1. Deploy repo `mediawadulguse-boop/youtube-auto-uploader-cloud`. Railway membaca `Dockerfile`.
+2. Tambahkan persistent volume dan mount di `/data`.
+3. Isi environment variables berdasarkan `.env.example`:
 
 ```text
 APP_URL=https://DOMAIN-RAILWAY-ANDA
@@ -49,53 +61,26 @@ DATA_DIR=/data
 
 Buat `APP_SECRET` minimal 32 karakter acak. Jangan commit secret ke GitHub.
 
-### 4. Buat Google OAuth Web Application
+### Penyimpanan
 
-Di Google Cloud Console:
+- `/data/db.json`: channel dan antrean upload lama maupun baru.
+- `/data/contents.json`: konten, script, bahan riset, pilar, serta riwayat.
+- `/data/youtube-token.enc.json`: refresh token terenkripsi.
+- `/data/uploads/`: video sementara.
 
-1. Aktifkan **YouTube Data API v3**.
-2. Buka Google Auth Platform → Clients.
-3. Create client → **Web application**.
-4. Tambahkan Authorized redirect URI persis:
+Update dari v3 mempertahankan database antrean dan token yang ada. Data konten dibuat saat pertama kali disimpan. Seluruh data tersebut perlu persistent volume agar tetap tersedia saat redeploy. Gunakan satu instance aplikasi untuk penyimpanan berbasis berkas ini; beberapa instance yang menulis volume yang sama belum didukung. File database yang rusak ditolak dan dipertahankan, bukan diganti dengan database kosong.
 
-```text
-https://DOMAIN-RAILWAY-ANDA/auth/google/callback
-```
+## Google OAuth
 
-Scheme, domain, path, dan slash harus sama persis dengan `APP_URL` aplikasi.
+1. Aktifkan YouTube Data API v3 di Google Cloud.
+2. Buat OAuth client **Web application**.
+3. Tambahkan redirect URI persis `https://DOMAIN-RAILWAY-ANDA/auth/google/callback`.
+4. Salin Client ID dan Client Secret ke environment Railway.
 
-5. Salin Client ID dan Client Secret ke environment Railway.
+Aplikasi meminta scope `https://www.googleapis.com/auth/youtube.force-ssl`. Refresh token disimpan terenkripsi AES-256-GCM memakai `APP_SECRET`. Konfigurasi Google tidak wajib untuk menyimpan ide/script, tetapi wajib untuk menghubungkan YouTube.
 
-Aplikasi meminta scope:
+## Keamanan dan batas versi ini
 
-```text
-https://www.googleapis.com/auth/youtube.force-ssl
-```
+Dashboard menggunakan login admin bersama, cookie HttpOnly/SameSite, dan OAuth state. API konten juga membutuhkan login. Validasi sumber hanya menerima URL http/https. Pemisahan akun/role, komentar tim, ekspor laporan, dan analitik performa belum termasuk versi ini.
 
-Refresh token disimpan terenkripsi AES-256-GCM menggunakan `APP_SECRET`.
-
-## Status Queue
-
-- `receiving`: browser sedang mengirim video ke cloud
-- `queued_upload`: siap dikirim ke YouTube
-- `uploading_youtube`: worker sedang upload ke YouTube
-- `waiting_publish`: sudah ada di YouTube sebagai Private dan menunggu jadwal platform
-- `publishing`: platform sedang mengubah ke Public
-- `published`: sudah tayang
-- `failed`: gagal dan dapat di-retry
-- `cancelled`: dibatalkan
-
-## Keamanan
-
-- Jangan menaruh OAuth Client Secret atau `APP_SECRET` di repository.
-- Dashboard dilindungi `ADMIN_PASSWORD`.
-- Session cookie HttpOnly + SameSite=Lax + Secure pada HTTPS.
-- OAuth menggunakan `state` untuk proteksi CSRF.
-- Refresh token disimpan terenkripsi pada persistent volume.
-- Source repo boleh publik selama tidak ada secret, tetapi untuk aplikasi internal disarankan ubah repository menjadi **Private**.
-
-## Catatan YouTube
-
-Upload memakai YouTube resumable upload. Worker memproses satu upload pada satu waktu agar sederhana dan stabil. Jadwal publikasi dikelola platform ini, bukan `status.publishAt` YouTube.
-
-Project YouTube API yang belum memenuhi kebijakan/audit Google tertentu dapat memiliki pembatasan terhadap video yang diupload melalui API. Pastikan konfigurasi OAuth consent screen dan status project Google Cloud sesuai penggunaan aplikasi Anda.
+Status antrean: `receiving`, `queued_upload`, `uploading_youtube`, `waiting_publish`, `scheduled_youtube`, `published`, `failed`, `cancelled`.
