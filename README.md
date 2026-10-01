@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.3.0
+# YouTube Content Hub v4.3.1
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -13,7 +13,7 @@ Status memakai badge ikon + warna + teks di Kanban, dashboard, kalender, daftar,
 - **Dashboard:** konten aktif, konten siap upload, jadwal YouTube, progres produksi, deadline terlambat, dan upload gagal.
 - **Kalender:** tampilan bulan, minggu, dan agenda; rencana tayang atau deadline produksi; seluruh tanggal konten menggunakan WIB (`Asia/Jakarta`). Kalender juga menampilkan pekerjaan upload lama yang belum terhubung ke konten.
 - **Kanban:** Ide → Naskah → Produksi → Editing → Review → Siap Upload. Papan bergaya Trello dengan kolom abu-abu, kartu putih, label pilar, badge deadline/checklist, dan inisial penanggung jawab. Tambah kartu langsung pada kolom, geser kartu pada desktop, atau gunakan tombol pindah kartu pada ponsel. Papan dapat digeser horizontal, dan posisi scroll/draft kartu dipertahankan saat sinkronisasi. Melalui tombol **Kolom**, tambah/ubah nama, warna, ikon, urutan, dan penanda selesai (maksimal 24 kolom). Saat menghapus kolom, pilih kolom tujuan; seluruh kartu termasuk arsip dipindahkan tanpa kehilangan script/riset/jadwal. Perubahan kolom tidak menjalankan upload. Urutan kartu manual belum tersedia.
-- **Notes & Prompt:** simpan catatan atau prompt dengan isi multiline, tag, pin, pencarian isi, duplikasi, dan arsip. Autosave dengan pemeriksaan revisi; draft lokal dapat dipulihkan atau disimpan sebagai salinan jika ada konflik. Isi dapat disalin untuk digunakan saat produksi.
+- **Note:** simpan catatan dengan kategori custom (maksimal 100 kategori, nama 60 karakter), isi multiline, tag, pin, pencarian isi, duplikasi, dan arsip. Autosave dengan pemeriksaan revisi; draft lokal dapat dipulihkan atau disimpan sebagai salinan jika ada konflik. Isi dapat disalin untuk digunakan saat produksi.
 - **Semua Konten:** cari berdasarkan judul/penanggung jawab; filter pilar, tahap, format, dan arsip.
 - **Editor:** brief, audiens, penanggung jawab, deadline, hook, script lengkap, CTA, rencana produksi, deskripsi/tag YouTube, dan checklist.
 - **Riset & aset:** simpan catatan fakta/angka dan tautan sumber, dokumen, gambar, atau bahan video. Status verifikasi ditandai secara manual. Lampiran berupa tautan; aplikasi belum menyediakan penyimpanan berkas riset langsung.
@@ -63,7 +63,7 @@ npm run check
 npm test
 ```
 
-Pengujian menggunakan direktori sementara dan respons Google simulasi, tidak menghubungi YouTube. Mencakup CRUD Notes/konten, migrasi schema, kolom custom dan pemindahan kartu/arsip, konflik versi, penyimpanan, hubungan konten/upload, query Analytics, cache, kuota/izin, tanggal Pacific, OAuth tambahan, pemeliharaan token lama jika koneksi gagal, refresh token serentak per jenis koneksi, serta koneksi Analytics saat kuota Data API habis.
+Pengujian menggunakan direktori sementara dan respons Google simulasi, tidak menghubungi YouTube. Mencakup CRUD Note/konten, kategori custom dan kompatibilitas catatan lama, migrasi schema, kolom custom dan pemindahan kartu/arsip, konflik versi, penyimpanan, hubungan konten/upload, query Analytics, cache, kuota/izin, tanggal Pacific, OAuth tambahan, pemeliharaan token lama jika koneksi gagal, refresh token serentak per jenis koneksi, serta koneksi Analytics saat kuota Data API habis.
 
 ## Deployment GitHub + Railway
 
@@ -87,7 +87,7 @@ Buat `APP_SECRET` minimal 32 karakter acak. Jangan commit secret ke GitHub.
 - `/data/db.json`: channel dan antrean upload lama maupun baru.
 - `/data/contents.json`: konten, script, bahan riset, pilar, kolom Kanban custom, serta riwayat (schema v2).
 - `/data/contents.v1.backup.json`: salinan schema lama sebelum penulisan pertama setelah migrasi v4.3.
-- `/data/notes.json`: catatan dan prompt pribadi.
+- `/data/notes.json`: catatan pribadi dan daftar kategori custom.
 - `/data/youtube-token.enc.json`: refresh token upload terenkripsi.
 - `/data/youtube-analytics-token.enc.json`: token Analytics terenkripsi, terikat pada ID channel. Token gabungan v4.1 sebelumnya tetap didukung.
 - `/data/uploads/`: video sementara.

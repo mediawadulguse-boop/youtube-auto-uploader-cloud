@@ -50,3 +50,12 @@ test('Notes keep multiline prompts, survive restart, reject stale edits/deletes 
  await store.remove(note.id,2);assert.equal((await new NotesStore(file).read()).notes.length,7);
  await fs.writeFile(file,'{broken');await assert.rejects(new NotesStore(file).create({title:'No overwrite'}),e=>e.status===503);assert.equal(await fs.readFile(file,'utf8'),'{broken');
 }));
+test('custom Note categories persist, deduplicate concurrent writes and preserve legacy Notes',()=>temporary(async dir=>{
+ const file=path.join(dir,'notes.json'),legacy={version:1,notes:[{id:'legacy',title:'Simpan',body:'Isi asli\n🌟',kind:'prompt',tags:['ide'],pinned:true,archived:false,revision:7,createdAt:'2026-10-01',updatedAt:'2026-10-01'}]};const original=JSON.stringify(legacy);await fs.writeFile(file,original);
+ const store=new NotesStore(file);const before=await store.read();assert.equal(before.notes[0].category,'');assert.equal(before.notes[0].body,legacy.notes[0].body);assert.equal(before.notes[0].revision,7);assert.equal(await fs.readFile(file,'utf8'),original);
+ await Promise.all([' Riset ','riset','RISET'].map(name=>store.createCategory({name})));assert.deepEqual((await store.read()).categories,['Riset']);
+ const changed=await store.update('legacy',{revision:7,category:'riset'});assert.equal(changed.category,'Riset');assert.equal(changed.revision,8);assert.equal(changed.body,legacy.notes[0].body);assert.equal(changed.kind,'prompt');
+ const note=await store.create({title:'New',category:'Produksi'});assert.equal(note.category,'Produksi');assert.equal((await store.update(note.id,{revision:1,category:'produksi'})).revision,1);
+ const cleared=await store.update(note.id,{revision:1,category:''});assert.equal(cleared.category,'');const restart=await new NotesStore(file).read();assert.deepEqual(restart.categories,['Riset','Produksi']);assert.equal(restart.notes.find(n=>n.id==='legacy').body,legacy.notes[0].body);
+ await assert.rejects(store.createCategory({name:' '}),e=>e.status===400);await assert.rejects(store.create({title:'Invalid',category:'x'.repeat(61)}),e=>e.status===400);await assert.rejects(store.update('legacy',{revision:7,category:'Stale'}),e=>e.status===409);assert.ok(!(await store.read()).categories.includes('Stale'));
+}));

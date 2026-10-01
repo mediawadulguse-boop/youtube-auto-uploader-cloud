@@ -54,6 +54,15 @@ test('Notes and columns APIs require login and support full-body search and cust
  assert.equal((await request('/api/columns/'+col.id,'DELETE',{boardRevision:added.data.boardRevision,moveTo:'idea'})).status,200);assert.equal((await request('/api/contents/'+c.id)).data.content.script,'Data aman');
  for(const asset of ['notes.js','board-settings.js','video-analytics.js','features.css'])assert.equal((await fetch(base+'/'+asset)).status,200);
 });
+test('category API is private and custom filters distinguish category names from uncategorized Notes',async()=>{
+ assert.equal((await request('/api/note-categories','POST',{name:'Private'},false)).status,401);
+ const category=await request('/api/note-categories','POST',{name:'Riset'});assert.equal(category.status,201);assert.ok(category.data.categories.includes('Riset'));
+ const note=(await request('/api/notes','POST',{title:'Custom category',category:'Riset',body:'Isi aman'})).data.note;
+ const selected=await request('/api/notes?category=Riset');assert.equal(selected.data.notes.length,1);assert.equal(selected.data.notes[0].id,note.id);assert.ok(selected.data.categories.includes('Riset'));
+ const reserved=(await request('/api/notes','POST',{title:'Valid name',category:'uncategorized'})).data.note;assert.equal((await request('/api/notes?category=uncategorized')).data.notes[0].id,reserved.id);
+ assert.ok((await request('/api/notes?category=')).data.notes.every(n=>n.category===''));assert.equal((await request('/api/notes?q=Riset')).data.notes[0].id,note.id);
+ assert.equal((await request('/api/note-categories','POST',{name:'x'.repeat(61)})).status,400);
+});
 test('upload linking prevents duplicate jobs and locks the YouTube schedule',async()=>{
   const c=(await request('/api/contents','POST',{title:'Video terhubung',plannedPublishAt:'2026-10-10T02:00:00Z'})).data.content;
   const body={contentId:c.id,title:c.title,fileName:'final.mp4',fileSize:4,scheduledAt:new Date(Date.now()+3600000).toISOString()};

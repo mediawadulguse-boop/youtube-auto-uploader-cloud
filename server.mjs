@@ -728,7 +728,7 @@ const server = http.createServer(async (req, res) => {
     const pathname = u.pathname;
 
     if (req.method === 'GET' && pathname === '/api/health')
-      return json(res, 200, { ok: true, version: '4.3.0', time: nowIso() });
+      return json(res, 200, { ok: true, version: '4.3.1', time: nowIso() });
 
     if (req.method === 'GET' && pathname === '/api/session')
       return json(res, 200, { authenticated: isAuthed(req), configMissing: configMissing(), appUrl: APP_URL });
@@ -810,10 +810,11 @@ const server = http.createServer(async (req, res) => {
     if(columnMatch&&req.method==='PATCH')return json(res,200,await contentStore.saveColumn(await readJson(req),columnMatch[1]));
     if(columnMatch&&req.method==='DELETE')return json(res,200,await contentStore.removeColumn(columnMatch[1],await readJson(req)));
     if(pathname==='/api/notes'&&req.method==='GET'){
-      const db=await notesStore.read(),q=(u.searchParams.get('q')||'').slice(0,300).toLocaleLowerCase('id-ID'),kind=u.searchParams.get('kind'),archived=u.searchParams.get('archived')==='1';
-      const notes=db.notes.filter(n=>n.archived===archived&&(!kind||n.kind===kind)&&(!q||[n.title,n.body,...n.tags].join(' ').toLocaleLowerCase('id-ID').includes(q))).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||b.updatedAt.localeCompare(a.updatedAt));
-      return json(res,200,{notes:notes.map(n=>{const {body,...rest}=n;return {...rest,preview:body.slice(0,280),bodyLength:body.length}})},{'cache-control':'no-store'});
+      const db=await notesStore.read(),q=(u.searchParams.get('q')||'').slice(0,300).toLocaleLowerCase('id-ID'),kind=u.searchParams.get('kind'),category=u.searchParams.get('category'),archived=u.searchParams.get('archived')==='1';
+      const notes=db.notes.filter(n=>n.archived===archived&&(!kind||n.kind===kind)&&(category===null||n.category.toLocaleLowerCase('id-ID')===category.toLocaleLowerCase('id-ID'))&&(!q||[n.title,n.body,n.category,...n.tags].join(' ').toLocaleLowerCase('id-ID').includes(q))).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||b.updatedAt.localeCompare(a.updatedAt));
+      return json(res,200,{categories:db.categories,notes:notes.map(n=>{const {body,...rest}=n;return {...rest,preview:body.slice(0,280),bodyLength:body.length}})},{'cache-control':'no-store'});
     }
+    if(pathname==='/api/note-categories'&&req.method==='POST')return json(res,201,await notesStore.createCategory(await readJson(req)));
     if(pathname==='/api/notes'&&req.method==='POST')return json(res,201,{note:await notesStore.create(await readJson(req))});
     const noteMatch=pathname.match(/^\/api\/notes\/([0-9a-f-]{36})$/i);
     if(noteMatch){
@@ -1028,7 +1029,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Content Hub v4.3.0 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Content Hub v4.3.1 listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));
