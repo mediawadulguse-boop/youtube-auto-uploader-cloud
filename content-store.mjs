@@ -65,7 +65,7 @@ function normalize(input, db, base = blank()) {
     out[key] = input[key].map(item => {
       if (!item || typeof item !== 'object') throw fail('Bahan tidak valid');
       return { id: typeof item.id === 'string' && /^[0-9a-f-]{36}$/i.test(item.id) ? item.id : crypto.randomUUID(), label: text(item.label || '', 300), url: url(item.url || ''), notes: text(item.notes || '', 10000), verified: item.verified === true };
-    });
+    }).filter(item=>[item.label,item.url,item.notes].some(value=>value.trim()));
   }
   return out;
 }
@@ -123,6 +123,7 @@ export class ContentStore {
   }
   create(body) {
     return this.mutate(db => {
+      if(typeof body?.title!=='string'||!body.title.trim())throw fail('Judul konten wajib diisi');
       const now = new Date().toISOString();
       const content = { ...normalize(body, db, {...blank(),stage:db.columns[0].id}), id: crypto.randomUUID(), revision: 1, createdAt: now, updatedAt: now, history: [] };
       db.contents.unshift(content); return content;
@@ -178,6 +179,7 @@ export class ContentStore {
   }
   saveColumn(body, id = null) {
     return this.mutate(db=>{
+      if(!id&&(typeof body?.name!=='string'||!body.name.trim()))throw fail('Nama kolom wajib diisi');
       checkBoardRevision(db,body?.boardRevision);
       const old=id?db.columns.find(c=>c.id===id):null;
       if(id&&!old)throw fail('Kolom tidak ditemukan',404);

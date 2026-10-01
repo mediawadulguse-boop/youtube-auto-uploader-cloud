@@ -55,7 +55,21 @@ test('custom Note categories persist, deduplicate concurrent writes and preserve
  const store=new NotesStore(file);const before=await store.read();assert.equal(before.notes[0].category,'');assert.equal(before.notes[0].body,legacy.notes[0].body);assert.equal(before.notes[0].revision,7);assert.equal(await fs.readFile(file,'utf8'),original);
  await Promise.all([' Riset ','riset','RISET'].map(name=>store.createCategory({name})));assert.deepEqual((await store.read()).categories,['Riset']);
  const changed=await store.update('legacy',{revision:7,category:'riset'});assert.equal(changed.category,'Riset');assert.equal(changed.revision,8);assert.equal(changed.body,legacy.notes[0].body);assert.equal(changed.kind,'prompt');
- const note=await store.create({title:'New',category:'Produksi'});assert.equal(note.category,'Produksi');assert.equal((await store.update(note.id,{revision:1,category:'produksi'})).revision,1);
+ await store.createCategory({name:'Produksi'});const note=await store.create({title:'New',category:'Produksi'});assert.equal(note.category,'Produksi');assert.equal((await store.update(note.id,{revision:1,category:'produksi'})).revision,1);
  const cleared=await store.update(note.id,{revision:1,category:''});assert.equal(cleared.category,'');const restart=await new NotesStore(file).read();assert.deepEqual(restart.categories,['Riset','Produksi']);assert.equal(restart.notes.find(n=>n.id==='legacy').body,legacy.notes[0].body);
  await assert.rejects(store.createCategory({name:' '}),e=>e.status===400);await assert.rejects(store.create({title:'Invalid',category:'x'.repeat(61)}),e=>e.status===400);await assert.rejects(store.update('legacy',{revision:7,category:'Stale'}),e=>e.status===409);assert.ok(!(await store.read()).categories.includes('Stale'));
+}));
+test('typing categories cannot register them; empty forms fail without writing; explicit category edits preserve Note text',()=>temporary(async dir=>{
+ const file=path.join(dir,'notes.json'),store=new NotesStore(file);await assert.rejects(store.create({}),e=>e.status===400);await assert.rejects(store.create({title:' '}),e=>e.status===400);await assert.rejects(fs.readFile(file),e=>e.code==='ENOENT');
+ const note=await store.create({title:'Existing',body:'Isi penting\n🌟',archived:true});const original=await fs.readFile(file,'utf8');
+ for(const category of ['B','BLU','BLUE'])await assert.rejects(store.update(note.id,{revision:1,category}),e=>e.status===400);assert.equal(await fs.readFile(file,'utf8'),original);assert.deepEqual((await store.read()).categories,[]);
+ const added=await store.createCategory({name:'BLUEPRINT'});const assigned=await store.update(note.id,{revision:1,category:'BLUEPRINT'});assert.equal(assigned.body,note.body);
+ const renamed=await store.changeCategory({name:'BLUEPRINT',newName:'Riset',categoriesRevision:added.categoriesRevision});const current=(await store.read()).notes[0];assert.equal(current.category,'Riset');assert.equal(current.body,note.body);assert.equal(current.archived,true);await assert.rejects(store.update(note.id,{revision:assigned.revision,title:'Stale'}),e=>e.status===409);
+ await assert.rejects(store.changeCategory({name:'Riset',categoriesRevision:added.categoriesRevision},true),e=>e.status===409);
+ await store.changeCategory({name:'Riset',categoriesRevision:renamed.categoriesRevision},true);const restart=await new NotesStore(file).read();assert.deepEqual(restart.categories,[]);assert.equal(restart.notes[0].category,'');assert.equal(restart.notes[0].body,note.body);
+}));
+test('empty content/column names are rejected and blank research rows are excluded without losing real research',()=>temporary(async dir=>{
+ const file=path.join(dir,'contents.json'),store=new ContentStore(file);await assert.rejects(store.create({}),e=>e.status===400);await assert.rejects(store.saveColumn({boardRevision:1}),e=>e.status===400);await assert.rejects(fs.readFile(file),e=>e.code==='ENOENT');
+ const c=await store.create({title:'Research',sources:[{label:' ',notes:'\n',verified:true},{label:'Data',notes:'Angka penting'}],assets:[{label:'',url:'',notes:''}]});assert.equal(c.sources.length,1);assert.equal(c.sources[0].notes,'Angka penting');assert.deepEqual(c.assets,[]);
+ const changed=await store.update(c.id,{revision:1,script:'Naskah tetap',sources:[...c.sources,{notes:''}]});assert.equal(changed.sources.length,1);assert.equal(changed.script,'Naskah tetap');
 }));

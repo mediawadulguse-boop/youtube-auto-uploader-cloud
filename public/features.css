@@ -4,3 +4,5 @@
 
 .note-category-dialog{width:min(520px,94vw)}.note-category-dialog input{font-size:16px}.note-kind{min-width:0;overflow-wrap:anywhere}.note-card-top .icon-button{flex:none}
 .notes-search{min-width:0;max-width:100%}.notes-search select{max-width:100%}
+
+.note-category-list{padding:0 24px 24px}.note-category-list .column-setting-row>strong{overflow-wrap:anywhere;min-width:0}.note-category-list .feature-actions{flex:none}.note-editor #manageNoteCategories{margin-top:8px}@media(max-width:620px){.note-category-list{padding:0 16px 20px}}

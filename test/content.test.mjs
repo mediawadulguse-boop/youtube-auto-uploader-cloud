@@ -59,9 +59,16 @@ test('category API is private and custom filters distinguish category names from
  const category=await request('/api/note-categories','POST',{name:'Riset'});assert.equal(category.status,201);assert.ok(category.data.categories.includes('Riset'));
  const note=(await request('/api/notes','POST',{title:'Custom category',category:'Riset',body:'Isi aman'})).data.note;
  const selected=await request('/api/notes?category=Riset');assert.equal(selected.data.notes.length,1);assert.equal(selected.data.notes[0].id,note.id);assert.ok(selected.data.categories.includes('Riset'));
- const reserved=(await request('/api/notes','POST',{title:'Valid name',category:'uncategorized'})).data.note;assert.equal((await request('/api/notes?category=uncategorized')).data.notes[0].id,reserved.id);
+ await request('/api/note-categories','POST',{name:'uncategorized'});const reserved=(await request('/api/notes','POST',{title:'Valid name',category:'uncategorized'})).data.note;assert.equal((await request('/api/notes?category=uncategorized')).data.notes[0].id,reserved.id);
  assert.ok((await request('/api/notes?category=')).data.notes.every(n=>n.category===''));assert.equal((await request('/api/notes?q=Riset')).data.notes[0].id,note.id);
  assert.equal((await request('/api/note-categories','POST',{name:'x'.repeat(61)})).status,400);
+});
+test('API rejects blank Notes and implicit categories; explicit rename/delete updates existing Note revisions',async()=>{
+ const before=(await request('/api/notes')).data;assert.equal((await request('/api/notes','POST',{})).status,400);assert.equal((await request('/api/notes','POST',{title:'No automatic category',category:'BLU'})).status,400);assert.deepEqual((await request('/api/notes')).data,before);
+ assert.equal((await request('/api/note-categories','PATCH',{name:'Riset',newName:'Other'},false)).status,401);
+ const assigned=before.notes.find(n=>n.category==='Riset');const renamed=await request('/api/note-categories','PATCH',{name:'Riset',newName:'Penelitian',categoriesRevision:before.categoriesRevision});assert.equal(renamed.status,200);assert.equal((await request('/api/notes/'+assigned.id)).data.note.category,'Penelitian');assert.equal((await request('/api/notes/'+assigned.id,'PATCH',{revision:assigned.revision,title:'Stale'})).status,409);
+ const removed=await request('/api/note-categories','DELETE',{name:'Penelitian',categoriesRevision:renamed.data.categoriesRevision});assert.equal(removed.status,200);const note=(await request('/api/notes/'+assigned.id)).data.note;assert.equal(note.category,'');assert.equal(note.body,'Isi aman');
+ assert.equal((await request('/api/contents','POST',{})).status,400);
 });
 test('upload linking prevents duplicate jobs and locks the YouTube schedule',async()=>{
   const c=(await request('/api/contents','POST',{title:'Video terhubung',plannedPublishAt:'2026-10-10T02:00:00Z'})).data.content;
