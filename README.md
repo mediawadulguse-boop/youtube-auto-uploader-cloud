@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.4.0
+# YouTube Content Hub v4.4.1
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -30,6 +30,8 @@ Buka konten → Publikasi → **Siapkan Upload Video**, lalu pilih satu file fin
 Setelah upload terhubung, kalender menampilkan waktu dari antrean YouTube. Rencana tayang dikunci agar perubahan lokal tidak memberi kesan bahwa jadwal YouTube sudah diubah. Pengaturan ulang video yang sudah terjadwal dilakukan melalui YouTube Studio. Metadata yang diedit dalam ruang konten setelah upload tidak otomatis memperbarui video di YouTube.
 
 ## Cara kerja upload
+
+Worker mempertahankan status/offset job saat kuota habis dan menyimpan jeda satu jam pada database, termasuk setelah redeploy. Pemeriksaan video terjadwal yang masih private dibatasi satu kali per menit per job. Error hanya mengubah job yang sedang diproses; status/jadwal job lain dipertahankan. Kegagalan sementara diberi jeda, sedangkan kegagalan permanen dapat dicoba ulang melalui antrean.
 
 1. Browser mengirim video ke cloud satu per satu menggunakan chunk upload.
 2. Worker mengirim video satu per satu ke YouTube melalui resumable upload.

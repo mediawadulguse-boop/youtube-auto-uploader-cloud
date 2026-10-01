@@ -7,6 +7,7 @@ import { URL } from 'node:url';
 import { ContentStore } from './content-store.mjs';
 import { NotesStore } from './notes-store.mjs';
 import { ANALYTICS_SCOPES, hasAnalyticsAccess, analyticsRange, analyticsError, reportRows, validateVideoId } from './analytics.mjs';
+import { runUploadWorker,legacyJobAction } from './worker-policy.mjs';
 import { YouTubeManager } from './youtube-manager.mjs';
 import { StudioAnalytics, MONETARY_SCOPE, hasMonetaryAccess } from './studio-analytics.mjs';
 
@@ -612,6 +613,15 @@ async function scheduleExistingPrivateJob(jobId) {
   if (!job?.youtubeVideoId) throw new Error('Video YouTube belum tersedia');
 
   const current = await fetchYouTubeStatus(job.youtubeVideoId);
+  const action=legacyJobAction(current,job.scheduledAt);
+  if(action!=='schedule'){
+    // An old quota failure used to downgrade native scheduled jobs to waiting_publish.
+    // Respect YouTube's existing visibility and schedule instead of rewriting them.
+    job.status=action;job.error=null;job.updatedAt=nowIso();
+    if(action==='published')job.publishedAt??=nowIso();
+    else if(Number.isFinite(Date.parse(current.publishAt)))job.scheduledAt=current.publishAt;
+    await writeDb(db);return;
+  }
   const status = {
     privacyStatus: 'private',
     publishAt: job.scheduledAt,
@@ -664,51 +674,11 @@ async function syncScheduledJob(jobId) {
 
 async function safeDelete(file) { try { await fsp.unlink(file); } catch {} }
 
-let workerBusy = false;
-async function workerTick() {
-  if (workerBusy) return;
-  workerBusy = true;
-  try {
-    const db = await readDb();
-    // Migrasi otomatis job lama yang sudah Private: pasang publishAt sekarang,
-    // tidak menunggu jam tayang.
-    const legacyPrivate = db.jobs
-      .filter(j => j.status === 'waiting_publish' && j.youtubeVideoId)
-      .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))[0];
-    if (legacyPrivate) {
-      await scheduleExistingPrivateJob(legacyPrivate.id);
-      return;
-    }
-
-    // Sesudah waktu tayang, hanya sinkronkan status. YouTube yang menerbitkan.
-    const syncable = db.jobs
-      .filter(j => j.status === 'scheduled_youtube' && new Date(j.scheduledAt).getTime() <= Date.now())
-      .sort((a, b) => new Date(a.scheduledAt) - new Date(b.scheduledAt))[0];
-    if (syncable) {
-      await syncScheduledJob(syncable.id);
-      return;
-    }
-
-    const uploadable = db.jobs
-      .filter(j => ['queued_upload', 'uploading_youtube'].includes(j.status) && j.receivedBytes === j.fileSize)
-      .sort((a, b) => a.order - b.order)[0];
-    if (uploadable) {
-      await uploadJobToYouTube(uploadable.id);
-      return;
-    }
-  } catch (e) {
-    console.error('Worker error:', e.message);
-    const db = await readDb();
-    const current = db.jobs.find(j => ['uploading_youtube', 'waiting_publish', 'scheduled_youtube'].includes(j.status));
-    if (current) {
-      current.status = current.youtubeVideoId ? 'waiting_publish' : 'failed';
-      current.error = e.message;
-      current.updatedAt = nowIso();
-      await writeDb(db);
-    }
-  } finally {
-    workerBusy = false;
-  }
+let workerBusy=false;
+async function workerTick(){
+  if(workerBusy)return;workerBusy=true;
+  try{await runUploadWorker({readDb,writeDb,upload:uploadJobToYouTube,schedule:scheduleExistingPrivateJob,sync:syncScheduledJob,onError:failure=>console.error('Worker:',failure.code,failure.message)})}
+  catch(e){console.error('Worker storage error:',e.message)}finally{workerBusy=false}
 }
 setInterval(workerTick, WORKER_INTERVAL_MS).unref();
 setTimeout(workerTick, 1000).unref();
@@ -745,7 +715,7 @@ const server = http.createServer(async (req, res) => {
     const pathname = u.pathname;
 
     if (req.method === 'GET' && pathname === '/api/health')
-      return json(res, 200, { ok: true, version: '4.4.0', time: nowIso() });
+      return json(res, 200, { ok: true, version: '4.4.1', time: nowIso() });
 
     if (req.method === 'GET' && pathname === '/api/session')
       return json(res, 200, { authenticated: isAuthed(req), configMissing: configMissing(), appUrl: APP_URL });
@@ -774,6 +744,7 @@ const server = http.createServer(async (req, res) => {
         youtubeConnected: !!token,
         analyticsAuthorized: hasAnalyticsAccess(await loadAnalyticsToken()),
         monetaryAuthorized: hasMonetaryAccess(await loadAnalyticsToken()),
+        youtubeWorker:db.youtubeWorker||null,
         jobs: db.jobs.map(publicJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         redirectUri: `${APP_URL}/auth/google/callback`
       });
@@ -1088,7 +1059,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Content Hub v4.4.0 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Content Hub v4.4.1 listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));
