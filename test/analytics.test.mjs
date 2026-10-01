@@ -67,10 +67,10 @@ test('disconnect invalidates a report already in flight', async () => {
   const work = api.get('channel', range); api.clear(); resolve(); await assert.rejects(work, e => e.code === 'channel_changed'); assert.equal(api.cache.size, 0);
 });
 
-let server, stub, directory, base, cookie, stubBase, captured = [], refreshes = 0;
+let server, stub, directory, base, cookie, stubBase, captured = [], refreshes = 0, dataQuota = false;
 const secret = 'test-only-analytics-secret', password = 'test-only-password';
 function decryptToken(payload) { const key = crypto.createHash('sha256').update(secret).digest(); const d = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(payload.iv, 'base64')); d.setAuthTag(Buffer.from(payload.tag, 'base64')); return JSON.parse(Buffer.concat([d.update(Buffer.from(payload.data, 'base64')), d.final()])); }
-async function readToken() { return decryptToken(JSON.parse(await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8'))); }
+async function readToken(kind = 'upload') { return decryptToken(JSON.parse(await fs.readFile(path.join(directory, kind === 'analytics' ? 'youtube-analytics-token.enc.json' : 'youtube-token.enc.json'), 'utf8'))); }
 async function request(route, { method = 'GET', body, authed = true, extraCookie = '' } = {}) { return fetch(base + route, { method, redirect: 'manual', headers: { 'content-type': 'application/json', ...(authed ? { cookie: cookie + (extraCookie ? '; ' + extraCookie : '') } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) }); }
 before(async () => {
   directory = await fs.mkdtemp(path.join(os.tmpdir(), 'yt-analytics-test-'));
@@ -80,11 +80,16 @@ before(async () => {
     if (u.pathname === '/token') {
       const chunks = []; for await (const c of req) chunks.push(c); const params = new URLSearchParams(Buffer.concat(chunks).toString()); const code = params.get('code');
       if (params.get('grant_type') === 'refresh_token') { refreshes++; await new Promise(r => setTimeout(r, 30)); }
-      data = { access_token: code === 'bad-channel' ? 'bad-channel' : code === 'different-no-refresh' ? 'other' : 'test-access', expires_in: code === 'expired' ? -1 : 3600, scope: code === 'legacy' ? uploadScope : fakeScopes, ...(code?.includes('no-refresh') ? {} : { refresh_token: 'test-refresh' }) };
+      data = { access_token: code === 'bad-channel' ? 'bad-channel' : code === 'different-no-refresh' ? 'other' : 'test-access', expires_in: code === 'expired' ? -1 : 3600, scope: code === 'legacy' ? uploadScope : code === 'analytics-only' ? ANALYTICS_SCOPES.join(' ') : fakeScopes, ...(code?.includes('no-refresh') ? {} : { refresh_token: 'test-refresh' }) };
+    } else if (dataQuota && u.pathname.startsWith('/youtube/v3/')) {
+      status = 403; data = { error: { errors: [{ reason: 'quotaExceeded' }], message: 'Quota exceeded' } };
     } else if (u.pathname.endsWith('/channels')) {
       if (req.headers.authorization === 'Bearer bad-channel') { status = 403; data = { error: { message: 'Test channel unavailable' } }; }
       else data = { items: [{ id: req.headers.authorization === 'Bearer other' ? 'channel-other' : 'channel-test', snippet: { title: 'REFRAME Test' }, statistics: { subscriberCount: '100' } }] };
-    } else if (u.pathname === '/v2/reports') data = report(u.searchParams);
+    } else if (u.pathname === '/v2/reports') {
+      if (['Bearer bad-channel','Bearer other'].includes(req.headers.authorization)) { status = 403; data = { error: { message: 'Not authorized for this channel' } }; }
+      else data = report(u.searchParams);
+    }
     else data = { items: [{ id: 'abcdefghijk', snippet: { title: 'Video from API', channelId: 'channel-test' }, status: { privacyStatus: 'public' } }] };
     res.writeHead(status, { 'content-type': 'application/json' }); res.end(JSON.stringify(data));
   });
@@ -110,21 +115,38 @@ test('authenticated routes and incremental consent; old upload connection remain
   const legacy = await connect('legacy', false); assert.equal(legacy.response.status, 302); assert.equal(legacy.location.searchParams.get('scope'), uploadScope);
   const denied = await request('/api/analytics'); assert.equal(denied.status, 403); assert.equal((await denied.json()).code, 'authorization_required');
   const state = await (await request('/api/state')).json(); assert.equal(state.youtubeConnected, true); assert.equal(state.analyticsAuthorized, false); assert.equal(state.access_token, undefined);
-  const good = await connect('good'); assert.equal(good.response.status, 302); assert.equal(good.response.headers.get('location'), '/?oauth=ok&view=analytics'); assert.equal(good.location.searchParams.get('scope'), fakeScopes); assert.equal(good.location.searchParams.get('include_granted_scopes'), 'true');
+  const uploadBefore = await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8');
+  assert.equal((await connect('same-no-refresh')).response.headers.get('location'), '/?view=analytics&oauth=offline_required');
+  assert.equal(await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8'), uploadBefore);
+  const good = await connect('good'); assert.equal(good.response.status, 302); assert.equal(good.response.headers.get('location'), '/?oauth=ok&view=analytics'); assert.equal(good.location.searchParams.get('scope'), ANALYTICS_SCOPES.join(' ')); assert.equal(good.location.searchParams.get('include_granted_scopes'), 'true');
+  assert.equal(await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8'), uploadBefore);
   const api = await request('/api/analytics?days=7'); assert.equal(api.status, 200); assert.equal(api.headers.get('cache-control'), 'no-store'); const d = await api.json(); assert.equal(d.summary.views, 120); assert.equal(d.topVideos[0].title, 'Video from API'); assert.equal(d.connectedChannel.id, 'channel-test'); assert.equal(d.access_token, undefined); assert.equal(d.refresh_token, undefined);
   assert.equal((await request('/analytics.js')).status, 200); assert.equal((await request('/analytics.css')).status, 200);
   assert.equal((await readToken()).refresh_token, 'test-refresh'); assert.ok(!String(await fs.readFile(path.join(directory, 'youtube-token.enc.json'))).includes('test-refresh'));
 });
 test('failed reconnection and wrong-channel missing refresh token preserve existing credentials', async () => {
   const beforeToken = await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8');
-  assert.equal((await connect('bad-channel')).response.status, 500); assert.equal(await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8'), beforeToken);
-  assert.equal((await connect('different-no-refresh')).response.status, 400); assert.equal(await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8'), beforeToken);
+  const denied = (await connect('bad-channel')).response; assert.equal(denied.status, 302); assert.equal(denied.headers.get('location'), '/?view=analytics&oauth=access_denied'); assert.equal(await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8'), beforeToken);
+  assert.equal((await connect('different-no-refresh')).response.headers.get('location'), '/?view=analytics&oauth=access_denied'); assert.equal(await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8'), beforeToken);
   assert.equal((await (await request('/api/state')).json()).channel.id, 'channel-test');
 });
-test('concurrent Analytics/YouTube requests refresh once; disconnect removes access and cached reports', async () => {
-  await connect('expired'); refreshes = 0;
-  const results = await Promise.all([request('/api/analytics?days=28'), ...Array.from({ length: 4 }, () => request('/api/youtube/related-video?url=abcdefghijk'))]); assert.ok(results.every(r => r.status === 200)); assert.equal(refreshes, 1);
+test('Analytics consent succeeds when Data API quota is exhausted, without touching upload token', async () => {
+  const uploadBefore = await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8');
+  dataQuota = true; const countBefore = captured.filter(u => u.pathname.startsWith('/youtube/v3/')).length;
+  const connected = (await connect('analytics-only')).response;
+  assert.equal(connected.status, 302); assert.equal(connected.headers.get('location'), '/?oauth=ok&view=analytics');
+  assert.equal(captured.filter(u => u.pathname.startsWith('/youtube/v3/')).length, countBefore);
+  assert.equal(await fs.readFile(path.join(directory, 'youtube-token.enc.json'), 'utf8'), uploadBefore);
+  const token = await readToken('analytics'); assert.equal(token.channel_id, 'channel-test'); assert.equal(token.scope, ANALYTICS_SCOPES.join(' '));
+  const response = await request('/api/analytics?days=90'); assert.equal(response.status, 200);
+  const report = await response.json(); assert.equal(report.summary.views, 120); assert.equal(report.channel, null); assert.equal(report.warnings.filter(w => w.code === 'quota_exceeded').length, 2);
+  dataQuota = false;
+});
+test('concurrent requests refresh once per credential; disconnect removes access and cached reports', async () => {
+  await connect('expired', false); await connect('expired'); refreshes = 0;
+  const results = await Promise.all([request('/api/analytics?days=28'), ...Array.from({ length: 4 }, () => request('/api/youtube/related-video?url=abcdefghijk'))]); assert.ok(results.every(r => r.status === 200)); assert.equal(refreshes, 2); // One refresh per isolated upload/Analytics credential, shared by concurrent requests.
   const scopes = (await readToken()).scope; assert.equal(scopes, fakeScopes);
   assert.equal((await request('/api/youtube/disconnect', { method: 'POST', body: {} })).status, 200); assert.equal((await request('/api/analytics')).status, 409);
   await assert.rejects(fs.readFile(path.join(directory, 'youtube-token.enc.json')), e => e.code === 'ENOENT');
+  await assert.rejects(fs.readFile(path.join(directory, 'youtube-analytics-token.enc.json')), e => e.code === 'ENOENT');
 });

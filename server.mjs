@@ -5,7 +5,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { URL } from 'node:url';
 import { ContentStore, CONTENT_STAGES } from './content-store.mjs';
-import { YouTubeAnalytics, ANALYTICS_SCOPES, hasAnalyticsAccess, analyticsRange } from './analytics.mjs';
+import { YouTubeAnalytics, ANALYTICS_SCOPES, hasAnalyticsAccess, analyticsRange, analyticsError, reportRows } from './analytics.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -18,14 +18,16 @@ const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 const contentStore = new ContentStore(path.join(DATA_DIR, 'contents.json'));
 const TOKEN_FILE = path.join(DATA_DIR, 'youtube-token.enc.json');
+const ANALYTICS_TOKEN_FILE = path.join(DATA_DIR, 'youtube-analytics-token.enc.json');
 const PUBLIC_DIR = path.resolve('public');
 const WORKER_INTERVAL_MS = Math.max(2000, Number(process.env.WORKER_INTERVAL_MS || 5000));
 const YT_CHUNK = Math.max(1, Number(process.env.YOUTUBE_CHUNK_MB || 8)) * 1024 * 1024;
 const MAX_BROWSER_CHUNK = 16 * 1024 * 1024;
 const YOUTUBE_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
-const analytics = new YouTubeAnalytics(youtubeFetch);
+const analytics = new YouTubeAnalytics(analyticsFetch);
 let tokenGeneration = 0;
-let refreshPromise = null;
+let analyticsTokenGeneration = 0;
+const refreshPromises = new Map();
 
 await fsp.mkdir(UPLOAD_DIR, { recursive: true });
 
@@ -214,24 +216,34 @@ function decrypt(payload) {
   return JSON.parse(Buffer.concat([decipher.update(Buffer.from(payload.data, 'base64')), decipher.final()]).toString('utf8'));
 }
 let tokenWriteChain = Promise.resolve();
-async function saveToken(token, generation = tokenGeneration) {
+function tokenFile(kind) { return kind === 'analytics' ? ANALYTICS_TOKEN_FILE : TOKEN_FILE; }
+function tokenVersion(kind) { return kind === 'analytics' ? analyticsTokenGeneration : tokenGeneration; }
+async function saveToken(token, generation, kind = 'upload') {
+  generation ??= tokenVersion(kind);
   const payload = JSON.stringify(encrypt(token));
   const work = tokenWriteChain.catch(() => {}).then(async () => {
-    if (generation !== tokenGeneration) throw new Error('Koneksi YouTube berubah. Ulangi permintaan.');
-    const tmp = TOKEN_FILE + '.tmp';
+    if (generation !== tokenVersion(kind)) throw new Error('Koneksi YouTube berubah. Ulangi permintaan.');
+    const file = tokenFile(kind), tmp = file + '.tmp';
     await fsp.writeFile(tmp, payload, { mode: 0o600 });
-    if (generation !== tokenGeneration) { await fsp.unlink(tmp).catch(() => {}); throw new Error('Koneksi YouTube berubah. Ulangi permintaan.'); }
-    await fsp.rename(tmp, TOKEN_FILE);
+    if (generation !== tokenVersion(kind)) { await fsp.unlink(tmp).catch(() => {}); throw new Error('Koneksi YouTube berubah. Ulangi permintaan.'); }
+    await fsp.rename(tmp, file);
   });
   tokenWriteChain = work; return work;
 }
-async function loadToken() {
-  try { return decrypt(JSON.parse(await fsp.readFile(TOKEN_FILE, 'utf8'))); }
+async function loadToken(kind = 'upload') {
+  try { return decrypt(JSON.parse(await fsp.readFile(tokenFile(kind), 'utf8'))); }
   catch (e) { if (e.code !== 'ENOENT') console.error('Token read/decrypt error', e.message); return null; }
 }
-async function deleteToken() {
-  const work = tokenWriteChain.catch(() => {}).then(async () => { try { await fsp.unlink(TOKEN_FILE); } catch (e) { if (e.code !== 'ENOENT') throw e; } });
+async function deleteToken(kind = 'upload') {
+  const work = tokenWriteChain.catch(() => {}).then(async () => { try { await fsp.unlink(tokenFile(kind)); } catch (e) { if (e.code !== 'ENOENT') throw e; } });
   tokenWriteChain = work; return work;
+}
+async function loadAnalyticsToken() {
+  const db = await readDb(), separate = await loadToken('analytics');
+  if (separate && separate.channel_id === db.channel?.id) return separate;
+  // Existing v4.1 combined tokens remain supported without migration or reconnection.
+  const upload = await loadToken();
+  return hasAnalyticsAccess(upload) ? { ...upload, channel_id: db.channel?.id } : null;
 }
 
 async function oauthToken(params) {
@@ -243,13 +255,13 @@ async function oauthToken(params) {
   if (!r.ok) throw new Error(`OAuth token gagal (${r.status}): ${data.error_description || data.error || 'unknown error'}`);
   return data;
 }
-async function getAccessToken() {
-  const token = await loadToken();
+async function getAccessToken(kind = 'upload') {
+  const token = kind === 'analytics' ? await loadAnalyticsToken() : await loadToken();
   if (!token?.refresh_token && !token?.access_token) throw new Error('Akun YouTube belum terhubung');
   if (token.access_token && token.expires_at && token.expires_at > Date.now() + 60_000) return token.access_token;
   if (!token.refresh_token) return token.access_token;
-  if (refreshPromise) return refreshPromise;
-  const generation = tokenGeneration;
+  if (refreshPromises.has(kind)) return refreshPromises.get(kind);
+  const generation = tokenVersion(kind);
   const work = (async () => {
   const fresh = await oauthToken({
     client_id: GOOGLE_CLIENT_ID,
@@ -262,24 +274,34 @@ async function getAccessToken() {
     refresh_token: fresh.refresh_token || token.refresh_token,
     expires_at: Date.now() + (fresh.expires_in || 3600) * 1000
   };
-  if (generation !== tokenGeneration) throw new Error('Koneksi YouTube berubah. Ulangi permintaan.');
-  await saveToken(merged, generation);
+  if (generation !== tokenVersion(kind)) throw new Error('Koneksi YouTube berubah. Ulangi permintaan.');
+  await saveToken(merged, generation, kind);
   return merged.access_token;
   })();
-  refreshPromise = work;
-  try { return await work; } finally { if (refreshPromise === work) refreshPromise = null; }
+  refreshPromises.set(kind, work);
+  try { return await work; } finally { if (refreshPromises.get(kind) === work) refreshPromises.delete(kind); }
 }
-async function youtubeFetch(url, options = {}, retryAuth = true) {
-  const access = await getAccessToken();
+async function youtubeFetch(url, options = {}, retryAuth = true, kind = 'upload') {
+  const access = await getAccessToken(kind);
   const headers = new Headers(options.headers || {});
   headers.set('authorization', `Bearer ${access}`);
   const r = await fetch(url, { ...options, headers });
   if (r.status === 401 && retryAuth) {
-    const token = await loadToken();
-    if (token?.access_token === access) { token.expires_at = 0; await saveToken(token); }
-    return youtubeFetch(url, options, false);
+    const token = kind === 'analytics' ? await loadAnalyticsToken() : await loadToken();
+    if (token?.access_token === access) { token.expires_at = 0; await saveToken(token, tokenVersion(kind), kind); }
+    return youtubeFetch(url, options, false, kind);
   }
   return r;
+}
+function analyticsFetch(url, options = {}) { return youtubeFetch(url, options, true, 'analytics'); }
+async function validateAnalyticsChannel(accessToken, channelId) {
+  const range = analyticsRange(new URLSearchParams('days=7'));
+  const params = new URLSearchParams({ ids: `channel==${channelId}`, startDate: range.startDate, endDate: range.endDate, metrics: 'views' });
+  const r = await fetch('https://youtubeanalytics.googleapis.com/v2/reports?' + params, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(20_000) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw analyticsError(r.status, data);
+  // Success authorizes this exact existing channel. Empty rows are also valid for channels without activity.
+  reportRows(data);
 }
 async function fetchChannel(accessToken) {
   const url = 'https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true';
@@ -704,7 +726,7 @@ const server = http.createServer(async (req, res) => {
     const pathname = u.pathname;
 
     if (req.method === 'GET' && pathname === '/api/health')
-      return json(res, 200, { ok: true, version: '4.1.0', time: nowIso() });
+      return json(res, 200, { ok: true, version: '4.1.1', time: nowIso() });
 
     if (req.method === 'GET' && pathname === '/api/session')
       return json(res, 200, { authenticated: isAuthed(req), configMissing: configMissing(), appUrl: APP_URL });
@@ -731,7 +753,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, {
         channel: db.channel,
         youtubeConnected: !!token,
-        analyticsAuthorized: hasAnalyticsAccess(token),
+        analyticsAuthorized: hasAnalyticsAccess(await loadAnalyticsToken()),
         jobs: db.jobs.map(publicJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         redirectUri: `${APP_URL}/auth/google/callback`
       });
@@ -739,8 +761,9 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && pathname === '/api/analytics') {
       const range = analyticsRange(u.searchParams);
-      const token = await loadToken(), db = await readDb();
-      if (!token || !db.channel?.id) return json(res, 409, { code: 'not_connected', error: 'Hubungkan akun YouTube terlebih dahulu.' }, { 'cache-control': 'no-store' });
+      const db = await readDb(), token = await loadAnalyticsToken();
+      const uploadToken = await loadToken();
+      if (!uploadToken || !db.channel?.id) return json(res, 409, { code: 'not_connected', error: 'Hubungkan akun YouTube terlebih dahulu.' }, { 'cache-control': 'no-store' });
       if (!hasAnalyticsAccess(token)) return json(res, 403, { code: 'authorization_required', error: 'Klik Hubungkan Analytics untuk memberikan izin baca laporan channel.' }, { 'cache-control': 'no-store' });
       const channelId = db.channel.id, generation = tokenGeneration;
       try {
@@ -805,7 +828,7 @@ const server = http.createServer(async (req, res) => {
         client_id: GOOGLE_CLIENT_ID,
         redirect_uri: `${APP_URL}/auth/google/callback`,
         response_type: 'code',
-        scope: [YOUTUBE_SCOPE, ...(includeAnalytics ? ANALYTICS_SCOPES : [])].join(' '),
+        scope: (includeAnalytics ? ANALYTICS_SCOPES : [YOUTUBE_SCOPE]).join(' '),
         access_type: 'offline',
         prompt: 'consent',
         include_granted_scopes: 'true',
@@ -826,6 +849,8 @@ const server = http.createServer(async (req, res) => {
       if (u.searchParams.get('error')) return redirect(res, '/?oauth=denied' + returnTo);
       const code = u.searchParams.get('code');
       if (!code) return text(res, 400, 'Authorization code tidak ditemukan.');
+      const isAnalytics = state.startsWith('analytics.');
+      try {
       const tok = await oauthToken({
         code,
         client_id: GOOGLE_CLIENT_ID,
@@ -835,25 +860,45 @@ const server = http.createServer(async (req, res) => {
       });
       tok.expires_at = Date.now() + (tok.expires_in || 3600) * 1000;
       const granted = new Set(String(tok.scope || '').split(/\s+/));
+      const db = await readDb();
+      if (isAnalytics) {
+        if (!db.channel?.id || !await loadToken()) return redirect(res, '/?view=analytics&oauth=not_connected');
+        if (!hasAnalyticsAccess(tok)) return redirect(res, '/?view=analytics&oauth=authorization_required');
+        // Analytics consent never replaces the upload token. Validate ownership via the Analytics API itself.
+        await validateAnalyticsChannel(tok.access_token, db.channel.id);
+        const previous = await loadAnalyticsToken();
+        const previousScopes = new Set(String(previous?.scope || '').split(/\s+/));
+        if (!tok.refresh_token && previous?.channel_id === db.channel.id && [...granted].every(s => previousScopes.has(s))) tok.refresh_token = previous?.refresh_token;
+        if (!tok.refresh_token) return redirect(res, '/?view=analytics&oauth=offline_required');
+        tok.channel_id = db.channel.id;
+        analyticsTokenGeneration++; refreshPromises.delete('analytics'); analytics.clear();
+        await saveToken(tok, analyticsTokenGeneration, 'analytics');
+        return redirect(res, '/?oauth=ok&view=analytics', { 'set-cookie': 'yt_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' + (APP_URL.startsWith('https://') ? '; Secure' : '') });
+      }
       if (!granted.has(YOUTUBE_SCOPE) && !granted.has('https://www.googleapis.com/auth/youtube'))
         return text(res, 400, 'Izin pengelolaan YouTube belum diberikan. Koneksi sebelumnya dipertahankan. Ulangi dan centang izin upload serta Analytics yang diminta.');
       // Validate the newly selected channel before replacing the working encrypted token.
       const channel = await fetchChannel(tok.access_token);
-      const db = await readDb();
       const previous = await loadToken();
       const previousScopes = new Set(String(previous?.scope || '').split(/\s+/));
       if (!tok.refresh_token && db.channel?.id === channel.id && [...granted].every(s => previousScopes.has(s))) tok.refresh_token = previous?.refresh_token;
       if (!tok.refresh_token) return text(res, 400, 'Google belum memberikan izin akses offline. Koneksi sebelumnya dipertahankan. Ulangi proses Hubungkan YouTube / Analytics.');
-      tokenGeneration++; refreshPromise = null; analytics.clear();
+      tokenGeneration++; analyticsTokenGeneration++; refreshPromises.clear(); analytics.clear();
       await saveToken(tok);
+      if (db.channel?.id !== channel.id) await deleteToken('analytics');
       db.channel = channel;
       await writeDb(db);
       return redirect(res, '/?oauth=ok' + returnTo, { 'set-cookie': 'yt_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' + (APP_URL.startsWith('https://') ? '; Secure' : '') });
+      } catch (e) {
+        if (isAnalytics) return redirect(res, '/?view=analytics&oauth=' + encodeURIComponent(e.code || 'connection_failed'));
+        throw e;
+      }
     }
 
     if (req.method === 'POST' && pathname === '/api/youtube/disconnect') {
-      tokenGeneration++; refreshPromise = null; analytics.clear();
+      tokenGeneration++; analyticsTokenGeneration++; refreshPromises.clear(); analytics.clear();
       await deleteToken();
+      await deleteToken('analytics');
       const db = await readDb();
       db.channel = null;
       await writeDb(db);
@@ -946,7 +991,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, '0.0.0.0', () => {
-  console.log(`YouTube Auto Uploader Content Hub v4.1 listening on :${PORT}`);
+  console.log(`YouTube Auto Uploader Content Hub v4.1.1 listening on :${PORT}`);
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));

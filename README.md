@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.1
+# YouTube Content Hub v4.1.1
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -38,7 +38,7 @@ Menu **YouTube Analytics** menggunakan laporan resmi untuk channel yang terhubun
 
 1. Aktifkan **YouTube Analytics API** pada proyek Google Cloud yang sama dengan OAuth aplikasi: https://console.cloud.google.com/apis/library/youtubeanalytics.googleapis.com.
 2. Jika OAuth consent screen memakai daftar scope, tambahkan `https://www.googleapis.com/auth/yt-analytics.readonly` dan `https://www.googleapis.com/auth/youtube.readonly`. Tetap gunakan test user/konfigurasi publik sesuai pengaturan proyek Google yang berlaku.
-3. Login aplikasi → **YouTube Analytics** → **Hubungkan Analytics**. Pilih akun/channel yang sama dan izinkan semua scope yang diminta. Koneksi upload lama tidak diputus sebelum Google memberikan token baru dan channel berhasil divalidasi.
+3. Login aplikasi → **YouTube Analytics** → **Hubungkan Analytics**. Pilih akun/channel yang sama dan izinkan semua scope yang diminta. Koneksi Analytics menggunakan token terpisah dan divalidasi melalui YouTube Analytics API untuk ID channel yang sudah terhubung. Token upload tidak diganti oleh persetujuan Analytics.
 
 Laporan berakhir paling lambat kemarin menurut zona waktu YouTube (Pacific/Los Angeles); kalender produksi tetap WIB. YouTube dapat terlambat memproses dan merevisi angka. Tanggal tanpa baris tidak diisi sebagai nol. Ringkasan channel dan video menampilkan seluruh periode, bukan hanya konten yang dibuat di aplikasi. Angka subscriber total dapat dibulatkan oleh YouTube. Jam tonton Analytics tidak sama dengan jam tayang publik yang memenuhi syarat monetisasi. Pendapatan, CTR thumbnail, dan data real-time tidak termasuk integrasi ini.
 
@@ -54,7 +54,7 @@ npm run check
 npm test
 ```
 
-Pengujian menggunakan direktori sementara dan respons Google simulasi, tidak menghubungi YouTube. Mencakup CRUD, konflik versi, penyimpanan, hubungan konten/upload, query Analytics, cache, kuota/izin, tanggal Pacific, OAuth tambahan, pemeliharaan token lama jika koneksi gagal, serta refresh token serentak.
+Pengujian menggunakan direktori sementara dan respons Google simulasi, tidak menghubungi YouTube. Mencakup CRUD, konflik versi, penyimpanan, hubungan konten/upload, query Analytics, cache, kuota/izin, tanggal Pacific, OAuth tambahan, pemeliharaan token lama jika koneksi gagal, refresh token serentak per jenis koneksi, serta koneksi Analytics saat kuota Data API habis.
 
 ## Deployment GitHub + Railway
 
@@ -77,7 +77,8 @@ Buat `APP_SECRET` minimal 32 karakter acak. Jangan commit secret ke GitHub.
 
 - `/data/db.json`: channel dan antrean upload lama maupun baru.
 - `/data/contents.json`: konten, script, bahan riset, pilar, serta riwayat.
-- `/data/youtube-token.enc.json`: refresh token terenkripsi.
+- `/data/youtube-token.enc.json`: refresh token upload terenkripsi.
+- `/data/youtube-analytics-token.enc.json`: token Analytics terenkripsi, terikat pada ID channel. Token gabungan v4.1 sebelumnya tetap didukung.
 - `/data/uploads/`: video sementara.
 
 Update dari v3 mempertahankan database antrean dan token yang ada. Data konten dibuat saat pertama kali disimpan. Seluruh data tersebut perlu persistent volume agar tetap tersedia saat redeploy. Gunakan satu instance aplikasi untuk penyimpanan berbasis berkas ini; beberapa instance yang menulis volume yang sama belum didukung. File database yang rusak ditolak dan dipertahankan, bukan diganti dengan database kosong.
@@ -89,7 +90,7 @@ Update dari v3 mempertahankan database antrean dan token yang ada. Data konten d
 3. Tambahkan redirect URI persis `https://DOMAIN-RAILWAY-ANDA/auth/google/callback`.
 4. Salin Client ID dan Client Secret ke environment Railway.
 
-Aplikasi meminta scope `https://www.googleapis.com/auth/youtube.force-ssl` untuk upload. Tombol Hubungkan Analytics meminta tambahan `yt-analytics.readonly` dan `youtube.readonly` melalui OAuth incremental consent. Refresh token disimpan terenkripsi AES-256-GCM memakai `APP_SECRET`. Konfigurasi Google tidak wajib untuk menyimpan ide/script, tetapi wajib untuk menghubungkan YouTube.
+Aplikasi meminta scope `https://www.googleapis.com/auth/youtube.force-ssl` untuk upload. Tombol Hubungkan Analytics meminta `yt-analytics.readonly` dan `youtube.readonly` melalui OAuth incremental consent. Token Analytics dipisahkan dari token upload; validasi Analytics tidak memanggil YouTube Data API. Jika pengguna memilih akun yang tidak memiliki akses ke ID channel terhubung, Google menolak validasi dan kredensial sebelumnya dipertahankan. Pesan kegagalan dikembalikan ke dashboard; authorization code tidak dicantumkan pada URL dashboard. Refresh token disimpan terenkripsi AES-256-GCM memakai `APP_SECRET`. Konfigurasi Google tidak wajib untuk menyimpan ide/script, tetapi wajib untuk menghubungkan YouTube.
 
 ## Keamanan dan batas versi ini
 

@@ -1,4 +1,17 @@
 const analyticsUi = { period: '28', startDate: '', endDate: '', metric: 'views', data: null, error: null, loading: false, key: '', serial: 0, loadedAt: 0 };
+const analyticsOAuthMessages = {
+  denied: 'Persetujuan Google dibatalkan. Koneksi sebelumnya tetap tersedia.',
+  authorization_required: 'Izin Analytics belum lengkap. Hubungkan kembali dan centang izin Analytics serta melihat akun YouTube.',
+  not_connected: 'Hubungkan channel YouTube terlebih dahulu melalui menu Upload & Antrean.',
+  offline_required: 'Google belum memberikan token offline. Ulangi Hubungkan Analytics.',
+  quota_exceeded: 'API Analytics sedang membatasi permintaan. Koneksi upload sebelumnya tetap tersedia. Coba lagi nanti.',
+  api_disabled: 'Aktifkan YouTube Analytics API pada proyek Google Cloud aplikasi, lalu ulangi Hubungkan Analytics.',
+  access_denied: 'Akun/channel yang dipilih tidak dapat membaca Analytics channel terhubung. Pilih akun pemilik dan channel yang sama.',
+  connection_failed: 'Koneksi Analytics belum berhasil. Koneksi upload sebelumnya dipertahankan. Coba hubungkan kembali.',
+  invalid_report: 'Google mengembalikan laporan yang tidak valid. Coba hubungkan kembali.',
+  upstream_error: 'Google belum dapat memvalidasi Analytics. Coba hubungkan kembali.'
+};
+let analyticsOAuthIssue = analyticsOAuthMessages[new URLSearchParams(location.search).get('oauth')] || '';
 const anNumber = (value, digits = 0) => Number(value || 0).toLocaleString('id-ID', { maximumFractionDigits: digits });
 const anDate = value => value ? new Date(value + 'T12:00:00Z').toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '—';
 function anDuration(value) { const s = Math.round(value || 0); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; }
@@ -22,9 +35,10 @@ window.renderAnalytics = body => {
   $('#analyticsReload').onclick = () => { if (analyticsUi.period === 'custom') { analyticsUi.startDate = $('#analyticsStart').value; analyticsUi.endDate = $('#analyticsEnd').value; } loadAnalytics(); };
   $('#analyticsExport').onclick = exportAnalytics;
   renderAnalyticsResults();
-  if (!analyticsUi.data && !analyticsUi.error && !analyticsUi.loading && state.server?.analyticsAuthorized) loadAnalytics();
+  if (!analyticsOAuthIssue && !analyticsUi.data && !analyticsUi.error && !analyticsUi.loading && state.server?.analyticsAuthorized) loadAnalytics();
 };
 async function loadAnalytics() {
+  analyticsOAuthIssue = '';
   const serial = ++analyticsUi.serial, key = analyticsChannelKey();
   analyticsUi.loading = true; analyticsUi.error = null; analyticsUi.data = null; renderAnalyticsResults();
   const query = analyticsUi.period === 'custom' ? new URLSearchParams({ startDate: analyticsUi.startDate, endDate: analyticsUi.endDate }) : new URLSearchParams({ days: analyticsUi.period });
@@ -37,11 +51,12 @@ async function loadAnalytics() {
   finally { if (serial === analyticsUi.serial) { analyticsUi.loading = false; renderAnalyticsResults(); } }
 }
 function analyticsConnect(message) {
-  return `<div class="hub-panel an-setup"><div class="an-mark">↗</div><h2>Kenali performa kontenmu</h2><p>${esc(message)}</p><a class="btn primary" href="/auth/google?analytics=1">Hubungkan Analytics</a><p class="hint">Pilih akun dan channel yang sama. Centang izin Analytics, melihat akun YouTube, serta pengelolaan video.</p><details><summary>Jika API belum diaktifkan</summary><p>Aktifkan YouTube Analytics API pada proyek Google Cloud yang sama dengan koneksi YouTube aplikasi.</p><a target="_blank" rel="noopener" href="https://console.cloud.google.com/apis/library/youtubeanalytics.googleapis.com">Buka pengaturan YouTube Analytics API</a></details></div>`;
+  return `<div class="hub-panel an-setup"><div class="an-mark">↗</div><h2>Kenali performa kontenmu</h2><p>${esc(message)}</p><a class="btn primary" href="/auth/google?analytics=1">Hubungkan Analytics</a><p class="hint">Pilih akun pemilik dan channel yang sama. Centang izin Analytics serta melihat akun YouTube. Koneksi upload tetap tersedia.</p><details><summary>Jika API belum diaktifkan</summary><p>Aktifkan YouTube Analytics API pada proyek Google Cloud yang sama dengan koneksi YouTube aplikasi.</p><a target="_blank" rel="noopener" href="https://console.cloud.google.com/apis/library/youtubeanalytics.googleapis.com">Buka pengaturan YouTube Analytics API</a></details></div>`;
 }
 function renderAnalyticsResults() {
   const result = $('#analyticsResults'); if (!result) return;
   $('#analyticsReload').disabled = analyticsUi.loading; $('#analyticsExport').disabled = !analyticsUi.data?.hasData || analyticsUi.loading;
+  if (analyticsOAuthIssue) { result.innerHTML = analyticsConnect(analyticsOAuthIssue); return; }
   if (!state.server?.youtubeConnected || !state.server?.analyticsAuthorized) { result.innerHTML = analyticsConnect('Berikan izin baca untuk menampilkan data YouTube langsung di ruang kerja ini.'); return; }
   if (analyticsUi.loading) { result.innerHTML = '<div class="hub-panel empty">Mengambil laporan YouTube…</div>'; return; }
   const error = analyticsUi.error;
