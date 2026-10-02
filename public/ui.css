@@ -40,3 +40,18 @@ body{font-size:14px;-webkit-font-smoothing:antialiased}button,a,input,select,tex
 .agenda-list .calendar-status-row .status-badge{font-size:10px;min-height:23px;padding:3px 7px}
 .agenda-list .calendar-status-row .status-icon{width:13px;height:13px}
 @media(max-width:620px){.status-badge{font-size:10px;min-height:24px}.content-status-row{gap:5px}.editor-header .status-badge{font-size:10px}.jobTop .status-badge{max-width:140px}.column-head .status-badge{font-size:11px}}
+
+/* Video category labels, independent from pillar and production status. */
+.video-format{display:inline-flex;align-items:center;max-width:100%;border:1px solid #d4dce8;border-radius:5px;padding:3px 8px;font-size:11px;font-weight:750;line-height:1.35;color:#46556b;background:#eef1f6;white-space:nowrap;letter-spacing:0}
+.video-format-long{background:#eee5ff;border-color:#d8c4fa;color:#6435a6}
+.video-format-shorts{background:#e0edff;border-color:#b9d4ff;color:#1757ad}
+.video-format-live{background:#ffe6e9;border-color:#ffc4cd;color:#a72b44}
+.video-format-unset{background:#f3f4f6;border-color:#dce1e7;color:#616b78;font-weight:550}
+.kanban-labels .video-format{font-size:11px;padding:3px 8px}
+.calendar-category{display:flex;margin-bottom:5px}
+.calendar-event .video-format{font-size:10px;padding:2px 6px}
+.agenda-list .calendar-event .video-format{font-size:11px;padding:3px 8px}
+.content-format-label{margin-top:6px}
+.file-video-format{display:block;margin-top:8px;font-size:11px;color:#626f86}
+.file-video-format select{display:block;width:100%;margin-top:4px;padding:8px;border:1px solid #dce2eb;border-radius:6px;background:white;color:#172b4d;font-size:13px}
+@media(max-width:620px){.file-video-format select{font-size:16px;min-height:44px}}

@@ -1,6 +1,7 @@
-export const APP_VERSION='4.6.2';
+export const APP_VERSION='4.6.3';
 // Release dates follow WIB. This is the shipped application history, not user edits.
 export const RELEASES=[
+ {version:'4.6.3',date:'2026-10-02',title:'Label kategori video pada konten',changes:[{type:'fix',text:'Badge Long ungu dan Short biru tampil jelas pada kalender, Kanban, dan Semua Konten. Kategori dipilih di editor konten.'},{type:'fix',text:'Kategori video dan filter Long/Short dihapus dari tampilan Note; kategori custom Note tetap tersedia.'},{type:'fix',text:'Kartu Kanban tidak lagi mengulang status proses produksi yang sudah terlihat pada kolom.'},{type:'feature',text:'Kategori video upload tanpa konten dapat dipilih saat upload atau melalui kalender dengan tombol Simpan. Upload lama tanpa kategori ditandai Belum dipilih.'}]},
  {version:'4.6.2',date:'2026-10-02',title:'Kategori video Long dan Short',changes:[{type:'feature',text:'Note mempunyai pilihan kategori video Long atau Short, badge pada kartu, serta filter Long, Short, dan Belum dipilih. Pilihan disimpan lewat tombol Simpan; catatan lama tetap tanpa pilihan.'},{type:'feature',text:'Label Long dan Short dibuat konsisten pada konten, Kanban, dan filter format.'}]},
  {version:'4.6.1',date:'2026-10-02',title:'Data & Backup stabil dan Riwayat Update',changes:[
   {type:'fix',text:'Halaman Data & Backup tetap terbuka saat sinkronisasi; tombol, pesan hasil, dan posisi scroll dipertahankan.'},

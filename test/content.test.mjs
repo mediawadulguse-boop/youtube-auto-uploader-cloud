@@ -105,3 +105,20 @@ test('Note Long/Short filters work independently of custom category, including u
  assert.equal((await request('/api/notes?format=invalid')).status,400);assert.equal((await request('/api/notes','POST',{title:'Invalid',format:'short'})).status,400);
  let r=await request('/api/notes/'+a.id,'PATCH',{revision:1,format:'shorts',archived:true});assert.equal(r.data.note.body,'Long body');assert.equal((await get('long')).length,0);assert.equal((await request('/api/notes?q=long-short-test&format=shorts&archived=1')).data.notes[0].id,a.id);
 });
+
+test('upload video category saves explicitly, validates conflicts and leaves upload state untouched',async()=>{
+ const id='11111111-1111-4111-8111-111111111111',route='/api/jobs/'+id+'/format';
+ assert.equal((await request(route,'PATCH',{previousFormat:'',videoFormat:'long'},false)).status,401);
+ assert.equal((await request(route,'PATCH',{previousFormat:'',videoFormat:'short'})).status,400);
+ let r=await request(route,'PATCH',{previousFormat:'',videoFormat:'long'});assert.equal(r.status,200);assert.equal(r.data.job.videoFormat,'long');assert.equal(r.data.job.status,'cancelled');
+ const saves=await Promise.all(['shorts','live'].map(videoFormat=>request(route,'PATCH',{previousFormat:'long',videoFormat})));assert.deepEqual(saves.map(r=>r.status).sort(),[200,409]);
+ const current=saves.find(r=>r.status===200).data.job;r=await request(route,'PATCH',{previousFormat:current.videoFormat,videoFormat:''});assert.equal(r.status,200);assert.equal(r.data.job.videoFormat,'');
+ assert.equal((await request('/api/jobs/00000000-0000-4000-8000-000000000000/format','PATCH',{previousFormat:'',videoFormat:'long'})).status,404);
+ const c=(await request('/api/contents','POST',{title:'Upload with category',format:'long'})).data.content;
+ const body={contentId:c.id,videoFormat:'shorts',fileName:'format-test.mp4',fileSize:4,scheduledAt:new Date(Date.now()+86400000).toISOString()};
+ const created=await request('/api/jobs','POST',body);assert.equal(created.status,201);assert.equal(created.data.job.videoFormat,'long');
+ assert.equal((await request('/api/jobs/'+created.data.job.id+'/format','PATCH',{previousFormat:'long',videoFormat:'shorts'})).status,409);
+ const unlinked=await request('/api/jobs','POST',{...body,contentId:null,videoFormat:'shorts'});assert.equal(unlinked.status,201);assert.equal(unlinked.data.job.videoFormat,'shorts');
+ assert.equal((await request('/api/jobs','POST',{...body,contentId:null,videoFormat:'bad'})).status,400);
+ assert.equal((await request('/api/state')).data.jobs.find(j=>j.id===unlinked.data.job.id).videoFormat,'shorts');
+});

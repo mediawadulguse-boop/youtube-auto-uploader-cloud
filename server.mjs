@@ -350,12 +350,15 @@ function createJob(body) {
 }
 async function createJobUnlocked(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw Object.assign(new Error('Data upload tidak valid'), { status: 400 });
+  let videoFormat=body.videoFormat??'';
+  if(!['','long','shorts','live','other'].includes(videoFormat))throw Object.assign(new Error('Kategori video tidak valid'),{status:400});
   const contentId = cleanStr(body.contentId, 100);
   if (contentId) {
     const data = await contentStore.read();
     const content = data.contents.find(c => c.id === contentId);
     if (!content || content.archived) throw Object.assign(new Error('Konten tidak tersedia untuk upload'), { status: 400 });
     if(content.youtubeVideoId)throw Object.assign(new Error('Konten sudah terhubung ke video YouTube. Duplikasikan konten untuk membuat video baru.'),{status:409});
+    videoFormat=content.format;
     const db = await readDb();
     if (db.jobs.some(j => j.contentId === contentId && !['cancelled', 'failed'].includes(j.status)))
       throw Object.assign(new Error('Konten ini sudah memiliki antrean upload. Periksa antrean terlebih dahulu.'), { status: 409 });
@@ -369,6 +372,7 @@ async function createJobUnlocked(body) {
   const job = {
     id: jobId,
     contentId: contentId || null,
+    videoFormat,
     channelId:(await readDb()).channel?.id||null,
     order: Number(body.order || Date.now()),
     fileName,
@@ -1065,6 +1069,18 @@ const server = http.createServer(async (req, res) => {
       const body = await readJson(req);
       const job = await createJob(body);
       return json(res, 201, { job: publicJob(job) });
+    }
+
+    const jobFormatMatch=pathname.match(/^\/api\/jobs\/([0-9a-f-]+)\/format$/i);
+    if(req.method==='PATCH'&&jobFormatMatch){
+      const body=await readJson(req);
+      if(!body||!['','long','shorts','live','other'].includes(body.videoFormat)||!['','long','shorts','live','other'].includes(body.previousFormat))return json(res,400,{error:'Kategori video tidak valid'});
+      const db=await readDb(),job=db.jobs.find(j=>j.id===jobFormatMatch[1]);
+      if(!job)return json(res,404,{error:'Job tidak ditemukan'});
+      if(job.contentId)return json(res,409,{error:'Ubah kategori video melalui konten yang terhubung.'});
+      if((job.videoFormat||'')!==body.previousFormat)return json(res,409,{error:'Kategori video berubah di tab lain. Tutup lalu buka kembali.'});
+      job.videoFormat=body.videoFormat;job.updatedAt=nowIso();await writeDb(db);
+      return json(res,200,{job:publicJob(job)});
     }
 
     const chunkMatch = pathname.match(/^\/api\/jobs\/([0-9a-f-]+)\/chunk$/i);
