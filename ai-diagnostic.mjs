@@ -11,6 +11,7 @@ export async function runAIDiagnostic(ai, dataDir, options = {}) {
   try { const handle = await fs.open(path.join(dataDir, `.ai-diagnostic-${token}`), 'wx', 0o600); await handle.close(); }
   catch (error) { if (error.code === 'EEXIST') return []; throw error; }
   const log = options.log ?? (record => console.log('AI_DIAGNOSTIC', JSON.stringify(record)));
+  const suite = options.suite ?? process.env.AI_DIAGNOSTIC_SUITE;
   const results = [];
   const input = 'Return exactly this result: {"text":"OK","drafts":[],"citations":[]}';
   const enumValue = value => typeof value === 'string' && /^[A-Z_]{1,48}$/.test(value) ? value : null;
@@ -24,6 +25,14 @@ export async function runAIDiagnostic(ai, dataDir, options = {}) {
       : { contents: [{ role: 'user', parts: [{ text: plain ? 'Reply only OK.' : input }] }],
         generationConfig: { candidateCount: 1, maxOutputTokens: plain ? 2048 : 12000,
           ...(!plain ? { responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema: RESULT_SCHEMA } } } : {}) } };
+    if (['legacy-json', 'json-only', 'prompt-json'].includes(kind)) {
+      delete body.generationConfig.responseFormat;
+      if (kind !== 'prompt-json') body.generationConfig.responseMimeType = 'application/json';
+      if (kind === 'legacy-json') body.generationConfig.responseJsonSchema = RESULT_SCHEMA;
+    }
+    if (kind === 'simple-json') body.generationConfig.responseFormat.text.schema = {
+      type: 'object', properties: { text: {type: 'string'}, drafts: {type: 'array', items: {type: 'object'}}, citations: {type: 'array', items: {type: 'integer'}} }, required: ['text', 'drafts', 'citations']
+    };
     let record = { kind, model, http: null, providerStatus: null, valid: false };
     try {
       const response = await ai.fetcher(url, { method: 'POST', headers: { 'x-goog-api-key': ai.key, 'content-type': 'application/json' },
@@ -43,6 +52,10 @@ export async function runAIDiagnostic(ai, dataDir, options = {}) {
       }
     } catch { /* only bounded, fixed metadata leaves the runtime */ }
     results.push(record); log(record); return record;
+  }
+  if (suite === 'compatibility') {
+    for (const kind of ['legacy-json', 'json-only', 'simple-json', 'prompt-json']) await probe(kind, ai.model);
+    return results;
   }
   await probe('plain', ai.model);
   const structured = await probe('generate-json', ai.model);
