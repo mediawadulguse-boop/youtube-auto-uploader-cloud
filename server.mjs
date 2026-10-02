@@ -8,6 +8,7 @@ import { ContentStore } from './content-store.mjs';
 import { RadarStore } from './radar-store.mjs';
 import { RadarSync } from './radar-sync.mjs';
 import { RadarAI } from './radar-ai.mjs';
+import { runAIDiagnostic } from './ai-diagnostic.mjs';
 import { NotesStore } from './notes-store.mjs';
 import { ANALYTICS_SCOPES, hasAnalyticsAccess, analyticsRange, analyticsError, reportRows, validateVideoId } from './analytics.mjs';
 import { runUploadWorker,legacyJobAction } from './worker-policy.mjs';
@@ -1160,4 +1161,5 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`APP_URL=${APP_URL}`);
   const missing = configMissing();
   if (missing.length) console.warn('Missing env:', missing.join(', '));
+  runAIDiagnostic(radarAI, DATA_DIR).catch(() => console.warn('AI_DIAGNOSTIC initialization failed'));
 });

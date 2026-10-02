@@ -11,7 +11,7 @@ const PROVIDERS = {
   openai: { name: 'OpenAI', keyVariable: 'OPENAI_API_KEY', modelVariable: 'OPENAI_MODEL' },
   gemini: { name: 'Gemini', keyVariable: 'GEMINI_API_KEY', modelVariable: 'GEMINI_MODEL' }
 };
-const RESULT_SCHEMA = {
+export const RESULT_SCHEMA = {
   type: 'object',
   properties: {
     text: { type: 'string' },
@@ -29,7 +29,7 @@ const modelName = (model, provider) => typeof model === 'string' && (
   provider === 'gemini' ? /^gemini-[a-zA-Z0-9._-]{1,100}$/.test(model) : /^[a-zA-Z0-9_.:-]{1,160}$/.test(model)
 );
 
-function validateResult(raw, action, sources) {
+export function validateResult(raw, action, sources) {
   let out;
   try { out = JSON.parse(raw); } catch { throw fail('Format hasil AI tidak valid.', 502); }
   if (!out || typeof out.text !== 'string' || out.text.length > 60000 ||
