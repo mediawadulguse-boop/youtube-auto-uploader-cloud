@@ -16,7 +16,7 @@ test('all providers request ordinary text, with no structured API format depende
  for(const provider of ['gemini','openai','grok']){
   let request,url;const ai=new RadarAI(store,{provider,key:'private',model:provider==='gemini'?model:'text-model',fetcher:async(u,opts)=>{url=u;request=JSON.parse(opts.body);return provider==='gemini'?Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:'OK'}]}}]}):Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:'OK'}]}]});}});
   assert.equal(await ai.complete('Reply OK','test'), 'OK');
-  if(provider==='gemini')assert.deepEqual(request.generationConfig,{maxOutputTokens:12000});
+  if(provider==='gemini')assert.deepEqual(request.generationConfig,{maxOutputTokens:12000,thinkingConfig:{thinkingLevel:'low'}});
   else{assert.equal(request.text,undefined);assert.equal(request.store,false);assert.match(url,/\/v1\/responses$/);}
  }
 });
@@ -79,7 +79,7 @@ test('OpenAI model picker is restricted to admin configured models present in ac
 test('shorts ask for a JSON document in the prompt without requiring structured API parameters',async t=>{
  const {store}=await setup(t);let request;const drafts=[1,2,3].map(n=>({title:'Short '+n,script:'Script',angle:'Angle'}));
  const ai=new RadarAI(store,{provider:'gemini',key:'private',model,fetcher:async(u,opts)=>{request=JSON.parse(opts.body);return response({text:'Tiga angle',drafts,citations:[]});}});
- await ai.generate({...script,action:'shorts'});assert.match(request.systemInstruction.parts[0].text,/tepat tiga/);assert.deepEqual(request.generationConfig,{maxOutputTokens:12000});
+ await ai.generate({...script,action:'shorts'});assert.match(request.systemInstruction.parts[0].text,/tepat tiga/);assert.deepEqual(request.generationConfig,{maxOutputTokens:12000,thinkingConfig:{thinkingLevel:'low'}});
 });
 
 test('invalid Gemini payload is diagnosed as integration error without blaming the model or leaking input',async t=>{

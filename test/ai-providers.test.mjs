@@ -74,3 +74,15 @@ test('readiness test sends fixed synthetic material, reports quota, and never co
 test('provider refusal never falls back or counts as a successful preview',async t=>{
  let calls=0;const {ai}=await setup(t,async()=>{calls++;return Response.json({status:'completed',output:[{type:'message',content:[{type:'refusal',refusal:'private'}]}]});});await assert.rejects(ai.generate({...body,provider:'openai'}),{status:422});assert.equal(calls,1);assert.equal((await ai.status()).used,0);
 });
+
+test('a sole active provider gets all 60 seconds; configured backups share the remaining deadline',async t=>{
+ const single=await setup(t,async()=>{throw Error('unexpected');},{providers:{gemini:{key:'key',model:'gemini-test'},openai:{key:'',model:''},grok:{key:'',model:''}}});
+ single.ai.clients.gemini.complete=async(_instructions,_input,_model,deadline)=>{assert.equal(deadline-single.ai.clients.gemini.now(),60000);return 'Script valid';};await single.ai.generate(body);
+ const multi=await setup(t,async()=>{throw Error('unexpected');});
+ multi.ai.clients.gemini.complete=async(_instructions,_input,_model,deadline)=>{assert.equal(deadline-multi.ai.clients.gemini.now(),20000);const e=Error('quota');e.status=429;e.providerQuota=true;e.retryDelayMs=30000;throw e;};
+ multi.ai.clients.openai.complete=async(_instructions,_input,_model,deadline)=>{assert.equal(deadline-multi.ai.clients.openai.now(),30000);return 'Script valid';};await multi.ai.generate(body);
+});
+test('a timeout while reading the provider response body switches to a backup',async t=>{
+ const {ai}=await setup(t,async url=>url.includes('googleapis')?{ok:true,json:async()=>{throw new DOMException('private','AbortError');}}:success());
+ const out=await ai.generate(body);assert.equal(out.providerId,'openai');assert.equal(out.fallbackHistory.length,1);assert.equal((await ai.status()).used,1);
+});

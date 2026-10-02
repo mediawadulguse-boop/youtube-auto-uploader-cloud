@@ -223,15 +223,25 @@ export class RadarAI {
       if (response.status === 404) throw fail(`Model ${name} tidak ditemukan atau belum tersedia pada akun Anda. Periksa nama model di Railway.`, 502);
       throw fail(`Layanan ${name} gagal (HTTP ${response.status}). Coba lagi atau periksa pengaturan model.`, 502);
     }
-    try { const data = await response.json(); if (!data || typeof data !== 'object' || Array.isArray(data)) throw Error('invalid'); return data; } catch { throw fail('Layanan AI mengembalikan respons yang tidak valid.', 502); }
+    try {
+      const data=await response.json();
+      if(!data || typeof data!=='object' || Array.isArray(data))throw Error('invalid');
+      return data;
+    } catch(error) {
+      if(['TimeoutError','AbortError','TypeError'].includes(error.name)) {
+        const unavailable=fail('Jawaban provider AI terputus atau melewati batas waktu.',502);
+        unavailable.providerUnavailable=true;unavailable.transient=true;unavailable.retryDelayMs=30000;throw unavailable;
+      }
+      throw fail('Layanan AI mengembalikan respons yang tidak valid.',502);
+    }
   }
 
-  async complete(instructions, input, model = this.model, deadline = this.now() + 20000, options = {}) {
+  async complete(instructions, input, model = this.model, deadline = this.now() + 60000, options = {}) {
     const maxTokens=options.maxTokens ?? (this.provider==='gemini'?12000:5000);
     if (this.provider === 'gemini') {
       const data=await this.request(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {'x-goog-api-key':this.key}, {
         systemInstruction:{parts:[{text:instructions}]},contents:[{role:'user',parts:[{text:input}]}],
-        generationConfig:{maxOutputTokens:maxTokens}
+        generationConfig:{maxOutputTokens:maxTokens,...(/^gemini-3(?:\.\d+)?-(?:flash|pro)(?:-|$)/.test(model)&&!model.includes('image')?{thinkingConfig:{thinkingLevel:'low'}}:{})}
       },deadline,{remaining:0});
       const candidate=data.candidates?.[0];
       if(data.promptFeedback?.blockReason || ['SAFETY','RECITATION','BLOCKLIST','PROHIBITED_CONTENT','SPII'].includes(candidate?.finishReason))throw fail('Gemini tidak menghasilkan pratinjau untuk bahan ini. Periksa sumber dan ringkas permintaan.',422);
@@ -344,7 +354,7 @@ export class RadarAIProviders {
     if(ai.now()-Date.parse(this.tests[ai.provider]?.checkedAt || '')<30000)throw fail('Tunggu 30 detik sebelum menguji provider ini lagi.',429);
     this.generating=true;
     try {
-      const raw=await ai.complete('Reply with only OK.','Connection test.',model,ai.now()+20000,{maxTokens:2048});
+      const raw=await ai.complete('Reply with only OK.','Connection test.',model,ai.now()+60000,{maxTokens:2048});
       if(raw.trim()!=='OK')throw fail('API merespons tetapi uji jawaban belum sesuai.',502);
       this.blocked.delete(ai.provider);
       this.tests[ai.provider]={state:'ready',model,checkedAt:new Date(ai.now()).toISOString(),message:'Uji jawaban berhasil. Model dapat menghasilkan teks.'};
@@ -363,7 +373,7 @@ export class RadarAIProviders {
     this.generating=true;this.lastAttempts=[];
     try{return await primary.generate(body,{skipCooldown:true,complete:async(instructions,input,model,action,sources)=>{
       const deadline=primary.now()+60000,history=[];
-      for(const ai of chain){
+      for(const [index,ai] of chain.entries()){
         const selected=ai===primary?model:ai.model,blocked=this.blocked.get(ai.provider);
         if(this.autoFallback&&blocked&&Date.parse(blocked.retryAt)>ai.now()){
           history.push({provider:ai.configuration().provider,providerId:ai.provider,model:selected,reason:blocked.reason+' Masih dalam jeda.'});continue;
@@ -371,7 +381,13 @@ export class RadarAIProviders {
         if(ai!==primary&&ai.connection.state==='connected'&&ai.now()-Date.parse(ai.connection.checkedAt)<600000&&!ai.models.some(m=>m.id===selected))continue;
         if(primary.now()>=deadline)throw fail('Batas waktu rangkaian AI tercapai. Coba lagi nanti.',502);
         try{
-          const raw=await ai.complete(instructions,input,selected,Math.min(deadline,primary.now()+20000));
+          const remainingProviders=chain.slice(index).filter(client=>{
+            const retryAt=Date.parse(this.blocked.get(client.provider)?.retryAt || ''),pick=client===primary?model:client.model;
+            return client.configuration().configured && !(retryAt>client.now()) &&
+              !(client.connection.state==='connected' && client.now()-Date.parse(client.connection.checkedAt)<600000 && !client.models.some(m=>m.id===pick));
+          }).length;
+          const slot=(deadline-primary.now())/Math.max(1,remainingProviders);
+          const raw=await ai.complete(instructions,input,selected,Math.min(deadline,primary.now()+slot));
           decodeAIResult(raw,action,sources);
           this.blocked.delete(ai.provider);
           const record={provider:ai.configuration().provider,providerId:ai.provider,model:selected,state:'ready',message:'Jawaban berhasil divalidasi.'};this.lastAttempts.push(record);

@@ -18,7 +18,7 @@ export async function runAISmoke(ai, directory, token=process.env.AI_SMOKE_ONCE,
     if(status.generationTest?.state!=='ready')continue;
     try {
       const input=JSON.stringify({issue:null,script:'Saya ingin memahami bagaimana sebuah aturan memengaruhi kehidupan sehari-hari. Kita perlu menelusuri sejarahnya, melihat siapa yang diuntungkan, dan mendengarkan pengalaman manusia yang terkena dampaknya.',sources:[],channel:null});
-      const raw=await client.complete(aiInstructions('script'),input,client.model,client.now()+20000,{maxTokens:4096});
+      const raw=await client.complete(aiInstructions('script'),input,client.model,client.now()+60000,{maxTokens:4096});
       decodeAIResult(raw,'script',[]);
       log('AI_SMOKE '+JSON.stringify({provider:client.provider,probe:'script',state:'ready',valid:true}));
     } catch(error) {
