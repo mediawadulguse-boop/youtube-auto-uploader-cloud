@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.7.0
+# YouTube Content Hub v4.7.1
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -149,6 +149,23 @@ Berita dikumpulkan dari Google News RSS dan RSS custom (server publik HTTP/S saj
 
 YouTube menggunakan koneksi Google aplikasi atau `YOUTUBE_API_KEY` opsional. URL channel harus `/@handle` atau `/channel/UC…`. Maksimum 10 video publik terbaru diperiksa per channel; snapshot dipertahankan 30 kali. Tidak mengakses CTR/retention/revenue channel lain. Kegagalan sinkronisasi mempertahankan data sebelumnya, dan kuota habis menunda YouTube satu jam.
 
-AI opsional memakai OpenAI Responses API. Isi `OPENAI_API_KEY` dan `OPENAI_MODEL` pada environment Railway; tanpa kedua variabel, Radar tetap berfungsi dan UI menjelaskan AI belum aktif. `AI_DAILY_LIMIT` default 20 (maksimum 100), jeda 10 detik per permintaan, maksimum 60.000 karakter script dan 30 cuplikan sumber. Tidak menyimpan API key di dokumen data. Hasil JSON divalidasi dan disajikan sebagai pratinjau; penerapan atau pembuatan draft harus dipilih pengguna. Tidak memublikasikan otomatis.
+AI opsional mendukung OpenAI Responses API dan Gemini generateContent API. Pilih `AI_PROVIDER=openai` (default untuk instalasi lama) dengan `OPENAI_API_KEY` + `OPENAI_MODEL`, atau `AI_PROVIDER=gemini` dengan `GEMINI_API_KEY` + `GEMINI_MODEL`. Provider dipilih secara eksplisit; tidak berpindah otomatis ke provider lain ketika gagal. Tanpa key/model, Radar tetap berfungsi dan UI menjelaskan variabel yang diperlukan. `AI_DAILY_LIMIT` default 20 (maksimum 100), jeda 10 detik per permintaan, maksimum 60.000 karakter script dan 30 cuplikan sumber. Tidak menyimpan API key di dokumen data. Hasil JSON divalidasi dan disajikan sebagai pratinjau; penerapan atau pembuatan draft harus dipilih pengguna. Tidak memublikasikan otomatis.
 
 `RADAR_AUTO_SYNC=false` menonaktifkan jadwal Radar untuk pengujian atau pengumpulan manual saja. Instagram/TikTok/X belum dikumpulkan otomatis; link manual dari platform tersebut dapat disimpan tanpa mengklaim platformnya sudah dipantau.
+
+### Aktivasi Gemini (4.7.1)
+
+Buat key dari https://aistudio.google.com/apikey lalu tambahkan variabel pada service aplikasi Railway:
+
+```env
+AI_PROVIDER=gemini
+GEMINI_API_KEY=isi_key_di_Railway
+GEMINI_MODEL=gemini-3.8-flash
+AI_DAILY_LIMIT=20
+```
+
+Nama model dapat diganti dengan model Gemini teks yang mendukung structured output dan tersedia pada akun Anda; identifier harus `gemini-…` (prefix `models/` diterima). Contoh model mengacu dokumentasi Google pada 2 Oktober 2026; ketersediaan serta kuota tetap mengikuti akun Google. Terapkan perubahan dengan Deploy, lalu coba Radar → Ringkas & angle AI → Buat pratinjau, atau Script → Bantuan AI.
+
+Key dikirim hanya dari server dalam header `x-goog-api-key`, tidak pada URL, UI, atau backup. Gemini memakai satu candidate, output JSON ber-schema, batas 12.000 output tokens termasuk alokasi pemrosesan model, dan timeout 60 detik. Thought parts tidak ditampilkan; hanya jawaban akhir dengan finishReason STOP diproses. Respons terpotong/ditolak/invalid tidak diterapkan. Permintaan gagal tetap dihitung pada batas harian aplikasi, yang mengikuti pergantian hari UTC dan dibagi lintas provider. Tidak ada API call otomatis setelah key diisi: pengguna menekan Buat pratinjau.
+
+Dokumentasi: https://ai.google.dev/gemini-api/docs/generate-content/structured-output dan https://ai.google.dev/api/generate-content.
