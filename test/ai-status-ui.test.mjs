@@ -36,3 +36,12 @@ test('provider controls show GPT/Grok, reset cross-provider models and explain m
 test('quota fallback is reported as another provider, not successful generation by the exhausted model',()=>{
  const {context}=setup();const next={...config,modelResults:{'gemini-test':{state:'fallback',message:'Pratinjau dibuat oleh Grok · grok-test.'}}};const html=context.radarAIConnection(next,'gemini-test');assert.match(html,/Pratinjau: provider cadangan/);assert.match(html,/Grok/);assert.ok(!html.includes('Pratinjau terakhir gagal'));
 });
+test('available backup keeps preview enabled; all blocked providers use earliest recovery time',()=>{
+ const {context,elements}=setup();const next={...config,providerId:'gemini',autoFallback:true,providers:[{providerId:'gemini',configured:true,quotaRetryAt:'2026-10-02T08:01:00Z'},{providerId:'grok',configured:true,quotaRetryAt:null}]};
+ context.radarAIBind(next);assert.equal(elements.radarGenerateAI.disabled,false);
+ next.providers[1].quotaRetryAt='2026-10-02T08:00:20Z';context.radarAIBind(next);assert.equal(elements.radarGenerateAI.disabled,true);assert.match(elements.radarGenerateAI.textContent,/20 dtk/);
+});
+test('real response evidence is separate from catalog success and failure messages are escaped',()=>{
+ const {context}=setup();const next={...config,generationTest:{model:'gemini-test',state:'error',message:'<secret>',checkedAt:'2026-10-02T08:00:00Z'}};
+ const html=context.radarAIConnection(next,'gemini-test');assert.match(html,/API terhubung/);assert.match(html,/Uji jawaban gagal/);assert.ok(!html.includes('<secret>'));assert.ok(!context.radarAIConnection(next,'other-model').includes('Uji jawaban gagal'));
+});

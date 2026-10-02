@@ -182,34 +182,26 @@ Kegagalan provider disajikan sebagai pesan aman tanpa key, script, atau respons 
 
 `generationConfig.responseFormat.text.mimeType` adalah enum REST dan memakai `APPLICATION_JSON`, bukan string MIME `application/json`. Field kompatibel lama `generationConfig.responseMimeType` tetap bertipe string dan memakai `application/json`. Kontrak ini diverifikasi dengan discovery resmi https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta dan dicatat sebagai fixture `test/fixtures/gemini-text-format.json` pada 2 Oktober 2026. Tes provider simulasi menolak nilai di luar enum resmi. Error invalid payload dipisahkan dari masalah dukungan model.
 
-### Gangguan Gemini 503 (4.7.4)
+### AI teks biasa, cadangan, dan uji jawaban (4.9.0)
 
-HTTP 503 Gemini dicoba ulang maksimum dua kali (maksimum tiga panggilan per format; anggaran dua retry 503 dibagi dengan percobaan format kompatibel), dengan backoff 1s lalu 2s dan jitter 0–250ms. Retry-After berupa detik/tanggal dihormati; jeda melebihi 10 detik tidak ditunggu dalam request ini. Seluruh pemanggilan generateContent, termasuk format kompatibel, berbagi deadline 60 detik. Tidak mencoba ulang timeout, network error, 400 selain kompatibilitas field yang dikenal, 401/403, 404 atau 429. Tidak berganti model/provider otomatis. Batas harian aplikasi tetap satu reservasi per aksi pengguna, termasuk jika semua percobaan gagal. Kuota/billing provider mengikuti provider.
-
-Setelah 503 terminal, model yang sama diberi jeda minimal 30 detik atau Retry-After yang valid. UI menampilkan hitung mundur; backend menolak pengulangan selama jeda sebelum menambah pemakaian aplikasi. Permintaan bersamaan untuk model yang sama ditolak selama pratinjau berjalan. Status katalog API dan hasil pratinjau terakhir terpisah; Cek koneksi tidak menyembunyikan kegagalan pratinjau. Hasil pratinjau terakhir tersimpan di memori server sampai restart, sedangkan katalog model tetap kedaluwarsa setelah 10 menit.
-
-Acuan strategi retry: https://ai.google.dev/gemini-api/docs/troubleshooting.
-
-### Schema Gemini dan uji langsung (4.7.5)
-
-Schema Gemini memakai object bertipe dengan field wajib text, drafts (title/script/angle), dan citations, tanpa additionalProperties:false milik kontrak strict OpenAI. Hasil tetap melalui validateResult: format JSON, panjang teks, jumlah Short, jenis field, nomor kutipan, dan URL sumber harus valid. OpenAI tetap memakai schema strict aslinya.
-
-Pada 2 Oktober 2026, pemeriksaan satu kali dari runtime produksi memakai prompt sintetis tanpa konten pengguna/key dalam log: teks biasa berhasil HTTP200, beberapa permintaan JSON mengembalikan503, schema sederhana berhasil200, dan complete aplikasi dengan schema Gemini yang disesuaikan berhasil200 serta lolos validasi pada10:12:05UTC. Hasil campuran ini belum membuktikan satu parameter tertentu sebagai satu-satunya penyebab503. Uji nyata tersebut merupakan satu smoke test, bukan jaminan ketersediaan provider. Model default tetap gemini-3.8-flash. Modul dan hook diagnosis sementara telah dihapus setelah pemeriksaan.
-
-### Multi-provider dan perpindahan kuota otomatis (4.8.0)
-
-Buka Radar → Koneksi & model AI atau Bantuan AI, lalu pilih provider utama: Gemini, GPT (OpenAI), atau Grok (xAI). Pilihan berlaku pada sesi halaman dan tidak mengubah default Railway. Isi variabel Railway berikut untuk mengaktifkan setiap provider; API key tidak ditulis ke database/JavaScript browser dan tidak pernah ditampilkan kembali.
+Buka Radar → Koneksi & model AI atau Bantuan AI. Pilih provider utama: Gemini, GPT (OpenAI), atau Grok (xAI). Semua API key berada di Railway, tidak ditulis ke database/browser dan tidak ditampilkan kembali.
 
 | Provider | Key | Model default | Model tambahan opsional |
 |---|---|---|---|
-| Gemini | GEMINI_API_KEY | GEMINI_MODEL | Daftar model dari Google |
+| Gemini | GEMINI_API_KEY | GEMINI_MODEL | Katalog Google |
 | GPT / OpenAI | OPENAI_API_KEY | OPENAI_MODEL | OPENAI_MODELS, dipisahkan koma |
 | Grok / xAI | XAI_API_KEY | XAI_MODEL | XAI_MODELS, dipisahkan koma |
 
-Gunakan nama model teks yang tersedia pada akun API Anda. AI_PROVIDER menentukan default (gemini/openai/grok); Gemini yang sudah aktif tetap dipertahankan. GPT memanfaatkan Responses API yang sudah ada; Grok memakai https://api.x.ai/v1/responses dengan store:false, JSON schema, tanpa tool/web search. Cek model Grok memakai /v1/language-models, termasuk alias yang cocok dengan model konfigurasi. GPT/Grok hanya menawarkan model yang diizinkan konfigurasi admin dan ada dalam katalog.
+Gunakan model teks yang tersedia pada akun API. AI_PROVIDER menentukan default. GPT/Grok memakai Responses API dengan store:false dan tanpa tool/web search. Gemini memakai generateContent. Permintaan tidak memakai parameter format/schema JSON. Script, ringkasan, storyboard, dan analisis mengembalikan teks biasa. Untuk tiga Short, prompt meminta dokumen JSON; server tetap memvalidasi tiga draft, panjang, field, kutipan, dan URL. Semua hasil tetap pratinjau dan harus diterapkan secara eksplisit.
 
-AI_AUTO_FALLBACK=true adalah default. Setelah provider utama, AI_FALLBACK_ORDER=openai,grok,gemini menentukan urutan cadangan tanpa menduplikasi provider utama. Hanya provider dengan key/model valid dicoba, maksimum tiga provider per aksi, dengan satu deadline 60 detik bersama. Pindah ketika HTTP429 provider (kuota/batas laju), atau Grok402/403 yang secara eksplisit menyatakan kredit/spending limit habis. 401,403 izin biasa,400 format,404,503,timeout, penolakan konten, respons terpotong, dan hasil/rujukan tidak valid tidak dipindahkan ke provider lain.
+Cek koneksi hanya membaca katalog. Uji jawaban membuat satu permintaan sintetis `Reply with only OK`, maksimal 2048 token keluaran dan deadline 20 detik. Hasil uji ditampilkan terpisah dari pratinjau/katalog. Uji memakai kuota/billing provider, tidak batas harian aplikasi, dan dibatasi satu uji per provider per 30 detik. Hasil berlaku sebagai bukti saat diuji, bukan jaminan ketersediaan selanjutnya.
 
-Provider yang kehabisan kuota diberi jeda minimal30 detik atau Retry-After yang valid, tersimpan di memori sampai restart; selama jeda dapat dilewati dalam rangkaian berikutnya. Set AI_AUTO_FALLBACK=false untuk menonaktifkan. Tidak mengubah default model/key saat berpindah, tidak menerapkan hasil ke script secara otomatis. Hasil pratinjau menampilkan provider/model aktual dan riwayat perpindahan. Satu aksi hanya menambah pemakaian aplikasi sekali; batas harian20/jeda10 detik tetap berlaku untuk semua provider, dan permintaan bersamaan ditolak selama rantai berjalan. Kuota dan biaya API masing-masing provider tetap mengikuti akun provider; langganan ChatGPT/Grok tidak diasumsikan sebagai kredit API.
+AI_AUTO_FALLBACK=true; AI_FALLBACK_ORDER=openai,grok,gemini menentukan urutan sesudah provider utama. Hanya cadangan yang dikonfigurasi dicoba, maksimum tiga provider, satu panggilan per provider, maksimum20 detik per provider dan60 detik keseluruhan. HTTP429, Grok402/403 yang eksplisit menyatakan kredit habis, HTTP500/502/503/504, network/timeout,401,404 serta key Gemini invalid yang teridentifikasi pada400 dapat berpindah. HTTP400 format,403 izin biasa, penolakan konten, hasil terpotong atau rujukan tidak valid menghentikan rangkaian. Tidak mengulang provider yang sama. Provider gagal diberi jeda minimal30 detik atau Retry-After;401/404 lima menit. Jeda serta status uji tersimpan di memori sampai restart. Rincian percobaan dan provider/model yang menghasilkan pratinjau ditampilkan.
 
-Tes integrasi/provider menggunakan respons simulasi: perpindahan kuota, isolasi key, izin dan format, provider belum aktif, limit bersama, model palsu, deadline, concurrency, endpoint terlindungi, serta validasi sumber. Penggunaan nyata GPT/Grok memerlukan key dan model pada Railway; fitur tidak mengklaim koneksi berhasil sebelum dicek. Dokumentasi: https://docs.x.ai/developers/rest-api-reference/inference/responses dan https://docs.x.ai/developers/model-capabilities/text/structured-outputs.
+Batas harian20 dan jeda10 detik aplikasi dibagi semua provider. Reservasi berlaku selama permintaan berjalan; hanya hasil tervalidasi yang dihitung. Kegagalan mengembalikan reservasi. Reservasi tertinggal akibat restart kedaluwarsa setelah dua menit dan dipulihkan sebelum reservasi berikutnya. Pemakaian historis sebelum versi ini tidak direset. Batas aplikasi tidak menambah kuota provider. Perpindahan tetap memerlukan API key, model, akses, dan kuota/credit provider cadangan. Langganan ChatGPT/Grok tidak diasumsikan sebagai kredit API.
+
+Untuk diagnosis operator, AI_SMOKE_ONCE menerima token unik12–60 karakter alfanumerik/underscore/dash. Secara default kosong/nonaktif. Startup menulis marker ke volume sebelum panggilan, lalu melakukan satu uji jawaban per provider terkonfigurasi serta satu uji script sintetis untuk provider yang berhasil (maksimum enam panggilan). Tidak membaca konten pengguna, tidak menambah pemakaian aplikasi, dan tidak mencetak key atau body provider. Token sama tidak mengulang uji pada restart. Nonaktifkan sesudah pemeriksaan.
+
+Tes memakai simulasi provider untuk isolasi key, keluaran biasa, Short, validasi sumber, fallback, cooldown, deadline, reservasi/refund, concurrency, autentikasi endpoint, dan diagnosis satu kali. Bukti runtime nyata perlu diperiksa terpisah.
+
+Dokumentasi: https://ai.google.dev/gemini-api/docs/text-generation, https://developers.openai.com/api/docs/guides/migrate-to-responses dan https://docs.x.ai/developers/rest-api-reference/inference/responses.
