@@ -1,0 +1,12 @@
+{
+  "source": "https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta",
+  "retrievedAt": "2026-10-02",
+  "schema": "TextResponseFormat.mimeType",
+  "type": "string",
+  "enum": [
+    "MIME_TYPE_UNSPECIFIED",
+    "APPLICATION_JSON",
+    "TEXT_PLAIN"
+  ],
+  "legacyMimeType": "string"
+}

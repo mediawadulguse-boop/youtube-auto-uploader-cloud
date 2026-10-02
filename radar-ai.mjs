@@ -159,9 +159,11 @@ export class RadarAI {
         const reasons = Array.isArray(detail?.details) ? detail.details.map(d => d?.reason) : [];
         if (reasons.includes('API_KEY_INVALID') || /API key not valid|API_KEY_INVALID/i.test(raw)) throw fail(`API key ${name} tidak valid. Periksa key pada Railway.`, 502);
         const unsupportedFormat = this.provider === 'gemini' && /Unknown name ["']response_?format["']/i.test(raw);
+        const invalidPayload = /Invalid JSON payload|Unknown name|Invalid value at/i.test(raw);
         const error = fail(unsupportedFormat ? 'Format output Gemini belum didukung oleh endpoint ini.'
+          : invalidPayload ? `Struktur permintaan ${name} belum sesuai dengan API. Konfigurasi integrasi perlu diperbaiki.`
           : /response.?schema|response.?json.?schema|json schema|response.?format/i.test(raw)
-            ? `Model ${name} menolak format JSON terstruktur. Pilih model teks lain dari daftar.`
+            ? `Konfigurasi JSON terstruktur ${name} ditolak. Dukungan model dan format permintaan perlu diperiksa.`
             : /not supported|not found|not available/i.test(raw) ? `Model ${name} belum mendukung permintaan ini. Pilih model lain dari daftar.`
             : `Permintaan ${name} ditolak (HTTP 400). Cek koneksi dan pilih model lain; periksa juga akses proyek serta wilayah provider.`, 502);
         error.unsupportedFormat = unsupportedFormat;
@@ -181,7 +183,7 @@ export class RadarAI {
         systemInstruction: { parts: [{ text: instructions }] },
         contents: [{ role: 'user', parts: [{ text: input }] }],
         generationConfig: { candidateCount: 1, maxOutputTokens: 12000,
-          responseFormat: { text: { mimeType: 'application/json', schema: RESULT_SCHEMA } } }
+          responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema: RESULT_SCHEMA } } }
       };
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
       let data;
