@@ -90,6 +90,13 @@ if(process.env.DATABASE_URL){
     const status=await storage.status();console.log('Storage:',JSON.stringify({mode:'postgresql',migrationVerified:true,migratedAt:status.migratedAt,backupCount:status.backups.length}));
   }catch(e){console.error('Storage initialization failed. Original files preserved; refusing empty fallback.',e.code||'migration_error');process.exit(1);}
 }
+const radarBefore=await contentStore.read();
+if(radarBefore.radar && radarBefore.radar.clusteringVersion!==2){
+ if(storage)await storage.backup('manual');
+ else{try{await fsp.copyFile(contentStore.file,path.join(DATA_DIR,'contents.radar-v1.backup.json'),fs.constants.COPYFILE_EXCL)}catch(error){if(error.code!=='EEXIST')throw error;}}
+ console.log('Radar methodology:',JSON.stringify(await radarStore.recluster()));
+}
+console.log('Radar status:',JSON.stringify({methodology:2,...(await radarStore.read()).radarSummary}));
 let backupBusy=false;
 async function backupTick(){if(!storage||backupBusy)return;backupBusy=true;try{await storage.backup('daily')}catch(e){console.error('Backup:',e.code||'backup_failed')}finally{backupBusy=false}}
 setInterval(backupTick,3600000).unref();
@@ -761,7 +768,7 @@ async function studioSyncTick(){
 }
 setInterval(studioSyncTick,30*60*1000).unref();setTimeout(studioSyncTick,15000).unref();
 
-if(process.env.RADAR_AUTO_SYNC!=='false'){const tick=()=>radarSync.sync().catch(e=>console.error('Radar sync:',e.message));setInterval(tick,30*60*1000).unref();setTimeout(tick,45000).unref();}
+if(process.env.RADAR_AUTO_SYNC!=='false'){const tick=()=>radarSync.sync().catch(e=>console.error('Radar sync:',e.message));setInterval(tick,15*60*1000).unref();setTimeout(tick,45000).unref();}
 
 const server = http.createServer(async (req, res) => {
   try {

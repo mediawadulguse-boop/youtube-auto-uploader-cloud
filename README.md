@@ -207,3 +207,24 @@ Tes memakai simulasi provider untuk isolasi key, keluaran biasa, Short, validasi
 Dokumentasi: https://ai.google.dev/gemini-api/docs/text-generation, https://developers.openai.com/api/docs/guides/migrate-to-responses dan https://docs.x.ai/developers/rest-api-reference/inference/responses.
 
 Gemini 3 Flash/Pro (selain varian image) memakai thinkingConfig.thinkingLevel=low untuk membantu latensi dan menghindari budget token kecil menghabiskan keluaran pada penalaran. Gemini2.5 dan model lain tidak diberi parameter khusus tersebut. Acuan REST: https://ai.google.dev/gemini-api/docs/generate-content/thinking.
+
+### Radar Hot News dan rating (4.10.0)
+
+Halaman utama Radar adalah Hot News. Satu kartu mewakili satu kelompok berita serupa, diurutkan dari skor tertinggi. Berita yang belum lolos tetap disimpan sebagai bahan, dapat dibuka melalui Topik & Sumber → Kelola bahan pantauan. Referensi yang disimpan manual tetap tersedia walaupun rating rendah.
+
+Pengelompokan lokal tidak bergantung pada AI: hapus akhiran nama penerbit, normalisasi kata, bandingkan kata penting dengan Dice/Jaccard berbobot dan batas kemiripan konservatif. Jangkar judul pertama mencegah rangkaian kemiripan melebar ke peristiwa lain. Rentang publikasi/discovery anggota kelompok maksimal72 jam. Lokasi yang dikenal/penanda lokasi, tahun, persentase, negasi, dan pasangan keputusan berlawanan yang dikenal menjadi penjagaan tambahan. Metode ini tetap heuristik, bukan pemahaman semantik menyeluruh; penggabungan manual tersedia setelah pemeriksaan sumber.
+
+| Komponen | Perhitungan | Maksimum |
+|---|---|---|
+| Sebaran penerbit | 8 poin per penerbit berbeda dalam72 jam | 40 |
+| Aktivitas24 jam | 10 poin per penerbit berbeda dalam24 jam | 30 |
+| Kebaruan | Publikasi terbaru <6jam:20; <24jam:16; <48jam:10; <72jam:5 | 20 |
+| Lintas platform | 5 poin per platform dengan liputan bertanggal yang memenuhi syarat | 10 |
+
+Rating: skor0–24=1★,25–44=2★,45–64=3★,65–84=4★,85–100=5★. Untuk masuk Hot News, skor harus≥65, minimal3 penerbit dalam72 jam dan2 dalam24 jam, ada sumber Berita/Web dalam24 jam, cocok topik berita aktif, dan status bukan Diabaikan/Sudah dibahas. Rating tinggi saja tidak cukup tanpa syarat tersebut.
+
+Tanggal publikasi menentukan recency, bukan waktu impor. Timestamp hilang/masa depan dan sumber yang ditandai repost tidak menambah skor. URL dideduplikasi; nama/domain penerbit dinormalisasi. Domain situs langsung dan publisher URL RSS membantu mencegah variasi nama penerbit menggandakan hitungan. Penerbit berbeda tidak membuktikan konfirmasi independen; rating merupakan indikator liputan terpantau, bukan kebenaran/viralitas. YouTube menyumbang sebaran saat cocok kelompok, tetapi liputan YouTube saja tidak memenuhi Hot News. Tidak mengklaim memantau X/Instagram/TikTok otomatis.
+
+RSS otomatis hanya menerima berita bertanggal publikasi dalam72 jam. Field Atom updated saja tidak dianggap tanggal publikasi. Sync sekitar setiap1 jam, dengan maks3 topik berita bergiliran per siklus dan jeda1 menit untuk sync manual. Kegagalan feed tetap mempertahankan sumber tersimpan.
+
+Pada startup, dataset versi lama dibackup sebelum kelompok impor mesin yang belum disunting digabung ulang. Sumber/ID, metadata, dan hubungan konten dipertahankan; kelompok saved/discussed/ignored, linked, manual, berjudul editorial atau bertanda verifikasi tidak digabung otomatis oleh migrasi. clusteringVersion=2 membuat migrasi idempoten. Sync juga memastikan metodologi setelah restore. Batas100 sumber per kelompok tetap berlaku.

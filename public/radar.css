@@ -6,3 +6,5 @@
 .radar-ai-busy{background:#fff1dc;color:#8c601c}
 
 .radar-ai-panel>label{display:grid;gap:6px;font-size:12px;min-width:0}.radar-ai-panel>label select{width:100%;max-width:100%;min-width:0}
+
+.radar-rating{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin:12px 0 0;color:#8b5a0a;font-size:12px}.radar-rating>span{letter-spacing:1px;font-size:16px;color:#d18c14}.radar-rating small{color:#66738a}.radar-method{border:1px solid #e4e6ef;border-radius:10px;padding:12px 15px;margin:12px 0 18px;color:#576579;font-size:12px;line-height:1.7;background:#fafbfe}.radar-method summary{font-weight:650;cursor:pointer;color:#354561}.radar-method-weights{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.radar-method-weights span{display:flex;justify-content:space-between;gap:8px;background:white;padding:8px;border-radius:6px;flex-wrap:wrap}.radar-card .radar-high{background:#fff0e6;color:#a84615}.radar-modal-body>.radar-rating{margin:0 0 16px}@media(max-width:600px){.radar-method-weights{grid-template-columns:1fr}.radar-tabs{gap:15px}.radar-rating{font-size:12px}}

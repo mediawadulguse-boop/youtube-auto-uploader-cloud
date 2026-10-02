@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {createIssueMatcher,rateIssue,RADAR_METHOD,displayHeadline} from './radar-methodology.mjs';
 export const LENSES=[{id:'system',name:'The System & Capital',color:'#6b55d8',role:'Bedah struktur, uang, kekuasaan, dan kebijakan.'},{id:'history',name:'The Hidden History & Mechanics',color:'#22799a',role:'Sejarah, arsip, kronologi, dan data sebagai bukti.'},{id:'human',name:'The Human Mirror',color:'#b26930',role:'Dampak sehari-hari, empati, dan pergeseran perspektif.'}];
 export const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const txt=(v,max,required=false)=>{if(typeof v!=='string'||v.length>max||(required&&!v.trim()))throw fail('Teks wajib diisi dan tidak boleh melebihi batas.');return v.trim()};
@@ -6,24 +7,95 @@ const list=(v,max=30)=>{if(!Array.isArray(v)||v.length>max)throw fail('Daftar ti
 const when=v=>{if(!v)return null;if(!Number.isFinite(Date.parse(v)))throw fail('Tanggal tidak valid.');return new Date(v).toISOString()};
 export function canonicalUrl(value){let u;try{u=new URL(txt(value,2048,true))}catch{throw fail('Masukkan link http/https yang valid.')}if(!['https:','http:'].includes(u.protocol)||u.username||u.password)throw fail('Link harus http/https tanpa kredensial.');u.hash='';u.hostname=u.hostname.toLowerCase();for(const key of [...u.searchParams.keys()])if(/^(utm_|fbclid$|gclid$)/i.test(key))u.searchParams.delete(key);if(/(^|\.)youtu(be\.com|\.be)$/.test(u.hostname)){const id=u.hostname==='youtu.be'?u.pathname.slice(1).split('/')[0]:u.searchParams.get('v')||u.pathname.match(/^\/(shorts|embed)\/([^/]+)/)?.[2];if(id&&/^[\w-]{11}$/.test(id))return 'https://www.youtube.com/watch?v='+id;}if(u.hostname==='twitter.com'||u.hostname==='www.twitter.com')u.hostname='x.com';u.searchParams.sort();return u.href;}
 export function platform(url){const h=new URL(url).hostname;return /(^|\.)youtube\.com$|^youtu\.be$/.test(h)?'YouTube':/(^|\.)(x|twitter)\.com$/.test(h)?'X':/(^|\.)instagram\.com$/.test(h)?'Instagram':/(^|\.)tiktok\.com$/.test(h)?'TikTok':'Berita / Web';}
-const eventKey=(title,publisher='')=>{const suffix=' - '+publisher;return (publisher&&title.endsWith(suffix)?title.slice(0,-suffix.length):title).toLowerCase().replace(/[^\p{L}\p{N}]+/gu,' ').trim()};
-const defaults=()=>({version:1,topics:[['system','Struktur & kebijakan',['pajak','subsidi','kebijakan publik','monopoli','ketenagakerjaan','ekonomi politik','regulasi','birokrasi']],['history','Sejarah & data',['arsip sejarah','krisis komoditas','tata kota','rekam jejak perusahaan','kronologi','data empiris']],['human','Realitas manusia',['biaya hidup','kelas menengah','meritokrasi','burnout','alienasi','ilusi pilihan']]].map(([lens,name,keywords])=>({id:'default-'+lens,name,keywords,exclusions:[],lenses:[lens],language:'id',region:'ID',sources:['news','youtube'],enabled:true,revision:1})),feeds:[],channels:[],issues:[],sync:{},aiUsage:{}});
+const defaults=()=>({version:1,clusteringVersion:RADAR_METHOD.version,topics:[['system','Struktur & kebijakan',['pajak','subsidi','kebijakan publik','monopoli','ketenagakerjaan','ekonomi politik','regulasi','birokrasi']],['history','Sejarah & data',['arsip sejarah','krisis komoditas','tata kota','rekam jejak perusahaan','kronologi','data empiris']],['human','Realitas manusia',['biaya hidup','kelas menengah','meritokrasi','burnout','alienasi','ilusi pilihan']]].map(([lens,name,keywords])=>({id:'default-'+lens,name,keywords,exclusions:[],lenses:[lens],language:'id',region:'ID',sources:['news','youtube'],enabled:true,revision:1})),feeds:[],channels:[],issues:[],sync:{},aiUsage:{}});
 export function radarData(db){return db.radar||defaults()}
 function writable(db){return db.radar||=defaults()}
 const find=(arr,id)=>{const v=arr.find(x=>x.id===id);if(!v)throw fail('Data Radar tidak ditemukan.',404);return v};
 const revision=(old,body)=>{if(old&&body.revision!==old.revision)throw fail('Data berubah di tab lain. Muat Radar terbaru.',409)};
-export function issueStats(issue,now=Date.now()){const counts={},publishers=new Set();let day=0,week=0;for(const s of issue.sources){counts[s.platform]=(counts[s.platform]||0)+1;publishers.add(s.publisher.trim().toLowerCase());const age=now-Date.parse(s.discoveredAt);if(age<86400000)day++;if(age<604800000)week++;}const independent=issue.sources.filter(s=>!s.repost).length;const priority=day>=3&&Object.keys(counts).length>=2?'high':day>=2?'normal':'low';return {sources:issue.sources.length,platforms:Object.keys(counts).length,counts,publishers:publishers.size,new24h:day,new7d:week,independent,priority,reason:priority==='high'?'Beberapa link baru pada lebih dari satu platform.':priority==='normal'?'Ada beberapa link baru dalam 24 jam.':'Masih sedikit link baru; perlu pengamatan lanjutan.'};}
+export const issueStats=rateIssue;
 export function matchesTopic(source,topic){const hay=(source.title+' '+(source.excerpt||'')).toLocaleLowerCase('id');return topic.enabled&&topic.keywords.some(x=>hay.includes(x.toLowerCase()))&&!topic.exclusions.some(x=>hay.includes(x.toLowerCase()));}
 export class RadarStore{
- constructor(contentStore){this.contentStore=contentStore}
- async read(){const db=await this.contentStore.read(),r=radarData(db);return {...r,lenses:LENSES,issues:r.issues.map(i=>({...i,stats:issueStats(i)})),linkedContents:db.contents.map(c=>({id:c.id,title:c.title,format:c.format})),coverage:{YouTube:r.channels.some(c=>c.enabled&&c.lastSyncAt)?'Dipantau':'Belum dipantau','Berita / Web':r.sync.newsAt?'Dipantau':'Belum dipantau',X:'Belum dipantau',Instagram:'Belum dipantau',TikTok:'Belum dipantau'}};}
+ constructor(contentStore,{now=()=>Date.now()}={}){this.contentStore=contentStore;this.now=now}
+ async read(){
+  const db=await this.contentStore.read(),r=radarData(db),now=this.now();
+  const issues=r.issues.map(i=>{
+   const stats=issueStats(i,now),relevant=r.topics.some(t=>t.enabled&&t.sources.includes('news')&&i.sources.some(source=>matchesTopic(source,t)));
+   if(!relevant){stats.isHot=false;stats.reason+=' Tidak cocok dengan topik aktif.';}
+   return {...i,stats};
+  });
+  const hotIssues=issues.filter(i=>i.stats.isHot&&!['ignored','discussed'].includes(i.status)).sort((a,b)=>b.stats.score-a.stats.score||Date.parse(b.stats.latestPublishedAt)-Date.parse(a.stats.latestPublishedAt)||a.id.localeCompare(b.id));
+  return {...r,lenses:LENSES,issues,hotIssues,methodology:RADAR_METHOD,
+   radarSummary:{groups:issues.length,hot:hotIssues.length,belowThreshold:issues.filter(i=>!i.stats.isHot).length,ratedAt:new Date(now).toISOString()},
+   linkedContents:db.contents.map(c=>({id:c.id,title:c.title,format:c.format})),
+   coverage:{YouTube:r.channels.some(c=>c.enabled&&c.lastSyncAt)?'Dipantau':'Belum dipantau','Berita / Web':r.sync.newsAt?'Dipantau':'Belum dipantau',X:'Belum dipantau',Instagram:'Belum dipantau',TikTok:'Belum dipantau'}};
+ }
+ // Re-group only untouched machine imports. Editorial choices and IDs of saved/linked groups stay intact.
+ async recluster(){
+  const db=await this.contentStore.read();if(!db.radar||db.radar.clusteringVersion===RADAR_METHOD.version)return {skipped:true};
+  return this.mutate(r=>{
+   if(r.clusteringVersion===RADAR_METHOD.version)return {skipped:true};
+   const match=createIssueMatcher(),eligible=i=>i.status==='new'&&!i.groupingLocked&&!i.eventDate&&!i.contentIds.length&&i.sources.length>0&&[i.sources[0].title,displayHeadline(i.sources[0].title,i.sources[0].publisher)].some(title=>title.toLowerCase()===i.title.toLowerCase())&&i.sources.every(s=>s.coverage!=='manual'&&s.verification==='unchecked'&&!s.repost);
+   const groups=[],before=r.issues.length;
+   for(const item of [...r.issues].sort((a,b)=>Date.parse(a.createdAt)-Date.parse(b.createdAt)||a.id.localeCompare(b.id))){
+    let target=null,best=0;
+    if(eligible(item))for(const group of groups){
+     if(!eligible(group)||group.sources.length+item.sources.length>100)continue;
+     const scores=item.sources.map(source=>match(group,source)),score=Math.min(...scores);
+     if(score>best){target=group;best=score;}
+    }
+    if(!target){groups.push(item);continue;}
+    target.sources.push(...item.sources.filter(source=>!target.sources.some(s=>s.url===source.url)));
+    for(const key of ['topicIds','lenses','contentIds'])target[key]=[...new Set([...target[key],...item[key]])];
+    target.revision++;target.updatedAt=[target.updatedAt,item.updatedAt].sort().at(-1);
+   }
+   r.issues=groups.sort((a,b)=>Date.parse(b.updatedAt)-Date.parse(a.updatedAt));r.clusteringVersion=RADAR_METHOD.version;
+   return {before,after:groups.length,merged:before-groups.length,version:RADAR_METHOD.version};
+  });
+ }
+
  mutate(fn){return this.contentStore.mutate(db=>fn(writable(db),db))}
  saveTopic(body,id){return this.mutate(r=>{const old=id?find(r.topics,id):null;revision(old,body);const name=txt(body.name,100,true),keywords=list(body.keywords),exclusions=list(body.exclusions||[]),lenses=list(body.lenses,3),sources=list(body.sources,2);if(!keywords.length||!lenses.length||lenses.some(x=>!LENSES.some(l=>l.id===x))||!sources.length||sources.some(x=>!['news','youtube'].includes(x)))throw fail('Isi keyword, lensa, dan sumber pemantauan.');if(!/^[a-z]{2}$/.test(body.language)||!/^[A-Z]{2}$/.test(body.region)||typeof body.enabled!=='boolean')throw fail('Bahasa, wilayah, atau status tidak valid.');if(!old&&r.topics.length>=60)throw fail('Maksimal 60 topik.');const item={id:old?.id||crypto.randomUUID(),name,keywords,exclusions,lenses,sources,language:body.language,region:body.region,enabled:body.enabled,revision:(old?.revision||0)+1};if(old)r.topics[r.topics.indexOf(old)]=item;else r.topics.push(item);return item;});}
  remove(kind,id,body){return this.mutate(r=>{if(!['topics','feeds','channels'].includes(kind))throw fail('Jenis data tidak valid.');const item=find(r[kind],id);revision(item,body);r[kind]=r[kind].filter(x=>x.id!==id);return {ok:true};});}
  saveFeed(body,id){return this.mutate(r=>{const old=id?find(r.feeds,id):null;revision(old,body);const url=canonicalUrl(body.url);if(!old&&r.feeds.length>=15)throw fail('Maksimal 15 RSS.');const item={id:old?.id||crypto.randomUUID(),name:txt(body.name,100,true),url,enabled:body.enabled!==false,revision:(old?.revision||0)+1};if(old)r.feeds[r.feeds.indexOf(old)]=item;else r.feeds.push(item);return item;});}
  saveChannel(body){return this.mutate(r=>{const url=canonicalUrl(body.url),u=new URL(url);if(!/(^|\.)youtube\.com$/.test(u.hostname)||!/^\/(channel\/UC[\w-]{22}|@[\w.%-]+)\/?$/.test(u.pathname))throw fail('Gunakan URL YouTube /@handle atau /channel/UC…');if(!['inspiration','competitor','reference'].includes(body.role))throw fail('Peran channel tidak valid.');if(r.channels.some(c=>c.url===url))throw fail('Channel sudah dipantau.',409);if(r.channels.length>=20)throw fail('Maksimal 20 channel.');const item={id:crypto.randomUUID(),url,role:body.role,enabled:true,revision:1,videos:[],snapshots:[]};r.channels.push(item);return item;});}
- async addSources(inputs,topicIds=[],issueId=null){return this.mutate(r=>{const added=[];for(const input of inputs){const url=canonicalUrl(input.url),existing=r.issues.find(i=>i.sources.some(s=>s.url===url));const topicMatches=topicIds.length?topicIds:r.topics.filter(t=>matchesTopic(input,t)).map(t=>t.id);if(existing){if(issueId&&issueId!==existing.id)throw fail('Link ini sudah ada di isu lain. Gunakan Gabungkan isu.',409);existing.topicIds=[...new Set([...existing.topicIds,...topicMatches])];added.push(existing.id);continue;}if(r.issues.reduce((n,i)=>n+i.sources.length,0)>=2000)throw fail('Radar penuh (2.000 sumber). Hapus isu yang tidak diperlukan.');const title=txt(input.title,300,true),now=new Date().toISOString();if(!issueId&&r.issues.length>=800)throw fail('Radar penuh (800 isu). Gabungkan atau hapus isu yang tidak diperlukan.');const normalized=eventKey(title,input.publisher);let issue=issueId?find(r.issues,issueId):r.issues.find(i=>(i.clusterKey||eventKey(i.sources[0]?.title||i.title,i.sources[0]?.publisher))===normalized&&Math.abs(Date.parse(input.publishedAt||now)-Date.parse(i.createdAt))<604800000);if(!issue){issue={id:crypto.randomUUID(),title,clusterKey:normalized,status:'new',topicIds:[],lenses:[],sources:[],contentIds:[],eventDate:null,createdAt:now,updatedAt:now,revision:1};r.issues.unshift(issue);}else issue.revision++;if(issue.sources.length>=100)throw fail('Maksimal 100 sumber per isu.');const source={id:crypto.randomUUID(),url,title,publisher:txt(input.publisher||new URL(url).hostname,160,true),platform:platform(url),publishedAt:when(input.publishedAt),discoveredAt:now,excerpt:txt(input.excerpt||'',3000),coverage:input.coverage==='snippet'?'snippet':input.coverage==='manual'?'manual':'headline',verification:'unchecked',repost:input.repost===true};issue.sources.push(source);issue.topicIds=[...new Set([...issue.topicIds,...topicMatches.filter(id=>r.topics.some(t=>t.id===id))])];issue.lenses=[...new Set([...issue.lenses,...r.topics.filter(t=>issue.topicIds.includes(t.id)).flatMap(t=>t.lenses)])];issue.updatedAt=now;added.push(issue.id);}return {issueIds:[...new Set(added)]};});}
- changeIssue(id,body){return this.mutate((r,db)=>{const issue=find(r.issues,id);revision(issue,body);if('status'in body){if(!['new','saved','ignored','discussed'].includes(body.status))throw fail('Status tidak valid.');issue.status=body.status;}if('title'in body)issue.title=txt(body.title,300,true);if('eventDate'in body)issue.eventDate=when(body.eventDate);if('lenses'in body){const lenses=list(body.lenses,3);if(lenses.some(x=>!LENSES.some(l=>l.id===x)))throw fail('Lensa tidak valid.');issue.lenses=lenses;}if(body.sourceId){const s=find(issue.sources,body.sourceId);if(!['unchecked','verified','compare'].includes(body.verification)||typeof body.repost!=='boolean')throw fail('Verifikasi sumber tidak valid.');s.verification=body.verification;s.repost=body.repost;}if(body.contentId){if(!db.contents.some(c=>c.id===body.contentId))throw fail('Konten tidak ditemukan.',404);issue.contentIds=[...new Set([...issue.contentIds,body.contentId])];}issue.revision++;return issue;});}
- merge(id,body){return this.mutate(r=>{const target=find(r.issues,id),source=find(r.issues,body.fromId);revision(target,body);if(target.id===source.id||body.fromRevision!==source.revision)throw fail('Isu berubah atau tujuan sama.',409);if(target.sources.length+source.sources.length>100)throw fail('Gabungan melebihi 100 sumber.');target.sources.push(...source.sources.filter(s=>!target.sources.some(x=>x.url===s.url)));for(const k of ['topicIds','lenses','contentIds'])target[k]=[...new Set([...target[k],...source[k]])];target.revision++;target.updatedAt=new Date().toISOString();r.issues=r.issues.filter(i=>i.id!==source.id);return target;});}
+ async addSources(inputs,topicIds=[],issueId=null){
+ if(!Array.isArray(inputs)||!inputs.length||inputs.length>100||inputs.some(x=>!x||typeof x!=='object'||Array.isArray(x)))throw fail('Daftar sumber Radar tidak valid.');
+ return this.mutate(r=>{
+  const added=[],match=createIssueMatcher();let addedCount=0;
+  for(const input of inputs){
+   const url=canonicalUrl(input.url),existing=r.issues.find(i=>i.sources.some(s=>s.url===url));
+   const topicMatches=topicIds.length?topicIds:r.topics.filter(t=>matchesTopic(input,t)).map(t=>t.id);
+   if(existing){
+    if(issueId&&issueId!==existing.id)throw fail('Link ini sudah ada di isu lain. Gunakan Gabungkan isu.',409);
+    const old=existing.sources.find(s=>s.url===url);
+    if(old.coverage!=='manual' && !old.publisherUrl && input.publisherUrl){old.publisherUrl=canonicalUrl(input.publisherUrl);existing.revision++;}
+    const ids=[...new Set([...existing.topicIds,...topicMatches])];
+    if(ids.length!==existing.topicIds.length){existing.topicIds=ids;existing.revision++;}
+    if(input.coverage==='manual'&&existing.status==='new'){existing.status='saved';existing.revision++;}
+    added.push(existing.id);continue;
+   }
+   if(r.issues.reduce((n,i)=>n+i.sources.length,0)>=2000)throw fail('Radar penuh (2.000 sumber). Hapus isu yang tidak diperlukan.');
+   const title=txt(input.title,300,true),now=new Date(this.now()).toISOString();
+   const source={id:crypto.randomUUID(),url,title,publisher:txt(input.publisher||new URL(url).hostname,160,true),
+    ...(input.publisherUrl?{publisherUrl:canonicalUrl(input.publisherUrl)}:{}),platform:platform(url),publishedAt:when(input.publishedAt),discoveredAt:now,
+    excerpt:txt(input.excerpt||'',3000),coverage:input.coverage==='snippet'?'snippet':input.coverage==='manual'?'manual':'headline',verification:'unchecked',repost:input.repost===true};
+   let issue=issueId?find(r.issues,issueId):null,best=0;
+   if(!issueId)for(const candidate of r.issues){const score=match(candidate,source);if(score>best){best=score;issue=candidate;}}
+   if(!issue){
+    if(r.issues.length>=800)throw fail('Radar penuh (800 isu). Gabungkan atau hapus isu yang tidak diperlukan.');
+    issue={id:crypto.randomUUID(),title:displayHeadline(title,source.publisher),status:source.coverage==='manual'?'saved':'new',topicIds:[],lenses:[],sources:[],contentIds:[],eventDate:null,createdAt:now,updatedAt:now,revision:1};r.issues.unshift(issue);
+   }else issue.revision++;
+   if(issue.sources.length>=100)throw fail('Maksimal 100 sumber per isu.');
+   if(issueId)issue.groupingLocked=true;
+   if(source.coverage==='manual'&&issue.status==='new')issue.status='saved';
+   issue.sources.push(source);issue.topicIds=[...new Set([...issue.topicIds,...topicMatches.filter(id=>r.topics.some(t=>t.id===id))])];
+   issue.lenses=[...new Set([...issue.lenses,...r.topics.filter(t=>issue.topicIds.includes(t.id)).flatMap(t=>t.lenses)])];
+   issue.updatedAt=now;added.push(issue.id);addedCount++;
+  }
+  return {issueIds:[...new Set(added)],addedCount};
+ });}
+
+ changeIssue(id,body){return this.mutate((r,db)=>{const issue=find(r.issues,id);revision(issue,body);if('status'in body){if(!['new','saved','ignored','discussed'].includes(body.status))throw fail('Status tidak valid.');issue.status=body.status;}if('title'in body){issue.title=txt(body.title,300,true);issue.groupingLocked=true;}if('eventDate'in body){issue.eventDate=when(body.eventDate);issue.groupingLocked=true;}if('lenses'in body){issue.groupingLocked=true;const lenses=list(body.lenses,3);if(lenses.some(x=>!LENSES.some(l=>l.id===x)))throw fail('Lensa tidak valid.');issue.lenses=lenses;}if(body.sourceId){const s=find(issue.sources,body.sourceId);if(!['unchecked','verified','compare'].includes(body.verification)||typeof body.repost!=='boolean')throw fail('Verifikasi sumber tidak valid.');s.verification=body.verification;s.repost=body.repost;}if(body.contentId){if(!db.contents.some(c=>c.id===body.contentId))throw fail('Konten tidak ditemukan.',404);issue.contentIds=[...new Set([...issue.contentIds,body.contentId])];}issue.revision++;return issue;});}
+ merge(id,body){return this.mutate(r=>{const target=find(r.issues,id),source=find(r.issues,body.fromId);revision(target,body);if(target.id===source.id||body.fromRevision!==source.revision)throw fail('Isu berubah atau tujuan sama.',409);if(target.sources.length+source.sources.length>100)throw fail('Gabungan melebihi 100 sumber.');target.sources.push(...source.sources.filter(s=>!target.sources.some(x=>x.url===s.url)));for(const k of ['topicIds','lenses','contentIds'])target[k]=[...new Set([...target[k],...source[k]])];target.groupingLocked=true;target.revision++;target.updatedAt=new Date().toISOString();r.issues=r.issues.filter(i=>i.id!==source.id);return target;});}
  deleteIssue(id,body){return this.mutate(r=>{const issue=find(r.issues,id);revision(issue,body);if(issue.contentIds.length)throw fail('Isu terhubung ke konten; gunakan Abaikan agar referensi terjaga.');r.issues=r.issues.filter(i=>i.id!==id);return {ok:true};});}
 }
