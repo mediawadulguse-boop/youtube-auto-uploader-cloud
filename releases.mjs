@@ -1,6 +1,7 @@
-export const APP_VERSION='4.6.1';
+export const APP_VERSION='4.6.2';
 // Release dates follow WIB. This is the shipped application history, not user edits.
 export const RELEASES=[
+ {version:'4.6.2',date:'2026-10-02',title:'Kategori video Long dan Short',changes:[{type:'feature',text:'Note mempunyai pilihan kategori video Long atau Short, badge pada kartu, serta filter Long, Short, dan Belum dipilih. Pilihan disimpan lewat tombol Simpan; catatan lama tetap tanpa pilihan.'},{type:'feature',text:'Label Long dan Short dibuat konsisten pada konten, Kanban, dan filter format.'}]},
  {version:'4.6.1',date:'2026-10-02',title:'Data & Backup stabil dan Riwayat Update',changes:[
   {type:'fix',text:'Halaman Data & Backup tetap terbuka saat sinkronisasi; tombol, pesan hasil, dan posisi scroll dipertahankan.'},
   {type:'fix',text:'Kegagalan pemeriksaan Analytics ditampilkan terpisah dan tidak menghilangkan daftar backup.'},

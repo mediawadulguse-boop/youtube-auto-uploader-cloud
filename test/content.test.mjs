@@ -95,3 +95,13 @@ test('rich text routes expose editor assets, sanitize content, search plain text
  const id=r.data.note.id;r=await request('/api/notes/'+id,'PATCH',{revision:1,bodyHtml:'<i>Searchable phrase</i>'});assert.equal(r.data.note.revision,2);
  r=await request('/api/contents','POST',{title:'Formatted API Script',richText:{script:'<b>Script</b>'}});assert.equal(r.status,201);const c=r.data.content;r=await request('/api/contents/'+c.id,'PATCH',{revision:c.revision,richText:{script:'<u>Updated</u>'}});assert.equal(r.data.content.script,'Updated');assert.equal(r.data.content.richText.script,'<u>Updated</u>');
 });
+
+test('Note Long/Short filters work independently of custom category, including unset and archived records',async()=>{
+ const a=(await request('/api/notes','POST',{title:'long-short-test long',format:'long',body:'Long body'})).data.note;
+ const b=(await request('/api/notes','POST',{title:'long-short-test short',format:'shorts',bodyHtml:'<b>Short body</b>'})).data.note;
+ const empty=(await request('/api/notes','POST',{title:'long-short-test unset'})).data.note;
+ const get=async value=>(await request('/api/notes?q=long-short-test&format='+value)).data.notes;
+ assert.deepEqual((await get('long')).map(n=>n.id),[a.id]);assert.deepEqual((await get('shorts')).map(n=>n.id),[b.id]);assert.deepEqual((await get('')).map(n=>n.id),[empty.id]);assert.equal((await get(''))[0].format,'');
+ assert.equal((await request('/api/notes?format=invalid')).status,400);assert.equal((await request('/api/notes','POST',{title:'Invalid',format:'short'})).status,400);
+ let r=await request('/api/notes/'+a.id,'PATCH',{revision:1,format:'shorts',archived:true});assert.equal(r.data.note.body,'Long body');assert.equal((await get('long')).length,0);assert.equal((await request('/api/notes?q=long-short-test&format=shorts&archived=1')).data.notes[0].id,a.id);
+});

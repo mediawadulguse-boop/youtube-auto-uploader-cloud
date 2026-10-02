@@ -1,5 +1,5 @@
 let STAGE_NAMES = { idea:'Ide', script:'Naskah', production:'Produksi', editing:'Editing', review:'Review', ready:'Siap Upload' };
-const FORMAT_NAMES = { shorts:'Shorts', long:'Video panjang', live:'Live', other:'Lainnya' };
+const FORMAT_NAMES = { shorts:'Short', long:'Long', live:'Live', other:'Lainnya' };
 const CHECK_NAMES = { script:'Naskah selesai', video:'Video final siap', thumbnail:'Thumbnail siap', review:'Review selesai' };
 const hub = { view:'dashboard', data:{contents:[],pillars:[]}, date:new Date(), mode:innerWidth<620?'agenda':'month', calendarField:'publish', editing:null, loading:false, loaded:false, timer:null, boardFilters:false, composer:null, columnMenu:null, boardSignature:null, moveCard:null, dragging:false };
 const hubForm = $('#contentForm');

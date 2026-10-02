@@ -894,9 +894,10 @@ const server = http.createServer(async (req, res) => {
     if(columnMatch&&req.method==='PATCH')return json(res,200,await contentStore.saveColumn(await readJson(req),columnMatch[1]));
     if(columnMatch&&req.method==='DELETE')return json(res,200,await contentStore.removeColumn(columnMatch[1],await readJson(req)));
     if(pathname==='/api/notes'&&req.method==='GET'){
-      const db=await notesStore.read(),q=(u.searchParams.get('q')||'').slice(0,300).toLocaleLowerCase('id-ID'),kind=u.searchParams.get('kind'),category=u.searchParams.get('category'),archived=u.searchParams.get('archived')==='1';
-      const notes=db.notes.filter(n=>n.archived===archived&&(!kind||n.kind===kind)&&(category===null||n.category.toLocaleLowerCase('id-ID')===category.toLocaleLowerCase('id-ID'))&&(!q||[n.title,n.body,n.category,...n.tags].join(' ').toLocaleLowerCase('id-ID').includes(q))).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||b.updatedAt.localeCompare(a.updatedAt));
-      return json(res,200,{categories:db.categories,categoriesRevision:db.categoriesRevision,notes:notes.map(n=>{const {body,bodyHtml,...rest}=n;return {...rest,preview:body.slice(0,280),bodyLength:body.length}})},{'cache-control':'no-store'});
+      const db=await notesStore.read(),q=(u.searchParams.get('q')||'').slice(0,300).toLocaleLowerCase('id-ID'),kind=u.searchParams.get('kind'),category=u.searchParams.get('category'),format=u.searchParams.get('format'),archived=u.searchParams.get('archived')==='1';
+      if(format!==null&&!['','long','shorts'].includes(format))return json(res,400,{error:'Pilih kategori video Long atau Short'});
+      const notes=db.notes.filter(n=>n.archived===archived&&(format===null||(n.format||'')===format)&&(!kind||n.kind===kind)&&(category===null||n.category.toLocaleLowerCase('id-ID')===category.toLocaleLowerCase('id-ID'))&&(!q||[n.title,n.body,n.category,...n.tags].join(' ').toLocaleLowerCase('id-ID').includes(q))).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||b.updatedAt.localeCompare(a.updatedAt));
+      return json(res,200,{categories:db.categories,categoriesRevision:db.categoriesRevision,notes:notes.map(n=>{const {body,bodyHtml,...rest}=n;return {...rest,format:n.format||'',preview:body.slice(0,280),bodyLength:body.length}})},{'cache-control':'no-store'});
     }
     if(pathname==='/api/note-categories'&&req.method==='POST')return json(res,201,await notesStore.createCategory(await readJson(req)));
     if(pathname==='/api/note-categories'&&['PATCH','DELETE'].includes(req.method))return json(res,200,await notesStore.changeCategory(await readJson(req),req.method==='DELETE'));
