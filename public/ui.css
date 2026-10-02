@@ -55,3 +55,28 @@ body{font-size:14px;-webkit-font-smoothing:antialiased}button,a,input,select,tex
 .file-video-format{display:block;margin-top:8px;font-size:11px;color:#626f86}
 .file-video-format select{display:block;width:100%;margin-top:4px;padding:8px;border:1px solid #dce2eb;border-radius:6px;background:white;color:#172b4d;font-size:13px}
 @media(max-width:620px){.file-video-format select{font-size:16px;min-height:44px}}
+
+/* Compact checklist progress and a single script editor. */
+.editor-progress{margin:14px 24px 0;border:1px solid #e2e7ef;border-radius:9px;background:#fafbfe;padding:12px 14px;color:#526178}
+.editor-progress summary{cursor:pointer;list-style:none;display:grid;grid-template-columns:minmax(0,1fr) 18px;gap:7px 12px;align-items:center}
+.editor-progress summary::-webkit-details-marker{display:none}
+.progress-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:11px;grid-column:1}
+.progress-heading strong{font-weight:650;color:#172b4d}
+.progress-toggle{grid-column:2;grid-row:1/3;font-size:18px;text-align:center;transition:transform .15s}
+.editor-progress[open] .progress-toggle{transform:rotate(180deg)}
+.production-progress-bar{--progress-color:#3977d5;display:block;appearance:none;-webkit-appearance:none;width:100%;height:5px;border:0;border-radius:999px;overflow:hidden;background:#e4e9f1;color:var(--progress-color)}
+.production-progress-bar::-webkit-progress-bar{background:#e4e9f1;border-radius:999px}
+.production-progress-bar::-webkit-progress-value{background:var(--progress-color);border-radius:999px}
+.production-progress-bar::-moz-progress-bar{background:var(--progress-color);border-radius:999px}
+.is-complete .production-progress-bar{--progress-color:#27845b}
+.editor-progress .production-progress-bar{grid-column:1}
+.editor-progress .checklist{margin-top:14px;padding:0;background:transparent}
+.editor-progress .hint{margin:12px 0 0;font-size:11px}
+.content-progress{margin:10px 0 7px;font-size:10px;color:#626f86;max-width:240px}
+.content-progress>span{display:flex;justify-content:space-between;gap:12px;margin-bottom:5px}
+.content-progress b{font-weight:650}
+.script-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px}
+.content-editor .script-heading label{font-size:12px;font-weight:650;margin:0;color:#5a6270}
+.script-heading .btn{font-size:11px;min-height:32px}
+.content-table .content-progress{min-width:110px}
+@media(max-width:620px){.editor-progress{margin:12px 16px 0;padding:12px}.editor-progress .checklist{gap:10px}.editor-progress summary{min-height:32px}.script-heading .btn{min-height:38px}.progress-heading{font-size:11px}}
