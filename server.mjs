@@ -7,7 +7,7 @@ import { URL } from 'node:url';
 import { ContentStore } from './content-store.mjs';
 import { RadarStore } from './radar-store.mjs';
 import { RadarSync } from './radar-sync.mjs';
-import { RadarAI } from './radar-ai.mjs';
+import { RadarAIProviders } from './radar-ai.mjs';
 import { NotesStore } from './notes-store.mjs';
 import { ANALYTICS_SCOPES, hasAnalyticsAccess, analyticsRange, analyticsError, reportRows, validateVideoId } from './analytics.mjs';
 import { runUploadWorker,legacyJobAction } from './worker-policy.mjs';
@@ -29,7 +29,7 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 let storage=null;
 const contentStore = new ContentStore(path.join(DATA_DIR, 'contents.json'));
 const radarStore=new RadarStore(contentStore);
-const radarAI=new RadarAI(radarStore);
+const radarAI=new RadarAIProviders(radarStore);
 const radarSync=new RadarSync(radarStore,async url=>{const db=await readDb();if(Date.parse(db.youtubeWorker?.retryAt)>Date.now())throw Object.assign(new Error('Kuota YouTube sedang dibatasi.'),{code:'quota_exceeded'});if(process.env.YOUTUBE_API_KEY){const u=new URL(url);u.searchParams.set('key',process.env.YOUTUBE_API_KEY);return fetch(u,{signal:AbortSignal.timeout(15000)})}return youtubeFetch(url,{signal:AbortSignal.timeout(15000)});});
 const notesStore = new NotesStore(path.join(DATA_DIR, 'notes.json'));
 const TOKEN_FILE = path.join(DATA_DIR, 'youtube-token.enc.json');
@@ -890,9 +890,9 @@ const server = http.createServer(async (req, res) => {
         return json(res,200,{...report,connectedChannel:db.channel,videos:report.videos.map(v=>{const job=jobs.find(j=>j.youtubeVideoId===v.id);return {...v,title:v.title||job?.title||'Judul belum tersedia',contentId:job?.contentId||productions.find(c=>c.youtubeVideoId===v.id)?.id||null}})},{'cache-control':'no-store'});
       }catch(e){return json(res,e.status||502,{code:e.code||'upstream_error',error:e.message},{'cache-control':'no-store'});}
     }
-    if(pathname==='/api/radar'&&req.method==='GET')return json(res,200,{...await radarStore.read(),ai:await radarAI.status(),syncBusy:radarSync.busy});
+    if(pathname==='/api/radar'&&req.method==='GET')return json(res,200,{...await radarStore.read(),ai:await radarAI.status(u.searchParams.get('aiProvider') || undefined),syncBusy:radarSync.busy});
     if(pathname==='/api/radar/sync'&&req.method==='POST')return json(res,200,await radarSync.sync({force:true}));
-    if(pathname==='/api/radar/ai/check'&&req.method==='POST')return json(res,200,await radarAI.checkConnection());
+    if(pathname==='/api/radar/ai/check'&&req.method==='POST')return json(res,200,await radarAI.checkConnection(await readJson(req)));
     if(pathname==='/api/radar/ai'&&req.method==='POST')return json(res,200,await radarAI.generate(await readJson(req)));
     if(pathname==='/api/radar/sources'&&req.method==='POST'){const body=await readJson(req);return json(res,201,await radarStore.addSources([body],[],body.issueId||null));}
     const radarMatch=pathname.match(/^\/api\/radar\/(topics|feeds|channels|issues)(?:\/([a-z0-9-]{1,60}))?(?:\/(merge))?$/);

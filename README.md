@@ -195,3 +195,21 @@ Acuan strategi retry: https://ai.google.dev/gemini-api/docs/troubleshooting.
 Schema Gemini memakai object bertipe dengan field wajib text, drafts (title/script/angle), dan citations, tanpa additionalProperties:false milik kontrak strict OpenAI. Hasil tetap melalui validateResult: format JSON, panjang teks, jumlah Short, jenis field, nomor kutipan, dan URL sumber harus valid. OpenAI tetap memakai schema strict aslinya.
 
 Pada 2 Oktober 2026, pemeriksaan satu kali dari runtime produksi memakai prompt sintetis tanpa konten pengguna/key dalam log: teks biasa berhasil HTTP200, beberapa permintaan JSON mengembalikan503, schema sederhana berhasil200, dan complete aplikasi dengan schema Gemini yang disesuaikan berhasil200 serta lolos validasi pada10:12:05UTC. Hasil campuran ini belum membuktikan satu parameter tertentu sebagai satu-satunya penyebab503. Uji nyata tersebut merupakan satu smoke test, bukan jaminan ketersediaan provider. Model default tetap gemini-3.8-flash. Modul dan hook diagnosis sementara telah dihapus setelah pemeriksaan.
+
+### Multi-provider dan perpindahan kuota otomatis (4.8.0)
+
+Buka Radar → Koneksi & model AI atau Bantuan AI, lalu pilih provider utama: Gemini, GPT (OpenAI), atau Grok (xAI). Pilihan berlaku pada sesi halaman dan tidak mengubah default Railway. Isi variabel Railway berikut untuk mengaktifkan setiap provider; API key tidak ditulis ke database/JavaScript browser dan tidak pernah ditampilkan kembali.
+
+| Provider | Key | Model default | Model tambahan opsional |
+|---|---|---|---|
+| Gemini | GEMINI_API_KEY | GEMINI_MODEL | Daftar model dari Google |
+| GPT / OpenAI | OPENAI_API_KEY | OPENAI_MODEL | OPENAI_MODELS, dipisahkan koma |
+| Grok / xAI | XAI_API_KEY | XAI_MODEL | XAI_MODELS, dipisahkan koma |
+
+Gunakan nama model teks yang tersedia pada akun API Anda. AI_PROVIDER menentukan default (gemini/openai/grok); Gemini yang sudah aktif tetap dipertahankan. GPT memanfaatkan Responses API yang sudah ada; Grok memakai https://api.x.ai/v1/responses dengan store:false, JSON schema, tanpa tool/web search. Cek model Grok memakai /v1/language-models, termasuk alias yang cocok dengan model konfigurasi. GPT/Grok hanya menawarkan model yang diizinkan konfigurasi admin dan ada dalam katalog.
+
+AI_AUTO_FALLBACK=true adalah default. Setelah provider utama, AI_FALLBACK_ORDER=openai,grok,gemini menentukan urutan cadangan tanpa menduplikasi provider utama. Hanya provider dengan key/model valid dicoba, maksimum tiga provider per aksi, dengan satu deadline 60 detik bersama. Pindah ketika HTTP429 provider (kuota/batas laju), atau Grok402/403 yang secara eksplisit menyatakan kredit/spending limit habis. 401,403 izin biasa,400 format,404,503,timeout, penolakan konten, respons terpotong, dan hasil/rujukan tidak valid tidak dipindahkan ke provider lain.
+
+Provider yang kehabisan kuota diberi jeda minimal30 detik atau Retry-After yang valid, tersimpan di memori sampai restart; selama jeda dapat dilewati dalam rangkaian berikutnya. Set AI_AUTO_FALLBACK=false untuk menonaktifkan. Tidak mengubah default model/key saat berpindah, tidak menerapkan hasil ke script secara otomatis. Hasil pratinjau menampilkan provider/model aktual dan riwayat perpindahan. Satu aksi hanya menambah pemakaian aplikasi sekali; batas harian20/jeda10 detik tetap berlaku untuk semua provider, dan permintaan bersamaan ditolak selama rantai berjalan. Kuota dan biaya API masing-masing provider tetap mengikuti akun provider; langganan ChatGPT/Grok tidak diasumsikan sebagai kredit API.
+
+Tes integrasi/provider menggunakan respons simulasi: perpindahan kuota, isolasi key, izin dan format, provider belum aktif, limit bersama, model palsu, deadline, concurrency, endpoint terlindungi, serta validasi sumber. Penggunaan nyata GPT/Grok memerlukan key dan model pada Railway; fitur tidak mengklaim koneksi berhasil sebelum dicek. Dokumentasi: https://docs.x.ai/developers/rest-api-reference/inference/responses dan https://docs.x.ai/developers/model-capabilities/text/structured-outputs.
