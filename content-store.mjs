@@ -137,6 +137,7 @@ export class ContentStore {
       const now = new Date().toISOString();
       const content = { ...normalize(body, db, {...blank(),stage:db.columns[0].id}), id: crypto.randomUUID(), revision: 1, createdAt: now, updatedAt: now, history: [] };
       if(content.youtubeVideoId&&db.contents.some(c=>c.youtubeVideoId===content.youtubeVideoId))throw fail('Video sudah terhubung ke konten produksi lain.',409);
+      if(body.radarIssueId){const issue=db.radar?.issues.find(i=>i.id===body.radarIssueId);if(!issue)throw fail('Isu Radar berubah. Muat ulang sebelum membuat konten.',409);issue.contentIds=[...new Set([...issue.contentIds,content.id])];issue.revision++;}
       db.contents.unshift(content); return content;
     });
   }

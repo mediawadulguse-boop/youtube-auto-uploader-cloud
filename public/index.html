@@ -10,6 +10,7 @@
 <link rel="stylesheet" href="/features.css">
 <link rel="stylesheet" href="/rich-text.css">
 <link rel="stylesheet" href="/storage.css">
+<link rel="stylesheet" href="/radar.css">
 
 </head>
 <body>
@@ -33,12 +34,13 @@
       <button data-view="library"><span data-icon="folder"></span>Semua Konten</button>
       <button data-view="upload"><span data-icon="upload"></span>Upload & Antrean</button>
       <button data-view="analytics"><span data-icon="chart"></span>YouTube Analytics</button>
+      <button data-view="radar"><span data-icon="spark"></span>Radar Konten</button>
       <button data-view="notes"><span data-icon="text"></span>Note</button>
       <button data-view="storage"><span data-icon="folder"></span>Data & Backup</button>
       <button data-view="updates"><span data-icon="clock"></span>Riwayat Update</button>
       <button data-view="settings"><span data-icon="layers"></span>Pilar Konten</button>
     </div>
-    <div class="sidebar-bottom"><div class="workspace-note"><span data-icon="spark"></span><strong>Mulai dari sebuah ide.</strong><p>Simpan naskah dan riset,<br>lalu wujudkan menjadi konten.</p></div><button id="logoutBtn" class="btn logout"><span data-icon="logout"></span>Keluar<span class="version">v4.6.4</span></button></div>
+    <div class="sidebar-bottom"><div class="workspace-note"><span data-icon="spark"></span><strong>Mulai dari sebuah ide.</strong><p>Simpan naskah dan riset,<br>lalu wujudkan menjadi konten.</p></div><button id="logoutBtn" class="btn logout"><span data-icon="logout"></span>Keluar<span class="version">v4.7.0</span></button></div>
   </nav>
   <main class="workspace">
   <section id="contentHub">
@@ -78,7 +80,7 @@
       <div class="rich-field span2"><label for="rich-brief">Brief / ide</label><textarea id="rich-brief" name="brief" maxlength="20000" rows="5" placeholder="Tujuan, angle, pesan utama, dan latar belakang"></textarea></div>
       <div class="rich-field span2"><label for="rich-productionNotes">Rencana produksi</label><textarea id="rich-productionNotes" name="productionNotes" maxlength="20000" rows="5" placeholder="Adegan, B-roll, lokasi, narasumber, dan kebutuhan thumbnail"></textarea></div>
     </div></section>
-    <section data-panel="script" class="hide"><div class="script-heading"><label for="rich-script">Script</label><button type="button" id="copyScript" class="btn mini">Salin Script</button></div><div class="rich-field"><textarea id="rich-script" name="script" maxlength="160000" rows="18" placeholder="Tulis naskah lengkap di sini…"></textarea></div><div id="scriptStats" class="hint"></div></section>
+    <section data-panel="script" class="hide"><div class="script-heading"><label for="rich-script">Script</label><button type="button" id="scriptAI" class="btn mini">Bantuan AI</button><button type="button" id="copyScript" class="btn mini">Salin Script</button></div><div class="rich-field"><textarea id="rich-script" name="script" maxlength="160000" rows="18" placeholder="Tulis naskah lengkap di sini…"></textarea></div><div id="scriptStats" class="hint"></div></section>
     <section data-panel="research" class="hide"><div class="subheading"><h3>Data & sumber riset</h3><button id="addSource" type="button" class="btn mini">+ Sumber</button></div><p class="hint">Simpan fakta, angka, catatan wawancara, dan tautan. Tandai bahan yang sudah diperiksa.</p><div id="sourceRows"></div><div class="subheading"><h3>Aset & referensi</h3><button id="addAsset" type="button" class="btn mini">+ Aset</button></div><p class="hint">Simpan tautan Drive, dokumen, bahan visual, atau video final. Video dikirim melalui menu Upload.</p><div id="assetRows"></div></section>
     <section data-panel="publish" class="hide"><div class="editor-fields"><label class="span2">Deskripsi YouTube<textarea name="description" maxlength="5000" rows="7"></textarea></label><label class="span2">Tag YouTube<input name="tags" maxlength="2000" placeholder="Pisahkan dengan koma"></label></div><div id="contentPublication"></div><button type="button" id="prepareUpload" class="btn primary">Siapkan Upload Video</button><p class="hint">Memilih konten belum mengunggah video. Pilih file final lalu tekan Upload & Jadwalkan.</p></section>
     <section data-panel="history" class="hide"><p class="hint">30 versi perubahan terakhir tersimpan. Pemulihan membuat versi baru.</p><div id="contentHistory"></div></section>
@@ -105,6 +107,6 @@
   <div class="editor-header"><div><span class="eyebrow">NOTE</span><h2 id="noteCategoryHeading">Kategori Note</h2></div><button id="closeNoteCategory" class="btn" type="button">Tutup</button></div>
   <form id="noteCategoryForm"><input name="oldName" type="hidden"><label>Nama kategori<input name="name" maxlength="60" required placeholder="Contoh: Riset, Ide, atau Produksi"></label><p class="hint">Kategori baru hanya disimpan setelah menekan Tambah kategori. Nama kosong tidak disimpan.</p><div id="noteCategoryError" class="notice hide" role="alert"></div><div class="feature-actions"><button id="saveNoteCategory" class="btn primary" type="submit">Tambah kategori</button><button id="resetNoteCategory" class="btn" type="button">Kategori baru</button></div></form><div id="noteCategoryList" class="note-category-list"></div>
 </dialog>
-<script src="/app.js"></script><script src="/analytics.js"></script><script src="/ui.js"></script><script src="/rich-text.js"></script><script src="/notes.js"></script><script src="/board-settings.js"></script><script src="/video-analytics.js"></script><script src="/storage.js"></script><script src="/updates.js"></script><script src="/content.js"></script><script src="/studio.js"></script><script src="/history.js"></script>
+<script src="/app.js"></script><script src="/analytics.js"></script><script src="/ui.js"></script><script src="/rich-text.js"></script><script src="/notes.js"></script><script src="/board-settings.js"></script><script src="/video-analytics.js"></script><script src="/storage.js"></script><script src="/updates.js"></script><script src="/radar.js"></script><script src="/content.js"></script><script src="/studio.js"></script><script src="/history.js"></script>
 
 </body></html>

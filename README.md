@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.6.4
+# YouTube Content Hub v4.7.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -140,3 +140,15 @@ Status antrean: `receiving`, `queued_upload`, `uploading_youtube`, `waiting_publ
 Konfigurasi `DATABASE_URL` dengan referensi database privat Railway. Migrasi otomatis mempertahankan file asli, memverifikasi checksum, dan berhenti jika gagal. Menu **Data & Backup** menyediakan status migrasi, backup manual, unduhan, dan pemeriksaan Analytics. Petunjuk pemulihan ada di [DATA-RECOVERY.md](DATA-RECOVERY.md).
 
 Tab **Statistik Harian** menyajikan subscriber baru/berhenti/bersih, views harian, jam tonton, total channel hasil snapshot, serta perubahan jumlah video publik. Hari tanpa data tetap kosong; total sebelum pencatatan tidak diestimasi.
+
+## Radar Konten (4.7.0)
+
+Radar memakai tiga lensa editorial yang dapat digabung: The System & Capital, The Hidden History & Mechanics, dan The Human Mirror. Topik, RSS custom, serta channel YouTube ditambahkan melalui tombol Simpan. Radar tersimpan dalam dokumen konten dan ikut backup PostgreSQL yang sama.
+
+Berita dikumpulkan dari Google News RSS dan RSS custom (server publik HTTP/S saja), maksimum 3 topik bergiliran setiap 6 jam dengan 6 keyword bergiliran per topik. Sinkronisasi manual mempunyai jeda satu menit. Maksimum 60 topik, 15 RSS, 20 channel, 800 isu, 2.000 sumber total, dan 100 sumber per isu. Hapus/gabungkan isu yang tidak diperlukan ketika kapasitas penuh. Link RSS Google News dapat menuju halaman agregator; cuplikan tidak berarti artikel penuh telah dibaca. URL dedup, penggabungan manual, verifikasi sumber dan penanda repost tersedia. Coverage hanya menggambarkan sumber yang dipantau, bukan keseluruhan internet.
+
+YouTube menggunakan koneksi Google aplikasi atau `YOUTUBE_API_KEY` opsional. URL channel harus `/@handle` atau `/channel/UC…`. Maksimum 10 video publik terbaru diperiksa per channel; snapshot dipertahankan 30 kali. Tidak mengakses CTR/retention/revenue channel lain. Kegagalan sinkronisasi mempertahankan data sebelumnya, dan kuota habis menunda YouTube satu jam.
+
+AI opsional memakai OpenAI Responses API. Isi `OPENAI_API_KEY` dan `OPENAI_MODEL` pada environment Railway; tanpa kedua variabel, Radar tetap berfungsi dan UI menjelaskan AI belum aktif. `AI_DAILY_LIMIT` default 20 (maksimum 100), jeda 10 detik per permintaan, maksimum 60.000 karakter script dan 30 cuplikan sumber. Tidak menyimpan API key di dokumen data. Hasil JSON divalidasi dan disajikan sebagai pratinjau; penerapan atau pembuatan draft harus dipilih pengguna. Tidak memublikasikan otomatis.
+
+`RADAR_AUTO_SYNC=false` menonaktifkan jadwal Radar untuk pengujian atau pengumpulan manual saja. Instagram/TikTok/X belum dikumpulkan otomatis; link manual dari platform tersebut dapat disimpan tanpa mengklaim platformnya sudah dipantau.

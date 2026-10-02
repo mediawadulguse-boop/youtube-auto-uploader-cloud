@@ -46,3 +46,9 @@ test('volume mirror failure preserves successful database backup, download data 
  storage.backupDir=path.join(dir,'backups');await storage.backup('daily');assert.equal((await storage.status()).backups.find(b=>b.id===backup.id).volumeCopy,'missing');
  await assert.rejects(storage.backup('invalid'),e=>e.status===400);
 }));
+test('Radar shares content transactions and is included in verified PostgreSQL backup and restore',()=>setup(async({dir,storage,pool})=>{
+ const {RadarStore}=await import('../radar-store.mjs');await storage.initialize(()=>seed(dir));const contents=new ContentStore(path.join(dir,'contents.json'));contents.persistence=storage;const radar=new RadarStore(contents);
+ await Promise.all([radar.addSources([{title:'Pajak publik',url:'https://example.org/pajak',publisher:'Media'}]),contents.create({title:'Produksi bersamaan',script:'Script utuh'})]);const issue=(await radar.read()).issues[0];const linked=await contents.create({title:'Dari Radar',radarIssueId:issue.id,format:'long'});assert.ok((await radar.read()).issues[0].contentIds.includes(linked.id));
+ const point=await storage.backup('manual'),full=await storage.getBackup(point.id);assert.equal(full.bundle.documents.contents.radar.issues[0].sources[0].url,'https://example.org/pajak');assert.equal(checksum(full.bundle),full.digest);await storage.mutate('contents',db=>{db.radar.issues=[]});await storage.restore(full.bundle,full.digest);
+ const restarted=new ContentStore(path.join(dir,'contents.json'));restarted.persistence=new PostgresStorage(pool,{backupDir:path.join(dir,'backups')});assert.equal((await new RadarStore(restarted).read()).issues[0].contentIds[0],linked.id);assert.ok((await restarted.read()).contents.some(c=>c.script==='Script utuh'));
+}));
