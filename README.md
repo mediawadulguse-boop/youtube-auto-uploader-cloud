@@ -181,3 +181,11 @@ Kegagalan provider disajikan sebagai pesan aman tanpa key, script, atau respons 
 ### Perbaikan format Gemini (4.7.3)
 
 `generationConfig.responseFormat.text.mimeType` adalah enum REST dan memakai `APPLICATION_JSON`, bukan string MIME `application/json`. Field kompatibel lama `generationConfig.responseMimeType` tetap bertipe string dan memakai `application/json`. Kontrak ini diverifikasi dengan discovery resmi https://generativelanguage.googleapis.com/$discovery/rest?version=v1beta dan dicatat sebagai fixture `test/fixtures/gemini-text-format.json` pada 2 Oktober 2026. Tes provider simulasi menolak nilai di luar enum resmi. Error invalid payload dipisahkan dari masalah dukungan model.
+
+### Gangguan Gemini 503 (4.7.4)
+
+HTTP 503 Gemini dicoba ulang maksimum dua kali (maksimum tiga panggilan per format; anggaran dua retry 503 dibagi dengan percobaan format kompatibel), dengan backoff 1s lalu 2s dan jitter 0–250ms. Retry-After berupa detik/tanggal dihormati; jeda melebihi 10 detik tidak ditunggu dalam request ini. Seluruh pemanggilan generateContent, termasuk format kompatibel, berbagi deadline 60 detik. Tidak mencoba ulang timeout, network error, 400 selain kompatibilitas field yang dikenal, 401/403, 404 atau 429. Tidak berganti model/provider otomatis. Batas harian aplikasi tetap satu reservasi per aksi pengguna, termasuk jika semua percobaan gagal. Kuota/billing provider mengikuti provider.
+
+Setelah 503 terminal, model yang sama diberi jeda minimal 30 detik atau Retry-After yang valid. UI menampilkan hitung mundur; backend menolak pengulangan selama jeda sebelum menambah pemakaian aplikasi. Permintaan bersamaan untuk model yang sama ditolak selama pratinjau berjalan. Status katalog API dan hasil pratinjau terakhir terpisah; Cek koneksi tidak menyembunyikan kegagalan pratinjau. Hasil pratinjau terakhir tersimpan di memori server sampai restart, sedangkan katalog model tetap kedaluwarsa setelah 10 menit.
+
+Acuan strategi retry: https://ai.google.dev/gemini-api/docs/troubleshooting.

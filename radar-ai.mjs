@@ -69,6 +69,9 @@ export class RadarAI {
     this.connection = { state: 'unchecked', checkedAt: null, message: 'Koneksi belum diperiksa.' };
     this.modelResults = {};
     this.checking = null;
+    this.inFlight = new Set();
+    this.wait = options.wait ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
+    this.random = options.random ?? Math.random;
     this.extraModels = String(options.models ?? process.env.OPENAI_MODELS ?? '').split(',').map(m => m.trim()).filter(m => modelName(m, this.provider)).slice(0, 30);
 
   }
@@ -90,7 +93,7 @@ export class RadarAI {
     const r = radarData(await this.store.contentStore.read()), day = new Date(this.now()).toISOString().slice(0, 10);
     const config = this.configuration(), fresh = this.connection.checkedAt && this.now() - Date.parse(this.connection.checkedAt) < 600000;
     return { ...config, limit: this.limit, used: r.aiUsage?.day === day ? r.aiUsage.count : 0,
-      models: fresh ? this.models : [], modelResults: Object.fromEntries(Object.entries(this.modelResults).filter(([,v]) => this.now() - Date.parse(v.checkedAt) < 600000)),
+      models: fresh ? this.models : [], modelResults: { ...this.modelResults },
       connection: !config.configured ? { state: 'unconfigured', checkedAt: null, message: config.setupMessage }
         : fresh ? this.connection : { state: 'unchecked', checkedAt: this.connection.checkedAt, message: 'Koneksi belum diperiksa atau hasil pemeriksaan sudah kedaluwarsa.' }
     };
@@ -138,13 +141,36 @@ export class RadarAI {
     try { return await this.checking; } finally { this.checking = null; }
   }
 
-  async request(url, headers, body) {
+  retryDelay(response) {
+    const value = response.headers?.get('retry-after');
+    if (!value) return 0;
+    const ms = /^\d+(?:\.\d+)?$/.test(value.trim()) ? Number(value) * 1000 : Date.parse(value) - this.now();
+    return Number.isFinite(ms) && ms >= 0 && ms <= 86400000 ? ms : 0;
+  }
+
+  async fetchResponse(url, headers, body, deadline, retryBudget) {
+    for (let attempt = 0; ; attempt++) {
+      const remaining = deadline - this.now();
+      if (remaining <= 0) throw new DOMException('deadline', 'TimeoutError');
+      const response = await this.fetcher(url, {
+        method: body === undefined ? 'GET' : 'POST', headers: { ...headers, 'content-type': 'application/json' },
+        signal: AbortSignal.timeout(Math.ceil(remaining)), body: JSON.stringify(body)
+      });
+      if (this.provider !== 'gemini' || response.status !== 503 || retryBudget.remaining <= 0) return response;
+      const jitter = Math.floor(Math.max(0, Math.min(1, this.random())) * 250);
+      const delay = Math.max(1000 * 2 ** (2 - retryBudget.remaining) + jitter, this.retryDelay(response));
+      // Honor long Retry-After values without keeping the HTTP request open indefinitely.
+      if (delay > 10000 || delay >= deadline - this.now()) return response;
+      retryBudget.remaining--;
+      await response.body?.cancel();
+      await this.wait(delay);
+    }
+  }
+
+  async request(url, headers, body, deadline = this.now() + 60000, retryBudget = { remaining: 2 }) {
     let response;
     try {
-      response = await this.fetcher(url, {
-        method: body === undefined ? 'GET' : 'POST', headers: { ...headers, 'content-type': 'application/json' },
-        signal: AbortSignal.timeout(60000), body: JSON.stringify(body)
-      });
+      response = await this.fetchResponse(url, headers, body, deadline, retryBudget);
     } catch (error) {
       throw fail(['TimeoutError', 'AbortError'].includes(error.name)
         ? 'Permintaan AI melewati batas waktu. Coba dengan bahan lebih ringkas.'
@@ -169,6 +195,12 @@ export class RadarAI {
         error.unsupportedFormat = unsupportedFormat;
         throw error;
       }
+      if (this.provider === 'gemini' && response.status === 503) {
+        const error = fail('Gemini sedang tidak tersedia (HTTP 503). Pratinjau belum dibuat. Tunggu sebentar atau pilih model lain yang tersedia.', 503);
+        error.transient = true;
+        error.retryDelayMs = Math.max(30000, this.retryDelay(response));
+        throw error;
+      }
       if (response.status === 429) throw fail(`Kuota atau batas laju ${name} tercapai. Periksa kuota provider atau coba lagi nanti.`, 429);
       if ([401, 403].includes(response.status)) throw fail(`Akses ${name} ditolak. Periksa API key, izin proyek, dan pengaturan billing provider.`, 502);
       if (response.status === 404) throw fail(`Model ${name} tidak ditemukan atau belum tersedia pada akun Anda. Periksa nama model di Railway.`, 502);
@@ -187,14 +219,15 @@ export class RadarAI {
       };
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
       let data;
-      try { data = await this.request(url, { 'x-goog-api-key': this.key }, requestBody); }
+      const deadline = this.now() + 60000, retryBudget = { remaining: 2 };
+      try { data = await this.request(url, { 'x-goog-api-key': this.key }, requestBody, deadline, retryBudget); }
       catch (error) {
         // Retry only a rejected unknown field, never quota, credentials, model or generation failures.
         if (!error.unsupportedFormat) throw error;
         delete requestBody.generationConfig.responseFormat;
         requestBody.generationConfig.responseMimeType = 'application/json';
         requestBody.generationConfig.responseJsonSchema = RESULT_SCHEMA;
-        data = await this.request(url, { 'x-goog-api-key': this.key }, requestBody);
+        data = await this.request(url, { 'x-goog-api-key': this.key }, requestBody, deadline, retryBudget);
       }
       const candidate = data.candidates?.[0];
       if (data.promptFeedback?.blockReason || ['SAFETY', 'RECITATION', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII'].includes(candidate?.finishReason)) {
@@ -215,6 +248,15 @@ export class RadarAI {
   }
 
   async generate(body) {
+    const model = body?.model ?? this.model;
+    if (this.inFlight.has(model)) throw fail('Pratinjau model ini sedang dibuat. Tunggu sampai selesai.', 429);
+    const retryAt = Date.parse(this.modelResults[model]?.retryAt || '');
+    if (retryAt > this.now()) throw fail(`Gemini masih dalam jeda setelah HTTP 503. Coba lagi dalam ${Math.ceil((retryAt - this.now()) / 1000)} detik atau pilih model lain.`, 503);
+    this.inFlight.add(model);
+    try { return await this.generatePreview(body); } finally { this.inFlight.delete(model); }
+  }
+
+  async generatePreview(body) {
     const config = this.configuration();
     if (!config.configured) throw fail(config.setupMessage, 503);
     const selectedModel = body?.model ?? this.model;
@@ -251,7 +293,7 @@ export class RadarAI {
       this.modelResults[selectedModel] = { state: 'ready', checkedAt: new Date(this.now()).toISOString(), message: 'Pratinjau berhasil dibuat dengan model ini.' };
       return { ...result, sources, provider: config.provider, model: selectedModel, action: body.action };
     } catch (error) {
-      this.modelResults[selectedModel] = { state: 'error', checkedAt: new Date(this.now()).toISOString(), message: error.message };
+      this.modelResults[selectedModel] = { state: error.transient ? 'busy' : 'error', checkedAt: new Date(this.now()).toISOString(), message: error.message, ...(error.transient ? { retryAt: new Date(this.now() + error.retryDelayMs).toISOString() } : {}) };
       throw error;
     }
   }

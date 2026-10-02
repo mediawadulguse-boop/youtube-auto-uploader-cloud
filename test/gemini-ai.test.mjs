@@ -71,3 +71,34 @@ test('invalid Gemini payload is diagnosed as integration error without blaming t
  const {store}=await setup(t);const ai=new RadarAI(store,{provider:'gemini',key:'private',model,fetcher:async()=>Response.json({error:{message:'Invalid value at generation_config.response_format.text.mime_type private script'}},{status:400})});
  await assert.rejects(ai.generate(script),e=>/Struktur permintaan/.test(e.message)&&!e.message.includes('private')&&!e.message.includes('Pilih model'));
 });
+
+test('Gemini 503 retries same model with exponential backoff and one application reservation',async t=>{
+ const {store}=await setup(t);let calls=0,now=Date.parse('2026-10-02T08:00:00Z');const delays=[],urls=[];
+ const ai=new RadarAI(store,{provider:'gemini',key:'private',model,now:()=>now,random:()=>0,wait:async ms=>{delays.push(ms);now+=ms;},fetcher:async url=>{urls.push(url);return ++calls<3?Response.json({error:{message:'overloaded private'}},{status:503}):response();}});
+ assert.equal((await ai.generate(script)).text,result.text);assert.deepEqual(delays,[1000,2000]);assert.equal(new Set(urls).size,1);assert.equal(calls,3);assert.equal((await ai.status()).used,1);assert.equal((await ai.status()).modelResults[model].state,'ready');
+});
+test('terminal 503 is explicit, bounded and retains failed preview after successful catalog check; cooldown reserves no extra usage',async t=>{
+ const {store}=await setup(t);let calls=0,now=Date.parse('2026-10-02T08:00:00Z');
+ const ai=new RadarAI(store,{provider:'gemini',key:'private',model,now:()=>now,random:()=>0,wait:async ms=>{now+=ms;},fetcher:async(url,opts)=>{calls++;return opts.method==='GET'?Response.json({models:[{name:'models/'+model,supportedGenerationMethods:['generateContent']}]}):Response.json({error:{message:'private raw prompt overloaded'}},{status:503});}});
+ await assert.rejects(ai.generate(script),e=>e.status===503&&!e.message.includes('private'));assert.equal(calls,3);let status=await ai.status();assert.equal(status.used,1);assert.equal(status.modelResults[model].state,'busy');
+ now+=1000;await ai.checkConnection();status=await ai.status();assert.equal(status.connection.state,'connected');assert.equal(status.modelResults[model].state,'busy');assert.ok(Date.parse(status.connection.checkedAt)>Date.parse(status.modelResults[model].checkedAt));
+ await assert.rejects(ai.generate(script),{status:503});assert.equal(calls,4);assert.equal((await ai.status()).used,1);
+ now+=30000;ai.fetcher=async()=>{calls++;return response();};assert.equal((await ai.generate(script)).text,result.text);assert.equal((await ai.status()).used,2);
+});
+test('Retry-After is honored; long delay stops automatic retries and exposes matching cooldown',async t=>{
+ const {store}=await setup(t);let calls=0,now=Date.parse('2026-10-02T08:00:00Z'),delays=[];
+ const ai=new RadarAI(store,{provider:'gemini',key:'private',model,now:()=>now,random:()=>0,wait:async ms=>{delays.push(ms);now+=ms;},fetcher:async()=>++calls===1?Response.json({},{status:503,headers:{'retry-after':'5'}}):response()});
+ await ai.generate(script);assert.deepEqual(delays,[5000]);now+=11000;calls=0;delays=[];ai.fetcher=async()=>{calls++;return Response.json({},{status:503,headers:{'retry-after':'120'}})};
+ await assert.rejects(ai.generate(script),{status:503});assert.equal(calls,1);assert.deepEqual(delays,[]);assert.equal(Date.parse((await ai.status()).modelResults[model].retryAt)-now,120000);
+});
+test('503 respects total deadline and shares retry budget with unknown-field compatibility fallback',async t=>{
+ const {store}=await setup(t);let calls=0,now=Date.parse('2026-10-02T08:00:00Z'),delays=[];
+ const ai=new RadarAI(store,{provider:'gemini',key:'private',model,now:()=>now,random:()=>0,wait:async ms=>{delays.push(ms);now+=ms;},fetcher:async()=>{calls++;now+=59000;return Response.json({},{status:503});}});
+ await assert.rejects(ai.generate(script),{status:503});assert.equal(calls,1);assert.deepEqual(delays,[]);
+ now+=31000;calls=0;ai.fetcher=async()=>{calls++;if(calls===1||calls===3||calls===4)return Response.json({},{status:503});return Response.json({error:{message:'Unknown name "responseFormat"'}},{status:400});};
+ await assert.rejects(ai.generate(script),{status:503});assert.equal(calls,4);assert.deepEqual(delays,[1000,2000]);
+});
+test('concurrent preview cannot start another provider request or quota reservation',async t=>{
+ const {store}=await setup(t);let resolve,calls=0;const ai=new RadarAI(store,{provider:'gemini',key:'private',model,fetcher:async()=>{calls++;return new Promise(r=>{resolve=r;});}});
+ const first=ai.generate(script);while(!resolve)await new Promise(r=>setImmediate(r));await assert.rejects(ai.generate(script),{status:429});assert.equal(calls,1);assert.equal((await ai.status()).used,1);resolve(response());await first;assert.equal(ai.inFlight.size,0);
+});
