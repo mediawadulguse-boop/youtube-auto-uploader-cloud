@@ -11,7 +11,7 @@ const PROVIDERS = {
   openai: { name: 'OpenAI', keyVariable: 'OPENAI_API_KEY', modelVariable: 'OPENAI_MODEL' },
   gemini: { name: 'Gemini', keyVariable: 'GEMINI_API_KEY', modelVariable: 'GEMINI_MODEL' }
 };
-export const RESULT_SCHEMA = {
+const RESULT_SCHEMA = {
   type: 'object',
   properties: {
     text: { type: 'string' },
@@ -28,6 +28,15 @@ export const RESULT_SCHEMA = {
 const modelName = (model, provider) => typeof model === 'string' && (
   provider === 'gemini' ? /^gemini-[a-zA-Z0-9._-]{1,100}$/.test(model) : /^[a-zA-Z0-9_.:-]{1,160}$/.test(model)
 );
+
+export const GEMINI_RESULT_SCHEMA = {
+  type: RESULT_SCHEMA.type, properties: { ...RESULT_SCHEMA.properties,
+    drafts: { type: 'array', items: {
+      type: 'object', properties: RESULT_SCHEMA.properties.drafts.items.properties,
+      required: RESULT_SCHEMA.properties.drafts.items.required
+    } }
+  }, required: RESULT_SCHEMA.required
+};
 
 export function validateResult(raw, action, sources) {
   let out;
@@ -215,7 +224,7 @@ export class RadarAI {
         systemInstruction: { parts: [{ text: instructions }] },
         contents: [{ role: 'user', parts: [{ text: input }] }],
         generationConfig: { candidateCount: 1, maxOutputTokens: 12000,
-          responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema: RESULT_SCHEMA } } }
+          responseFormat: { text: { mimeType: 'APPLICATION_JSON', schema: GEMINI_RESULT_SCHEMA } } }
       };
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
       let data;
@@ -226,7 +235,7 @@ export class RadarAI {
         if (!error.unsupportedFormat) throw error;
         delete requestBody.generationConfig.responseFormat;
         requestBody.generationConfig.responseMimeType = 'application/json';
-        requestBody.generationConfig.responseJsonSchema = RESULT_SCHEMA;
+        requestBody.generationConfig.responseJsonSchema = GEMINI_RESULT_SCHEMA;
         data = await this.request(url, { 'x-goog-api-key': this.key }, requestBody, deadline, retryBudget);
       }
       const candidate = data.candidates?.[0];

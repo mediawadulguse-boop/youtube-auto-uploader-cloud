@@ -1,6 +1,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { RESULT_SCHEMA, validateResult } from './radar-ai.mjs';
+import { GEMINI_RESULT_SCHEMA, validateResult } from './radar-ai.mjs';
+const RESULT_SCHEMA = { ...GEMINI_RESULT_SCHEMA, additionalProperties: false,
+  properties: { ...GEMINI_RESULT_SCHEMA.properties, drafts: { type: 'array', items: { ...GEMINI_RESULT_SCHEMA.properties.drafts.items, additionalProperties: false } } }
+};
 
 // Explicit, single-use operator diagnostic. Never sends application content,
 // exports credentials, logs provider bodies, or retries paid generation calls.
@@ -33,6 +36,7 @@ export async function runAIDiagnostic(ai, dataDir, options = {}) {
     if (kind === 'simple-json') body.generationConfig.responseFormat.text.schema = {
       type: 'object', properties: { text: {type: 'string'}, drafts: {type: 'array', items: {type: 'object'}}, citations: {type: 'array', items: {type: 'integer'}} }, required: ['text', 'drafts', 'citations']
     };
+    if (kind === 'compatible-json') body.generationConfig.responseFormat.text.schema = GEMINI_RESULT_SCHEMA;
     let record = { kind, model, http: null, providerStatus: null, valid: false };
     try {
       const response = await ai.fetcher(url, { method: 'POST', headers: { 'x-goog-api-key': ai.key, 'content-type': 'application/json' },
@@ -52,6 +56,15 @@ export async function runAIDiagnostic(ai, dataDir, options = {}) {
       }
     } catch { /* only bounded, fixed metadata leaves the runtime */ }
     results.push(record); log(record); return record;
+  }
+  if (suite === 'verification') {
+    await probe('compatible-json', ai.model);
+    const record = {kind:'application-preview',model:ai.model,http:null,providerStatus:null,valid:false};
+    try {
+      const raw = await ai.complete('Return JSON with text, drafts (an empty array) and citations (an empty array). Improve the provided Indonesian script without adding facts.', '{"script":"Kita perlu memeriksa data sebelum mengambil kesimpulan.","sources":[]}');
+      record.valid = Boolean(validateResult(raw, 'script', []).text.trim()); record.http = 200;
+    } catch (error) { record.http = error.transient ? 503 : null; }
+    results.push(record); log(record); return results;
   }
   if (suite === 'compatibility') {
     for (const kind of ['legacy-json', 'json-only', 'simple-json', 'prompt-json']) await probe(kind, ai.model);
