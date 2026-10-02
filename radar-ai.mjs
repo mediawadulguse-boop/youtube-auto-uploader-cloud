@@ -29,7 +29,10 @@ const modelName = (model, provider) => typeof model === 'string' && (
   provider === 'gemini' ? /^gemini-[a-zA-Z0-9._-]{1,100}$/.test(model) : /^[a-zA-Z0-9_.:-]{1,160}$/.test(model)
 );
 
-export const GEMINI_RESULT_SCHEMA = {
+// Separate Gemini's schema from OpenAI's strict-object contract. A real runtime
+// smoke test on 2026-10-02 completed with this schema; validateResult still
+// enforces typed drafts, action counts and source references before preview.
+const GEMINI_RESULT_SCHEMA = {
   type: RESULT_SCHEMA.type, properties: { ...RESULT_SCHEMA.properties,
     drafts: { type: 'array', items: {
       type: 'object', properties: RESULT_SCHEMA.properties.drafts.items.properties,
@@ -38,7 +41,7 @@ export const GEMINI_RESULT_SCHEMA = {
   }, required: RESULT_SCHEMA.required
 };
 
-export function validateResult(raw, action, sources) {
+function validateResult(raw, action, sources) {
   let out;
   try { out = JSON.parse(raw); } catch { throw fail('Format hasil AI tidak valid.', 502); }
   if (!out || typeof out.text !== 'string' || out.text.length > 60000 ||

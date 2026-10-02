@@ -189,3 +189,9 @@ HTTP 503 Gemini dicoba ulang maksimum dua kali (maksimum tiga panggilan per form
 Setelah 503 terminal, model yang sama diberi jeda minimal 30 detik atau Retry-After yang valid. UI menampilkan hitung mundur; backend menolak pengulangan selama jeda sebelum menambah pemakaian aplikasi. Permintaan bersamaan untuk model yang sama ditolak selama pratinjau berjalan. Status katalog API dan hasil pratinjau terakhir terpisah; Cek koneksi tidak menyembunyikan kegagalan pratinjau. Hasil pratinjau terakhir tersimpan di memori server sampai restart, sedangkan katalog model tetap kedaluwarsa setelah 10 menit.
 
 Acuan strategi retry: https://ai.google.dev/gemini-api/docs/troubleshooting.
+
+### Schema Gemini dan uji langsung (4.7.5)
+
+Schema Gemini memakai object bertipe dengan field wajib text, drafts (title/script/angle), dan citations, tanpa additionalProperties:false milik kontrak strict OpenAI. Hasil tetap melalui validateResult: format JSON, panjang teks, jumlah Short, jenis field, nomor kutipan, dan URL sumber harus valid. OpenAI tetap memakai schema strict aslinya.
+
+Pada 2 Oktober 2026, pemeriksaan satu kali dari runtime produksi memakai prompt sintetis tanpa konten pengguna/key dalam log: teks biasa berhasil HTTP200, beberapa permintaan JSON mengembalikan503, schema sederhana berhasil200, dan complete aplikasi dengan schema Gemini yang disesuaikan berhasil200 serta lolos validasi pada10:12:05UTC. Hasil campuran ini belum membuktikan satu parameter tertentu sebagai satu-satunya penyebab503. Uji nyata tersebut merupakan satu smoke test, bukan jaminan ketersediaan provider. Model default tetap gemini-3.8-flash. Modul dan hook diagnosis sementara telah dihapus setelah pemeriksaan.
