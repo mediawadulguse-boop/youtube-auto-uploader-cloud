@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 import { URL } from 'node:url';
 import { ContentStore } from './content-store.mjs';
 import { RadarStore } from './radar-store.mjs';
+import { RADAR_METHOD } from './radar-methodology.mjs';
 import { RadarSync } from './radar-sync.mjs';
 import { RadarAIProviders } from './radar-ai.mjs';
 import { runAISmoke } from './ai-smoke.mjs';
@@ -91,12 +92,12 @@ if(process.env.DATABASE_URL){
   }catch(e){console.error('Storage initialization failed. Original files preserved; refusing empty fallback.',e.code||'migration_error');process.exit(1);}
 }
 const radarBefore=await contentStore.read();
-if(radarBefore.radar && radarBefore.radar.clusteringVersion!==2){
+if(radarBefore.radar && radarBefore.radar.clusteringVersion!==RADAR_METHOD.version){
  if(storage)await storage.backup('manual');
- else{try{await fsp.copyFile(contentStore.file,path.join(DATA_DIR,'contents.radar-v1.backup.json'),fs.constants.COPYFILE_EXCL)}catch(error){if(error.code!=='EEXIST')throw error;}}
+ else{const prior=radarBefore.radar.clusteringVersion,backupVersion=Number.isInteger(prior)&&prior>0&&prior<100?prior:1;try{await fsp.copyFile(contentStore.file,path.join(DATA_DIR,'contents.radar-v'+backupVersion+'.backup.json'),fs.constants.COPYFILE_EXCL)}catch(error){if(error.code!=='EEXIST')throw error;}}
  console.log('Radar methodology:',JSON.stringify(await radarStore.recluster()));
 }
-console.log('Radar status:',JSON.stringify({methodology:2,...(await radarStore.read()).radarSummary}));
+console.log('Radar status:',JSON.stringify({methodology:RADAR_METHOD.version,...(await radarStore.read()).radarSummary}));
 let backupBusy=false;
 async function backupTick(){if(!storage||backupBusy)return;backupBusy=true;try{await storage.backup('daily')}catch(e){console.error('Backup:',e.code||'backup_failed')}finally{backupBusy=false}}
 setInterval(backupTick,3600000).unref();
@@ -904,13 +905,14 @@ const server = http.createServer(async (req, res) => {
     if(pathname==='/api/radar/ai/test'&&req.method==='POST')return json(res,200,await radarAI.checkGeneration(await readJson(req)));
     if(pathname==='/api/radar/ai'&&req.method==='POST')return json(res,200,await radarAI.generate(await readJson(req)));
     if(pathname==='/api/radar/sources'&&req.method==='POST'){const body=await readJson(req);return json(res,201,await radarStore.addSources([body],[],body.issueId||null));}
-    const radarMatch=pathname.match(/^\/api\/radar\/(topics|feeds|channels|issues)(?:\/([a-z0-9-]{1,60}))?(?:\/(merge))?$/);
+    const radarMatch=pathname.match(/^\/api\/radar\/(topics|feeds|channels|issues)(?:\/([a-z0-9-]{1,60}))?(?:\/(merge|split))?$/);
     if(radarMatch){const [,kind,id,action]=radarMatch;const body=await readJson(req);if(!body||typeof body!=='object'||Array.isArray(body))throw Object.assign(Error('Data Radar tidak valid.'),{status:400});
       if(kind==='topics'&&['POST','PATCH'].includes(req.method)&&!action)return json(res,200,await radarStore.saveTopic(body,id));
       if(kind==='feeds'&&['POST','PATCH'].includes(req.method)&&!action)return json(res,200,await radarStore.saveFeed(body,id));
       if(kind==='channels'&&req.method==='POST'&&!id)return json(res,201,await radarStore.saveChannel(body));
       if(kind==='issues'&&id&&req.method==='PATCH'&&!action)return json(res,200,await radarStore.changeIssue(id,body));
       if(kind==='issues'&&id&&req.method==='POST'&&action==='merge')return json(res,200,await radarStore.merge(id,body));
+      if(kind==='issues'&&id&&req.method==='POST'&&action==='split')return json(res,201,await radarStore.split(id,body));
       if(id&&req.method==='DELETE')return json(res,200,kind==='issues'?await radarStore.deleteIssue(id,body):await radarStore.remove(kind,id,body));
     }
     if (req.method === 'GET' && pathname === '/api/contents') {

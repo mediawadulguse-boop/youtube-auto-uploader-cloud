@@ -7,7 +7,7 @@ import net from 'node:net';
 import {spawn} from 'node:child_process';
 import {ContentStore} from '../content-store.mjs';
 import {RadarStore} from '../radar-store.mjs';
-test('server backs up legacy imports before grouping; authenticated Radar exposes only eligible hot groups',async t=>{
+test('server backs up legacy imports before grouping; authenticated Radar exposes ranked groups with original sources',async t=>{
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'radar-api-')),reservation=net.createServer();await new Promise(r=>reservation.listen(0,'127.0.0.1',r));const port=reservation.address().port;await new Promise(r=>reservation.close(r));const base='http://127.0.0.1:'+port;
  const content=new ContentStore(path.join(dir,'contents.json')),radar=new RadarStore(content);
  for(let n=1;n<=3;n++)await radar.addSources([{title:'Pemerintah Naikkan Pajak PPN 12 Persen pada 2026',url:`https://publisher${n}.example/pajak`,publisher:'Media '+n,publishedAt:new Date(Date.now()-3600000).toISOString()}]);
@@ -18,8 +18,10 @@ test('server backs up legacy imports before grouping; authenticated Radar expose
  assert.equal((await fetch(base+'/api/radar')).status,401);
  const login=await fetch(base+'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:'local-only-password'})});assert.equal(login.status,200,logs);const cookie=login.headers.get('set-cookie').split(';')[0];
  const request=(route,body)=>fetch(base+route,{headers:{cookie,'content-type':'application/json'},...(body?{method:'POST',body:JSON.stringify(body)}:{})});
- const data=await request('/api/radar').then(r=>r.json());assert.equal(data.methodology.version,2);assert.equal(data.issues.length,1);assert.equal(data.hotIssues.length,1);assert.equal(data.hotIssues[0].stats.rating,4);assert.equal(data.hotIssues[0].sources.length,3);
+ const data=await request('/api/radar').then(r=>r.json());assert.equal(data.methodology.version,3);assert.equal(data.issues.length,1);assert.equal(data.hotIssues.length,1);assert.equal(data.rankedIssueIds.length,1);assert.equal(data.hotIssues[0].stats.rating,4);assert.equal(data.hotIssues[0].sources.length,3);
  assert.deepEqual(JSON.parse(await fs.readFile(path.join(dir,'contents.radar-v1.backup.json'),'utf8')),before);assert.equal((await request('/api/contents').then(r=>r.json())).contents.length,0);
  const manual=await request('/api/radar/sources',{title:'Referensi produksi',url:'https://notes.example/source',coverage:'manual'});assert.equal(manual.status,201);const next=await request('/api/radar').then(r=>r.json());assert.equal(next.hotIssues.length,1);assert.ok(next.issues.some(i=>i.status==='saved'&&i.title==='Referensi produksi'));
  assert.equal((await request('/api/radar/sources',{title:'',url:'https://empty.example/source'})).status,400);assert.equal((await request('/api/radar').then(r=>r.json())).issues.length,2);
+ const group=next.issues.find(i=>i.id===next.rankedIssueIds[0]),split=await request('/api/radar/issues/'+group.id+'/split',{revision:group.revision,title:'Pajak PPN sumber terpisah',sourceIds:[group.sources[0].id]});assert.equal(split.status,201);const result=await split.json();
+ const after=await request('/api/radar').then(r=>r.json());assert.equal(after.rankedIssueIds.length,2);assert.equal(after.issues.find(i=>i.id===result.issueId).sources.length,1);assert.equal((await request('/api/radar/issues/'+group.id+'/split',{revision:group.revision,title:'Usang',sourceIds:[group.sources[1].id]})).status,409);
 });

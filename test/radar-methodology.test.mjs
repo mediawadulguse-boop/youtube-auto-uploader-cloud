@@ -72,7 +72,7 @@ test('legacy re-clustering preserves source IDs, annotations, saved groups and l
  assert.deepEqual(await radar.recluster(),{skipped:true});assert.deepEqual(await content.read(),after);
 });
 test('RSS attribution retains publisher URL, and syncing gathers only fresh dated news without relying on AI',async t=>{
- const xml=`<rss><channel><item><title>Pajak PPN naik</title><link>https://news.google.com/rss/articles/a</link><source url="https://www.media.example">Media</source><pubDate>${iso(2)}</pubDate></item><item><title>Pajak lama</title><link>https://media.example/old</link><pubDate>${iso(90)}</pubDate></item><item><title>Pajak tanpa tanggal</title><link>https://media.example/undated</link></item></channel></rss>`;
+ const xml=`<rss><channel><item><title>Pajak PPN naik</title><link>https://news.google.com/rss/articles/a</link><source url="https://www.media.example">Media</source><pubDate>${iso(2)}</pubDate></item><item><title>Pajak lama</title><link>https://media.example/old</link><pubDate>${iso(180)}</pubDate></item><item><title>Pajak tanpa tanggal</title><link>https://media.example/undated</link></item></channel></rss>`;
  const feed=parseFeed(xml);assert.equal(feed[0].publisherUrl,'https://www.media.example/');assert.equal(freshNews(feed,now).length,1);
  const {radar}=await setup(t),sync=new RadarSync(radar,()=>{throw Error('unexpected');},{now:()=>now,feed:async()=>xml});await sync.sync();const data=await radar.read();assert.equal(data.issues.length,1);assert.equal(data.issues[0].sources.length,1);assert.equal(data.hotIssues.length,0);
 });

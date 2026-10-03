@@ -208,23 +208,29 @@ Dokumentasi: https://ai.google.dev/gemini-api/docs/text-generation, https://deve
 
 Gemini 3 Flash/Pro (selain varian image) memakai thinkingConfig.thinkingLevel=low untuk membantu latensi dan menghindari budget token kecil menghabiskan keluaran pada penalaran. Gemini2.5 dan model lain tidak diberi parameter khusus tersebut. Acuan REST: https://ai.google.dev/gemini-api/docs/generate-content/thinking.
 
-### Radar Hot News dan rating (4.10.0)
+### Radar teratas, pengelompokan dan rating (4.11.0)
 
-Halaman utama Radar adalah Hot News. Satu kartu mewakili satu kelompok berita serupa, diurutkan dari skor tertinggi. Berita yang belum lolos tetap disimpan sebagai bahan, dapat dibuka melalui Topik & Sumber → Kelola bahan pantauan. Referensi yang disimpan manual tetap tersedia walaupun rating rendah.
+Radar Teratas menampilkan 10 kelompok isu dengan skor tertinggi dari topik aktif. Tidak ada syarat minimal rating. Lihat 10 lainnya membuka peringkat berikutnya; pencarian, topik dan status difilter sebelum pembatasan kartu. Kelompok Diabaikan/Sudah dibahas tidak masuk peringkat utama. Referensi manual tetap tersedia pada tab Referensi. rankedIssueIds memuat urutan ID tanpa menggandakan semua cuplikan sumber di respons API.
 
-Pengelompokan lokal tidak bergantung pada AI: hapus akhiran nama penerbit, normalisasi kata, bandingkan kata penting dengan Dice/Jaccard berbobot dan batas kemiripan konservatif. Jangkar judul pertama mencegah rangkaian kemiripan melebar ke peristiwa lain. Rentang publikasi/discovery anggota kelompok maksimal72 jam. Lokasi yang dikenal/penanda lokasi, tahun, persentase, negasi, dan pasangan keputusan berlawanan yang dikenal menjadi penjagaan tambahan. Metode ini tetap heuristik, bukan pemahaman semantik menyeluruh; penggabungan manual tersedia setelah pemeriksaan sumber.
+Periode tampilan: 24 jam, 3 hari (default), 7 hari. Bila ada liputan dalam periode tersebut, hanya kelompok dengan publikasi terbaru dalam periode yang ditampilkan. Jika tidak ada, bahan lama/tanpa tanggal dari topik aktif tetap diurutkan dengan keterangan fallback yang jelas. Tanggal publikasi terakhir tetap terlihat walaupun tidak lagi menghasilkan skor. Radar kosong hanya jika tidak ada bahan sesuai topik/filter.
 
-| Komponen | Perhitungan | Maksimum |
+Pengelompokan lokal tidak bergantung AI. Judul dinormalisasi dan dibandingkan memakai Dice/Jaccard berbobot. Alternatif isi memakai teks/cuplikannya yang tersedia di RSS/Atom atau catatan sumber: minimal 90 karakter dan 12 token berbeda, minimal 10 token isi bersama, Dice ≥0,74 dan Jaccard ≥0,58, serta kata penting kedua judul yang benar-benar didukung isi lawannya. Cuplikan pendek/boilerplate saja tidak cukup. Tidak mengambil artikel penuh dari link secara otomatis atau mengklaim pemahaman semantik menyeluruh.
+
+Jangkar sumber pertama dan rentang publikasi/discovery maksimal 72 jam mencegah pengelompokan berantai melebar. Penjagaan lokasi yang dikenal/penanda lokasi, tahun, persentase, negasi dan keputusan berlawanan tertentu berlaku sebelum pencocokan isi. Kelompok mewakili judul sumber awal yang dibersihkan; judul editorial dapat diedit. Judul asli dan URL seluruh sumber tetap tersedia.
+
+| Komponen skor | Perhitungan | Maksimum |
 |---|---|---|
-| Sebaran penerbit | 8 poin per penerbit berbeda dalam72 jam | 40 |
-| Aktivitas24 jam | 10 poin per penerbit berbeda dalam24 jam | 30 |
-| Kebaruan | Publikasi terbaru <6jam:20; <24jam:16; <48jam:10; <72jam:5 | 20 |
+| Sebaran penerbit | 8 poin per penerbit berbeda dalam 72 jam | 40 |
+| Aktivitas 24 jam | 10 poin per penerbit berbeda dalam 24 jam | 30 |
+| Kebaruan | Publikasi terbaru <6 jam: 20; <24 jam: 16; <48 jam: 10; <72 jam: 5 | 20 |
 | Lintas platform | 5 poin per platform dengan liputan bertanggal yang memenuhi syarat | 10 |
 
-Rating: skor0–24=1★,25–44=2★,45–64=3★,65–84=4★,85–100=5★. Untuk masuk Hot News, skor harus≥65, minimal3 penerbit dalam72 jam dan2 dalam24 jam, ada sumber Berita/Web dalam24 jam, cocok topik berita aktif, dan status bukan Diabaikan/Sudah dibahas. Rating tinggi saja tidak cukup tanpa syarat tersebut.
+Rating: skor 0–24 = 1★, 25–44 = 2★, 45–64 = 3★, 65–84 = 4★, 85–100 = 5★. Seluruh rentang boleh tampil. Timestamp hilang/masa depan dan repost tidak menambah skor; waktu impor bukan kebaruan. URL dideduplikasi, domain/nama penerbit dinormalisasi. Banyak link dari satu penerbit tidak menggandakan sebaran. Penerbit berbeda tidak membuktikan konfirmasi independen; skor adalah indikator liputan terpantau, bukan kebenaran atau jaminan viral. isHot tetap metadata kompatibilitas, bukan syarat tampilan.
 
-Tanggal publikasi menentukan recency, bukan waktu impor. Timestamp hilang/masa depan dan sumber yang ditandai repost tidak menambah skor. URL dideduplikasi; nama/domain penerbit dinormalisasi. Domain situs langsung dan publisher URL RSS membantu mencegah variasi nama penerbit menggandakan hitungan. Penerbit berbeda tidak membuktikan konfirmasi independen; rating merupakan indikator liputan terpantau, bukan kebenaran/viralitas. YouTube menyumbang sebaran saat cocok kelompok, tetapi liputan YouTube saja tidak memenuhi Hot News. Tidak mengklaim memantau X/Instagram/TikTok otomatis.
+Sinkronisasi mengumpulkan RSS bertanggal publikasi dalam 7 hari, sekitar setiap 1 jam, maksimal 3 topik berita bergiliran per siklus. Jeda manual 1 menit. Atom updated saja bukan tanggal publikasi. Kegagalan feed mempertahankan data lama; feed valid tanpa hasil adalah sinkronisasi nol hasil, bukan error. X/Instagram/TikTok tidak diklaim dipantau otomatis.
 
-RSS otomatis hanya menerima berita bertanggal publikasi dalam72 jam. Field Atom updated saja tidak dianggap tanggal publikasi. Sync sekitar setiap1 jam, dengan maks3 topik berita bergiliran per siklus dan jeda1 menit untuk sync manual. Kegagalan feed tetap mempertahankan sumber tersimpan.
+Sesudah sync, simpan pengamatan jumlah penerbit aktif / 24 jam, maksimal 48 per kelompok dan minimal 30 menit antar pengamatan. Tren membandingkan jumlah saat ini dengan pengamatan terakhir yang berjarak minimal 30 menit. Naik/menurun bukan pengukuran engagement/viralitas. Tanpa pembanding tampil Belum ada pembanding. Merge/split atau koreksi repost mereset riwayat pembanding agar perubahan struktur bukan dianggap tren. Membuka halaman tidak menulis data. Detail menyediakan pertanyaan riset tiga perspektif Reframe, bukan kesimpulan AI.
 
-Pada startup, dataset versi lama dibackup sebelum kelompok impor mesin yang belum disunting digabung ulang. Sumber/ID, metadata, dan hubungan konten dipertahankan; kelompok saved/discussed/ignored, linked, manual, berjudul editorial atau bertanda verifikasi tidak digabung otomatis oleh migrasi. clusteringVersion=2 membuat migrasi idempoten. Sync juga memastikan metodologi setelah restore. Batas100 sumber per kelompok tetap berlaku.
+Pisahkan sumber memerlukan judul valid dan sebagian ID sumber, menyisakan minimal satu sumber asal. Operasi atomik memeriksa revision, mempertahankan semua ID/link/tanggal/verifikasi, serta menjaga hubungan konten pada kelompok asal. Script tidak berubah. Kedua kelompok dikunci dari migrasi otomatis; impor URL yang sudah ada mempertahankan penempatan manual. Gabungkan sumber dan Edit detail tetap tersedia.
+
+Startup membuat backup PostgreSQL manual atau contents.radar-v<versi-asal>.backup.json sebelum mengelompokkan ulang impor mesin yang belum disunting. Kelompok saved/discussed/ignored, linked, manual, editorial, groupingLocked, atau sumber terverifikasi tidak digabung oleh migrasi. clusteringVersion=3 membuat migrasi idempoten. Batas 100 sumber per kelompok, 800 kelompok dan 2.000 sumber tetap berlaku.

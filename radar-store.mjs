@@ -19,13 +19,15 @@ export class RadarStore{
  async read(){
   const db=await this.contentStore.read(),r=radarData(db),now=this.now();
   const issues=r.issues.map(i=>{
-   const stats=issueStats(i,now),relevant=r.topics.some(t=>t.enabled&&t.sources.includes('news')&&i.sources.some(source=>matchesTopic(source,t)));
+   const stats=issueStats(i,now),matched=r.topics.filter(t=>t.enabled&&i.sources.some(source=>t.sources.includes(source.platform==='YouTube'?'youtube':'news')&&matchesTopic(source,t))),relevant=matched.length>0;
+   stats.relevant=relevant;
    if(!relevant){stats.isHot=false;stats.reason+=' Tidak cocok dengan topik aktif.';}
-   return {...i,stats};
+   return {...i,topicIds:[...new Set([...i.topicIds,...matched.map(t=>t.id)])],stats};
   });
   const hotIssues=issues.filter(i=>i.stats.isHot&&!['ignored','discussed'].includes(i.status)).sort((a,b)=>b.stats.score-a.stats.score||Date.parse(b.stats.latestPublishedAt)-Date.parse(a.stats.latestPublishedAt)||a.id.localeCompare(b.id));
-  return {...r,lenses:LENSES,issues,hotIssues,methodology:RADAR_METHOD,
-   radarSummary:{groups:issues.length,hot:hotIssues.length,belowThreshold:issues.filter(i=>!i.stats.isHot).length,ratedAt:new Date(now).toISOString()},
+  const rankedIssues=issues.filter(i=>i.stats.relevant&&!['ignored','discussed'].includes(i.status)).sort((a,b)=>b.stats.score-a.stats.score||Date.parse(b.stats.latestPublishedAt||0)-Date.parse(a.stats.latestPublishedAt||0)||a.id.localeCompare(b.id));
+  return {...r,lenses:LENSES,issues,hotIssues,rankedIssueIds:rankedIssues.map(i=>i.id),methodology:RADAR_METHOD,
+   radarSummary:{groups:issues.length,ranked:rankedIssues.length,hot:hotIssues.length,belowThreshold:issues.filter(i=>!i.stats.isHot).length,ratedAt:new Date(now).toISOString()},
    linkedContents:db.contents.map(c=>({id:c.id,title:c.title,format:c.format})),
    coverage:{YouTube:r.channels.some(c=>c.enabled&&c.lastSyncAt)?'Dipantau':'Belum dipantau','Berita / Web':r.sync.newsAt?'Dipantau':'Belum dipantau',X:'Belum dipantau',Instagram:'Belum dipantau',TikTok:'Belum dipantau'}};
  }
@@ -46,7 +48,7 @@ export class RadarStore{
     if(!target){groups.push(item);continue;}
     target.sources.push(...item.sources.filter(source=>!target.sources.some(s=>s.url===source.url)));
     for(const key of ['topicIds','lenses','contentIds'])target[key]=[...new Set([...target[key],...item[key]])];
-    target.revision++;target.updatedAt=[target.updatedAt,item.updatedAt].sort().at(-1);
+    target.revision++;target.groupRevision=(target.groupRevision||1)+1;target.observations=[];target.updatedAt=[target.updatedAt,item.updatedAt].sort().at(-1);
    }
    r.issues=groups.sort((a,b)=>Date.parse(b.updatedAt)-Date.parse(a.updatedAt));r.clusteringVersion=RADAR_METHOD.version;
    return {before,after:groups.length,merged:before-groups.length,version:RADAR_METHOD.version};
@@ -95,7 +97,28 @@ export class RadarStore{
   return {issueIds:[...new Set(added)],addedCount};
  });}
 
- changeIssue(id,body){return this.mutate((r,db)=>{const issue=find(r.issues,id);revision(issue,body);if('status'in body){if(!['new','saved','ignored','discussed'].includes(body.status))throw fail('Status tidak valid.');issue.status=body.status;}if('title'in body){issue.title=txt(body.title,300,true);issue.groupingLocked=true;}if('eventDate'in body){issue.eventDate=when(body.eventDate);issue.groupingLocked=true;}if('lenses'in body){issue.groupingLocked=true;const lenses=list(body.lenses,3);if(lenses.some(x=>!LENSES.some(l=>l.id===x)))throw fail('Lensa tidak valid.');issue.lenses=lenses;}if(body.sourceId){const s=find(issue.sources,body.sourceId);if(!['unchecked','verified','compare'].includes(body.verification)||typeof body.repost!=='boolean')throw fail('Verifikasi sumber tidak valid.');s.verification=body.verification;s.repost=body.repost;}if(body.contentId){if(!db.contents.some(c=>c.id===body.contentId))throw fail('Konten tidak ditemukan.',404);issue.contentIds=[...new Set([...issue.contentIds,body.contentId])];}issue.revision++;return issue;});}
- merge(id,body){return this.mutate(r=>{const target=find(r.issues,id),source=find(r.issues,body.fromId);revision(target,body);if(target.id===source.id||body.fromRevision!==source.revision)throw fail('Isu berubah atau tujuan sama.',409);if(target.sources.length+source.sources.length>100)throw fail('Gabungan melebihi 100 sumber.');target.sources.push(...source.sources.filter(s=>!target.sources.some(x=>x.url===s.url)));for(const k of ['topicIds','lenses','contentIds'])target[k]=[...new Set([...target[k],...source[k]])];target.groupingLocked=true;target.revision++;target.updatedAt=new Date().toISOString();r.issues=r.issues.filter(i=>i.id!==source.id);return target;});}
+ changeIssue(id,body){return this.mutate((r,db)=>{const issue=find(r.issues,id);revision(issue,body);if('status'in body){if(!['new','saved','ignored','discussed'].includes(body.status))throw fail('Status tidak valid.');issue.status=body.status;}if('title'in body){issue.title=txt(body.title,300,true);issue.groupingLocked=true;}if('eventDate'in body){issue.eventDate=when(body.eventDate);issue.groupingLocked=true;}if('lenses'in body){issue.groupingLocked=true;const lenses=list(body.lenses,3);if(lenses.some(x=>!LENSES.some(l=>l.id===x)))throw fail('Lensa tidak valid.');issue.lenses=lenses;}if(body.sourceId){const s=find(issue.sources,body.sourceId);if(!['unchecked','verified','compare'].includes(body.verification)||typeof body.repost!=='boolean')throw fail('Verifikasi sumber tidak valid.');s.verification=body.verification;if(s.repost!==body.repost){issue.groupRevision=(issue.groupRevision||1)+1;issue.observations=[];}s.repost=body.repost;}if(body.contentId){if(!db.contents.some(c=>c.id===body.contentId))throw fail('Konten tidak ditemukan.',404);issue.contentIds=[...new Set([...issue.contentIds,body.contentId])];}issue.revision++;return issue;});}
+ merge(id,body){return this.mutate(r=>{const target=find(r.issues,id),source=find(r.issues,body.fromId);revision(target,body);if(target.id===source.id||body.fromRevision!==source.revision)throw fail('Isu berubah atau tujuan sama.',409);if(target.sources.length+source.sources.length>100)throw fail('Gabungan melebihi 100 sumber.');target.sources.push(...source.sources.filter(s=>!target.sources.some(x=>x.url===s.url)));for(const k of ['topicIds','lenses','contentIds'])target[k]=[...new Set([...target[k],...source[k]])];target.groupingLocked=true;target.groupRevision=(target.groupRevision||1)+1;target.observations=[];target.revision++;target.updatedAt=new Date().toISOString();r.issues=r.issues.filter(i=>i.id!==source.id);return target;});}
+ split(id,body){return this.mutate(r=>{
+  const original=find(r.issues,id);revision(original,body);
+  const sourceIds=list(body.sourceIds,100);
+  if(!sourceIds.length||sourceIds.length>=original.sources.length||sourceIds.some(sid=>!original.sources.some(source=>source.id===sid)))throw fail('Pilih sebagian sumber untuk dipisahkan; sisakan minimal satu sumber.');
+  if(r.issues.length>=800)throw fail('Radar penuh (800 isu). Hapus isu yang tidak diperlukan sebelum memisahkan.');
+  const selected=original.sources.filter(source=>sourceIds.includes(source.id)),now=new Date(this.now()).toISOString();
+  const title=txt(body.title,300,true);
+  const created={id:crypto.randomUUID(),title,status:original.status,topicIds:[...original.topicIds],lenses:[...original.lenses],sources:selected,contentIds:[],eventDate:original.eventDate,createdAt:now,updatedAt:now,revision:1,groupingLocked:true,groupRevision:1,observations:[]};
+  original.sources=original.sources.filter(source=>!sourceIds.includes(source.id));original.revision++;original.groupingLocked=true;original.groupRevision=(original.groupRevision||1)+1;original.observations=[];original.updatedAt=now;
+  r.issues.unshift(created);return {issueId:created.id,originalId:original.id};
+ });}
+ observe(){return this.mutate(r=>{
+  const now=this.now(),at=new Date(now).toISOString();let recorded=0;
+  for(const issue of r.issues){
+   const history=issue.observations||[],previous=history.at(-1);
+   if(previous&&now-Date.parse(previous.at)<30*60000)continue;
+   const stats=issueStats(issue,now);
+   issue.observations=[...history,{at,publishers24h:stats.publishers24h,groupRevision:issue.groupRevision||1}].slice(-48);recorded++;
+  }
+  return {recorded,at};
+ });}
  deleteIssue(id,body){return this.mutate(r=>{const issue=find(r.issues,id);revision(issue,body);if(issue.contentIds.length)throw fail('Isu terhubung ke konten; gunakan Abaikan agar referensi terjaga.');r.issues=r.issues.filter(i=>i.id!==id);return {ok:true};});}
 }
