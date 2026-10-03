@@ -16,7 +16,7 @@ test('server backs up legacy imports before grouping; authenticated Radar expose
  t.after(async()=>{server.kill();if(server.exitCode===null)await new Promise(r=>server.once('exit',r));await fs.rm(dir,{recursive:true,force:true});});
  for(let i=0;i<100;i++){try{if((await fetch(base+'/api/health')).ok)break;}catch{}await new Promise(r=>setTimeout(r,50));}
  assert.equal((await fetch(base+'/api/radar')).status,401);assert.equal((await fetch(base+'/api/radar/digest')).status,401);assert.equal((await fetch(base+'/api/radar/issues/legacy-0/summary')).status,401);assert.equal((await fetch(base+'/api/radar/issues/legacy-0/grouping')).status,401);
- for(const endpoint of ['/api/radar/reports','/api/radar/prompts','/api/radar/ai/usage','/api/radar/performance','/api/radar/issues/legacy-0/research'])assert.equal((await fetch(base+endpoint)).status,401);
+ for(const endpoint of ['/api/radar/reports','/api/radar/prompts','/api/radar/ai/usage','/api/radar/performance','/api/radar/issues/legacy-0/research','/api/radar/channels/missing/feedback'])assert.equal((await fetch(base+endpoint)).status,401);
  const login=await fetch(base+'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:'local-only-password'})});assert.equal(login.status,200,logs);const cookie=login.headers.get('set-cookie').split(';')[0];
  const request=(route,body)=>fetch(base+route,{headers:{cookie,'content-type':'application/json'},...(body?{method:'POST',body:JSON.stringify(body)}:{})});
  const data=await request('/api/radar').then(r=>r.json());assert.equal(data.methodology.version,5);assert.equal(data.issues.length,1);assert.equal(data.hotIssues.length,1);assert.equal(data.rankedIssueIds.length,1);assert.equal(data.hotIssues[0].stats.rating,4);assert.equal(data.hotIssues[0].sources.length,3);
@@ -34,5 +34,11 @@ test('server backs up legacy imports before grouping; authenticated Radar expose
  let workspace=await request('/api/radar/issues/'+result.issueId+'/research').then(r=>r.json());assert.ok(workspace.report);assert.equal((await mutate('/api/radar/issues/'+result.issueId+'/research',{revision:workspace.issue.revision,notes:'Riset tersimpan',checklist:[{label:'Periksa data primer',done:false}]},'PATCH')).status,200);assert.equal((await mutate('/api/radar/issues/'+result.issueId+'/research',{revision:workspace.issue.revision,notes:'Usang',checklist:[]},'PATCH')).status,409);
  workspace=await request('/api/radar/issues/'+result.issueId+'/research').then(r=>r.json());assert.equal((await mutate('/api/radar/issues/'+result.issueId+'/import',{revision:workspace.issue.revision,sourceId:workspace.issue.sources[0].id,format:'txt',text:'Anggaran bantuan mencapai Rp200 juta.'})).status,200);const outline=await mutate('/api/radar/issues/'+result.issueId+'/outline',{format:'threeShorts'}).then(r=>r.json());assert.equal(outline.usesAI,false);assert.equal(outline.drafts.length,3);assert.match(outline.drafts[0].script,/Rp200 juta/);
  assert.equal((await request('/api/radar/ai/usage').then(r=>r.json())).summary.successful,0);assert.equal((await request('/api/radar/performance').then(r=>r.json())).usesAI,false);
+
+ const channel=await mutate('/api/radar/channels',{url:'https://youtube.com/@feedback',role:'reference'}).then(r=>r.json());
+ assert.equal((await mutate('/api/radar/channels/'+channel.id+'/feedback',null,'PATCH')).status,400);
+ assert.equal((await mutate('/api/radar/channels/'+channel.id+'/feedback',{revision:1,videoId:'abcdefghijk',choice:'relevant'},'PATCH')).status,404);
+ assert.equal((await mutate('/api/radar/channels/missing/feedback',{revision:1,videoId:'abcdefghijk',choice:'relevant'},'PATCH')).status,404);
+ const emptyChannel=(await request('/api/radar').then(r=>r.json())).channels[0];assert.equal(emptyChannel.analysis.usesAI,false);assert.equal(emptyChannel.analysis.observedVideos,0);
 
 });

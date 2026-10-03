@@ -72,3 +72,13 @@ Semua tahap roadmap sudah diimplementasikan. Validasi visual langsung pada sesi 
 4. CI berhasil dan deployment aplikasi online sehat pada versi yang dituju.
 
 Untuk penyetelan berikutnya, lanjutkan evaluasi kelompok produksi jika tersedia melalui sesi aplikasi yang terautentikasi. Gunakan temuan nyata untuk menyetel kemiripan; pertahankan pengujian penghalang penggabungan salah.
+
+## Update 4.20.0 — Pantauan Channel berbasis alasan
+
+Diimplementasikan: prioritas maksimal 10 lintas channel dengan akses semua video, alasan metrik/relevansi, kebutuhan riset, label data awal/lama/koreksi, feedback tersimpan dengan kontrol revisi, hubungan ke kelompok Radar dan draft, pola keyword serta ringkasan perubahan 24 jam/tujuh hari. Engine tidak memanggil AI. AI tambahan tetap opsional.
+
+Laju memakai dua pengamatan views berjarak minimal 30 menit; percepatan perlu tiga. Pembanding minimal tiga video berbeda dari channel yang sama, rentang durasi hingga 1,5× (memisahkan durasi ≤3 menit), serta pengamatan pada usia publikasi yang sebanding. Durasi tidak dipakai untuk memastikan format Shorts. Perubahan terukur bukan penyebab performa atau prediksi viral. Kebutuhan riset tidak mengklaim aspek yang pasti diabaikan isi video.
+
+Riwayat maksimal 30 hari / 800 pengamatan / 200 video per channel; sinkronisasi sangat sering dapat memperpendek cakupan. Sepuluh unggahan terbaru diperiksa bersama maksimal 40 video tersimpan bergiliran dalam satu panggilan videos. Video tidak tersedia atau tidak dipilih pada giliran ini tidak mendapat pengamatan baru. Deskripsi disimpan maksimal 3.000 karakter. Ringkasan hanya menjumlahkan interval nonnegatif yang tersedia di dalam periode, bukan seluruh views channel. Tidak ada backfill historis atau klaim mengetahui cadence channel lengkap.
+
+Validasi lokal mencakup cold start, null, nol, koreksi views, interval berbeda, pembanding usia/durasi, retensi/migrasi/restart, perlindungan feedback, penghapusan channel selama sync, batch API dan rendering/filter/escaping. Pemeriksaan produksi terbatas pada health, versi dan aset publik serta CI; tampilan akun yang login belum diaudit secara visual.

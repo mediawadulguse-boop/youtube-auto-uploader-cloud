@@ -945,6 +945,8 @@ const server = http.createServer(async (req, res) => {
       if(!issue)return json(res,404,{error:'Isu tidak ditemukan.'});
       return json(res,200,explainIssueGrouping(issue),{'cache-control':'no-store'});
     }
+    const channelFeedbackMatch=pathname.match(/^\/api\/radar\/channels\/([a-z0-9-]{1,60})\/feedback$/);
+    if(channelFeedbackMatch&&req.method==='PATCH')return json(res,200,await radarStore.setVideoFeedback(channelFeedbackMatch[1],await readJson(req)));
     const radarMatch=pathname.match(/^\/api\/radar\/(topics|feeds|channels|issues)(?:\/([a-z0-9-]{1,60}))?(?:\/(merge|split))?$/);
     if(radarMatch){const [,kind,id,action]=radarMatch;const body=await readJson(req);if(!body||typeof body!=='object'||Array.isArray(body))throw Object.assign(Error('Data Radar tidak valid.'),{status:400});
       if(kind==='topics'&&['POST','PATCH'].includes(req.method)&&!action)return json(res,200,await radarStore.saveTopic(body,id));
