@@ -8,6 +8,7 @@ import { ContentStore } from './content-store.mjs';
 import { RadarStore } from './radar-store.mjs';
 import { RADAR_METHOD } from './radar-methodology.mjs';
 import { RadarSync } from './radar-sync.mjs';
+import {RadarArchive} from './radar-archive.mjs';
 import {buildRadarDigest} from './radar-digest.mjs';
 import {buildIssueReport} from './radar-engine.mjs';
 import {explainIssueGrouping} from './radar-grouping.mjs';
@@ -34,6 +35,7 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 let storage=null;
 const contentStore = new ContentStore(path.join(DATA_DIR, 'contents.json'));
 const radarStore=new RadarStore(contentStore);
+const radarArchive=new RadarArchive(radarStore);
 const radarAI=new RadarAIProviders(radarStore);
 const radarSync=new RadarSync(radarStore,async url=>{const db=await readDb();if(Date.parse(db.youtubeWorker?.retryAt)>Date.now())throw Object.assign(new Error('Kuota YouTube sedang dibatasi.'),{code:'quota_exceeded'});if(process.env.YOUTUBE_API_KEY){const u=new URL(url);u.searchParams.set('key',process.env.YOUTUBE_API_KEY);return fetch(u,{signal:AbortSignal.timeout(15000)})}return youtubeFetch(url,{signal:AbortSignal.timeout(15000)});});
 const notesStore = new NotesStore(path.join(DATA_DIR, 'notes.json'));
@@ -774,6 +776,9 @@ setInterval(studioSyncTick,30*60*1000).unref();setTimeout(studioSyncTick,15000).
 
 if(process.env.RADAR_AUTO_SYNC!=='false'){const tick=()=>radarSync.sync().catch(e=>console.error('Radar sync:',e.message));setInterval(tick,15*60*1000).unref();setTimeout(tick,45000).unref();}
 
+const archiveTick=()=>radarArchive.tick().catch(e=>console.error('Radar archive:',e.message));
+setInterval(archiveTick,60*60*1000).unref();setTimeout(archiveTick,60000).unref();
+
 const server = http.createServer(async (req, res) => {
   try {
     const u = new URL(req.url, APP_URL);
@@ -903,6 +908,11 @@ const server = http.createServer(async (req, res) => {
       }catch(e){return json(res,e.status||502,{code:e.code||'upstream_error',error:e.message},{'cache-control':'no-store'});}
     }
     if(pathname==='/api/radar'&&req.method==='GET')return json(res,200,{...await radarStore.read(),ai:await radarAI.status(u.searchParams.get('aiProvider') || undefined),syncBusy:radarSync.busy});
+    if(pathname==='/api/radar/reports'&&req.method==='GET')return json(res,200,await radarArchive.list());
+    if(pathname==='/api/radar/reports'&&req.method==='POST')return json(res,201,await radarArchive.save(await readJson(req)));
+    if(pathname==='/api/radar/report-schedule'&&req.method==='PATCH')return json(res,200,await radarArchive.configure(await readJson(req)));
+    const archiveMatch=pathname.match(/^\/api\/radar\/reports\/([a-z0-9-]{1,60})$/);
+    if(archiveMatch&&req.method==='GET')return json(res,200,await radarArchive.get(archiveMatch[1]));
     if(pathname==='/api/radar/digest'&&req.method==='GET')return json(res,200,buildRadarDigest(await radarStore.read(),{period:u.searchParams.get('period')||'daily',date:u.searchParams.get('date')||undefined,topic:u.searchParams.get('topic')||''}),{'cache-control':'no-store'});
     if(pathname==='/api/radar/sync'&&req.method==='POST')return json(res,200,await radarSync.sync({force:true}));
     if(pathname==='/api/radar/ai/check'&&req.method==='POST')return json(res,200,await radarAI.checkConnection(await readJson(req)));

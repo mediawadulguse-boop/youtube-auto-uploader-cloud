@@ -7,7 +7,7 @@ Pembaruan dirilis bertahap. Fokus awal: kualitas data Radar, pengelompokan, rang
 | 1 | 4.14.1 | Diimplementasikan | Audit engine, perbaikan kualitas ekstraksi, atribusi, pengelompokan lokasi dan tampilan cakupan sumber. |
 | 2 | 4.15.0 | Diimplementasikan | Variasi istilah dan identitas peristiwa, alasan penggabungan dan aturan koreksi manual. |
 | 3 | 4.16.0 | Diimplementasikan | Kronologi, aktor, angka penting, pernyataan berbeda dan bahan riset yang belum tersedia. |
-| 4 | 4.17.0 | Direncanakan | Arsip laporan harian/mingguan terjadwal dan perbandingan liputan. |
+| 4 | 4.17.0 | Diimplementasikan | Arsip laporan harian/mingguan terjadwal dan perbandingan liputan. |
 | 5 | 4.18.0 | Direncanakan | Ruang riset, brief dan kerangka naskah dari template; impor teks/transkrip. |
 | 6 | 4.19.0 | Direncanakan | Pustaka prompt, penggunaan ulang hasil AI, riwayat pemakaian dan hubungan dengan performa konten. |
 
@@ -44,6 +44,10 @@ Pengujian mencakup alias, penjagaan entitas/tanggal/tindakan, alasan keputusan, 
 ## Tahap 3 — v4.16.0
 
 Kronologi memakai tanggal publikasi tersimpan; tanggal peristiwa editorial tetap terpisah. Nama hanya dari pola organisasi atau atribusi eksplisit. Angka disertai kalimat asli dan rujukan. Perbedaan negasi pada konteks literal ditampilkan untuk diperiksa, tanpa menentukan kebenaran. Daftar kebutuhan riset mengikuti cakupan, tanggal, verifikasi dan pembanding sumber. Semua ikut tampilan serta salinan rangkuman dan laporan.
+
+## Tahap 4 — v4.17.0
+
+Arsip otomatis berjalan tiap jam sesudah periode WIB selesai. Snapshot idempoten, tersimpan bersama data aplikasi dan mempertahankan laporan awal saat sumber berubah. Arsip dapat dicari/disalin; perbandingan memakai data tersedia saat pembuatan. Jadwal dapat dinonaktifkan. Catch-up harian maksimal tujuh hari dan satu minggu terakhir. Retensi maksimal 60 snapshot atau 20 MB, menghapus arsip terlama saja; sumber dan konten tidak dihapus.
 
 ## Syarat rilis
 
