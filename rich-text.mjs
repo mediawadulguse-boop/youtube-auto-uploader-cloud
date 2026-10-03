@@ -10,7 +10,7 @@ export function safeLink(value) {
 export function cleanRichHtml(value) {
   if (typeof value !== 'string' || value.length > 1500000) throw fail('Format teks tidak valid atau terlalu panjang');
   return sanitizeHtml(value, {
-    allowedTags:['p','div','br','b','strong','i','em','u','s','strike','ul','ol','li','blockquote','h2','h3','font','span','a'],
+    allowedTags:['p','div','br','b','strong','i','em','u','s','strike','ul','ol','li','blockquote','h2','h3','font','span','a','table','thead','tbody','tr','th','td'],
     allowedAttributes:{a:['href','target','rel'],font:['size']},
     allowedSchemes:['https','http','mailto'], allowProtocolRelative:false,
     transformTags:{
@@ -24,6 +24,7 @@ export function richPlainText(html) {
   const walk=node=>{
     if(node.type==='text'){text+=node.data;trailingBlock=false;return;}
     if(node.name==='br'){text+='\n';trailingBlock=false;return;}
+    if(node.name==='tr'){if(text&&!text.endsWith('\n'))text+='\n';const cells=(node.children||[]).filter(c=>['th','td'].includes(c.name));cells.forEach((cell,i)=>{if(i)text+='\t';for(const child of cell.children||[])walk(child);});if(!text.endsWith('\n'))text+='\n';trailingBlock=true;return;}
     if(blocks.has(node.name)&&text&&!text.endsWith('\n')){text+='\n';trailingBlock=true;}
     for(const child of node.children||[])walk(child);
     if(blocks.has(node.name)&&!text.endsWith('\n')){text+='\n';trailingBlock=true;}

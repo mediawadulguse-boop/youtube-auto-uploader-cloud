@@ -1,0 +1,24 @@
+/* One vertical scroll area, a persistent close control, and a readable page. */
+.radar-dialog.radar-writing{width:min(1120px,calc(100vw - 32px))}
+.radar-writing .radar-modal-head{position:sticky;top:0;background:#fff;z-index:2}
+.radar-writing .radar-modal-body{padding:24px 30px}
+.radar-prose{white-space:normal;background:#fff;font-size:16px;line-height:1.75;padding:24px;color:#24334b}
+.radar-prose p{margin:0 0 1em}.radar-prose p:last-child{margin-bottom:0}
+.radar-prose h3{font-size:19px;line-height:1.4;margin:1.6em 0 .65em;color:#24334b}
+.radar-prose h3:first-child{margin-top:0}
+.radar-prose table{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;border:1px solid #dfe5ee;border-radius:10px;overflow:hidden;margin:18px 0}
+.radar-prose th,.radar-prose td{padding:16px 18px;text-align:left;vertical-align:top;border-bottom:1px solid #e5eaf1;overflow-wrap:anywhere}
+.radar-prose th{background:#f2f5fa;font-size:13px;font-weight:700;line-height:1.5;color:#465472}
+.radar-prose th+th,.radar-prose td+td{border-left:1px solid #e5eaf1}
+.radar-prose tbody tr:last-child td{border-bottom:0}
+.radar-prose td strong{color:#263f71}.radar-prose li{margin:.4em 0}
+.radar-prose blockquote{border-left:3px solid #8b78d8;padding:8px 16px;margin:16px 0;background:#f8f6ff}
+.radar-source-text{margin:12px 0 20px;color:#64748b;font-size:13px}
+.radar-source-text summary{cursor:pointer}.radar-source-text pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.6;padding:16px;background:#f5f7fa;border-radius:8px}
+#radarApplyAI{position:sticky;bottom:12px;box-shadow:0 4px 18px #18202e24;margin:12px 0}
+.rich-input table{width:100%;table-layout:fixed;border-collapse:collapse;margin:16px 0;white-space:normal}
+.rich-input th,.rich-input td{border:1px solid #dce3ed;padding:12px;text-align:left;vertical-align:top;overflow-wrap:anywhere}
+.rich-input th{background:#f2f5fa;font-size:13px;font-weight:700}
+.rich-input p{margin:0 0 .85em}.rich-input h3{margin:1.2em 0 .6em;line-height:1.4}
+.rich-input h3:first-child{margin-top:0}
+@media(max-width:620px){.radar-dialog.radar-writing{width:calc(100vw - 16px);max-height:94dvh}.radar-writing .radar-modal-body{padding:16px 12px}.radar-prose{padding:14px;font-size:15px}.radar-prose th,.radar-prose td{padding:10px 8px;font-size:14px}.radar-prose th{font-size:12px}.rich-input th,.rich-input td{padding:8px}}

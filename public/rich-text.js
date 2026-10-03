@@ -1,6 +1,6 @@
 /* Shared, dependency-free editor. Plain text remains available to search/export. */
 window.HubRichText=(()=>{
-  const editors=new WeakMap(),tags=new Set(['P','DIV','BR','B','STRONG','I','EM','U','S','STRIKE','UL','OL','LI','BLOCKQUOTE','H2','H3','FONT','SPAN','A']);
+  const editors=new WeakMap(),tags=new Set(['P','DIV','BR','B','STRONG','I','EM','U','S','STRIKE','UL','OL','LI','BLOCKQUOTE','H2','H3','FONT','SPAN','A','TABLE','THEAD','TBODY','TR','TH','TD']);
   const blocks=new Set(['P','DIV','LI','BLOCKQUOTE','H2','H3']);
   const urlPattern=/(?:https?:\/\/|www\.)[^\s<>"']+|[\w.+-]+@[\w.-]+\.[a-z]{2,}/gi;
   const safeUrl=value=>{try{const u=new URL(/^www\./i.test(value)?'https://'+value:value);return ['http:','https:','mailto:'].includes(u.protocol)?u.href:''}catch{return ''}};
@@ -18,7 +18,7 @@ window.HubRichText=(()=>{
     };
     const out=document.createElement('div');for(const node of template.content.childNodes)out.append(walk(node));return out;
   }
-  function plain(root){let value='',trailingBlock=false;const walk=node=>{if(node.nodeType===3){value+=node.data;trailingBlock=false;return}if(node.nodeName==='BR'){value+='\n';trailingBlock=false;return}if(blocks.has(node.nodeName)&&value&&!value.endsWith('\n')){value+='\n';trailingBlock=true}for(const child of node.childNodes)walk(child);if(blocks.has(node.nodeName)&&!value.endsWith('\n')){value+='\n';trailingBlock=true}};for(const node of root.childNodes)walk(node);return (trailingBlock?value.replace(/\n$/,''):value).replace(/\u00a0/g,' ')}
+  function plain(root){let value='',trailingBlock=false;const walk=node=>{if(node.nodeType===3){value+=node.data;trailingBlock=false;return}if(node.nodeName==='BR'){value+='\n';trailingBlock=false;return}if(node.nodeName==='TR'){if(value&&!value.endsWith('\n'))value+='\n';const cells=[...node.children].filter(c=>['TH','TD'].includes(c.nodeName));cells.forEach((cell,i)=>{if(i)value+='\t';for(const child of cell.childNodes)walk(child)});if(!value.endsWith('\n'))value+='\n';trailingBlock=true;return}if(blocks.has(node.nodeName)&&value&&!value.endsWith('\n')){value+='\n';trailingBlock=true}for(const child of node.childNodes)walk(child);if(blocks.has(node.nodeName)&&!value.endsWith('\n')){value+='\n';trailingBlock=true}};for(const node of root.childNodes)walk(node);return (trailingBlock?value.replace(/\n$/,''):value).replace(/\u00a0/g,' ')}
   function linkify(root){
     const walker=document.createTreeWalker(root,NodeFilter.SHOW_TEXT),nodes=[];while(walker.nextNode())if(!walker.currentNode.parentElement?.closest('a'))nodes.push(walker.currentNode);
     for(const node of nodes){const value=node.data;urlPattern.lastIndex=0;let match,start=0;const fragment=document.createDocumentFragment();
@@ -42,6 +42,7 @@ window.HubRichText=(()=>{
       <button type="button" data-command="insertUnorderedList" aria-label="Daftar poin" title="Daftar poin">• ≡</button>
       <button type="button" data-command="insertOrderedList" aria-label="Daftar nomor" title="Daftar nomor">1. ≡</button>
       <button type="button" data-link aria-label="Tambahkan link" title="Tambahkan link">↗ Link</button>
+      <button type="button" data-format-script title="Rapikan tabel dan judul Markdown" aria-label="Rapikan format naskah">Rapikan format</button>
       <button type="button" data-command="removeFormat" aria-label="Hapus format" title="Hapus format">Tx</button>
       <button type="button" data-command="undo" aria-label="Urungkan" title="Urungkan (Ctrl+Z)">↶</button>
       <button type="button" data-command="redo" aria-label="Ulangi" title="Ulangi">↷</button>
@@ -70,6 +71,7 @@ window.HubRichText=(()=>{
     toolbar.addEventListener('mousedown',e=>{if(e.target.closest('button')){remember();e.preventDefault()}else remember()});
     toolbar.addEventListener('click',e=>{
       const button=e.target.closest('button');if(!button)return;e.preventDefault();
+      if(button.hasAttribute('data-format-script')){if(!window.HubScriptFormat)return;const root=clean(HubScriptFormat.render(plain(input)));editor.set(plain(root),root.innerHTML);changed();return}
       if(button.dataset.command){command(button.dataset.command);return}
       if(button.dataset.case){restore();const selection=getSelection();if(!selection.rangeCount||selection.isCollapsed){error.textContent='Blok teks yang ingin diubah terlebih dahulu.';return}const selected=selection.getRangeAt(0).cloneContents(),walker=document.createTreeWalker(selected,NodeFilter.SHOW_TEXT);while(walker.nextNode()){const node=walker.currentNode;node.data=button.dataset.case==='upper'?node.data.toLocaleUpperCase('id-ID'):node.data.toLocaleLowerCase('id-ID')}const fragment=document.createElement('div');fragment.append(selected);command('insertHTML',clean(fragment.innerHTML).innerHTML);return}
       if(button.hasAttribute('data-link')){remember();wrapper.querySelector('.rich-link-form').hidden=false;const field=wrapper.querySelector('.rich-link-form input');field.value='';field.focus()}
@@ -88,5 +90,5 @@ window.HubRichText=(()=>{
     };
     editors.set(textarea,editor);editor.set(textarea.value);return editor;
   }
-  return {attach,set:(el,text,html)=>attach(el).set(text,html),html:el=>attach(el).html(),select:el=>attach(el).select()};
+  return {attach,setFormatted:(el,html)=>{const root=clean(html);attach(el).set(plain(root),root.innerHTML)},set:(el,text,html)=>attach(el).set(text,html),html:el=>attach(el).html(),select:el=>attach(el).select()};
 })();
