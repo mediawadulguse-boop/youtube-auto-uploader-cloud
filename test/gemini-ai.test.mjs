@@ -13,10 +13,11 @@ const script={action:'script',script:'Script asli'};
 
 test('all providers request ordinary text, with no structured API format dependency',async t=>{
  const {store}=await setup(t);
- for(const provider of ['gemini','openai','grok']){
-  let request,url;const ai=new RadarAI(store,{provider,key:'private',model:provider==='gemini'?model:'text-model',fetcher:async(u,opts)=>{url=u;request=JSON.parse(opts.body);return provider==='gemini'?Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:'OK'}]}}]}):Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:'OK'}]}]});}});
+ for(const provider of ['gemini','openai','groq']){
+  let request,url;const ai=new RadarAI(store,{provider,key:'private',model:provider==='gemini'?model:'text-model',fetcher:async(u,opts)=>{url=u;request=JSON.parse(opts.body);return provider==='gemini'?Response.json({candidates:[{finishReason:'STOP',content:{parts:[{text:'OK'}]}}]}):provider==='groq'?Response.json({choices:[{finish_reason:'stop',message:{content:'OK'}}]}):Response.json({status:'completed',output:[{type:'message',content:[{type:'output_text',text:'OK'}]}]});}});
   assert.equal(await ai.complete('Reply OK','test'), 'OK');
   if(provider==='gemini')assert.deepEqual(request.generationConfig,{maxOutputTokens:12000,thinkingConfig:{thinkingLevel:'low'}});
+  else if(provider==='groq'){assert.equal(request.response_format,undefined);assert.equal(request.max_completion_tokens,5000);assert.equal(request.messages[1].content,'test');assert.match(url,/api\.groq\.com\/openai\/v1\/chat\/completions$/);}
   else{assert.equal(request.text,undefined);assert.equal(request.store,false);assert.match(url,/\/v1\/responses$/);}
  }
 });

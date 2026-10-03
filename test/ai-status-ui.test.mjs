@@ -28,16 +28,16 @@ test('changing to another available model permits generation during first model 
  elements.radarAIModel.value='gemini-unknown';elements.radarAIModel.onchange();assert.equal(elements.radarGenerateAI.disabled,true);assert.match(elements.radarAIConnection.innerHTML,/Model tidak tersedia/);
 });
 
-test('provider controls show GPT/Grok, reset cross-provider models and explain missing configuration',()=>{
+test('provider controls show GPT/Groq, reset cross-provider models and explain missing configuration',()=>{
  const {context}=setup();context.radarUi.aiProvider='gemini';context.radarUi.aiModel='gemini-test';
- const next={...config,provider:'Grok (xAI)',providerId:'grok',model:'grok-test',models:[],configured:false,connection:{state:'unconfigured'},modelResults:{},autoFallback:true,setupMessage:'Isi XAI_API_KEY dan XAI_MODEL.',providers:[{providerId:'gemini',provider:'Gemini',configured:true},{providerId:'openai',provider:'OpenAI',configured:true},{providerId:'grok',provider:'Grok (xAI)',configured:false}]};
- const html=context.radarAIControls(next);assert.match(html,/GPT \(OpenAI\)/);assert.match(html,/Grok/);assert.match(html,/Pindah otomatis/);assert.match(html,/XAI_API_KEY/);assert.ok(!html.includes('id="radarAIModel"'));assert.equal(context.radarUi.aiModel,'grok-test');assert.equal(context.radarUi.aiProvider,'grok');
+ const next={...config,provider:'Groq',providerId:'groq',model:'groq-test',models:[],configured:false,connection:{state:'unconfigured'},modelResults:{},autoFallback:true,setupMessage:'Isi GROQ_API_KEY dan GROQ_MODEL.',providers:[{providerId:'gemini',provider:'Gemini',configured:true},{providerId:'openai',provider:'OpenAI',configured:true},{providerId:'groq',provider:'Groq',configured:false}]};
+ const html=context.radarAIControls(next);assert.match(html,/GPT \(OpenAI\)/);assert.match(html,/Groq/);assert.match(html,/Pindah otomatis/);assert.match(html,/GROQ_API_KEY/);assert.ok(!html.includes('id="radarAIModel"'));assert.equal(context.radarUi.aiModel,'groq-test');assert.equal(context.radarUi.aiProvider,'groq');
 });
 test('quota fallback is reported as another provider, not successful generation by the exhausted model',()=>{
- const {context}=setup();const next={...config,modelResults:{'gemini-test':{state:'fallback',message:'Pratinjau dibuat oleh Grok · grok-test.'}}};const html=context.radarAIConnection(next,'gemini-test');assert.match(html,/Pratinjau: provider cadangan/);assert.match(html,/Grok/);assert.ok(!html.includes('Pratinjau terakhir gagal'));
+ const {context}=setup();const next={...config,modelResults:{'gemini-test':{state:'fallback',message:'Pratinjau dibuat oleh Groq · groq-test.'}}};const html=context.radarAIConnection(next,'gemini-test');assert.match(html,/Pratinjau: provider cadangan/);assert.match(html,/Groq/);assert.ok(!html.includes('Pratinjau terakhir gagal'));
 });
 test('available backup keeps preview enabled; all blocked providers use earliest recovery time',()=>{
- const {context,elements}=setup();const next={...config,providerId:'gemini',autoFallback:true,providers:[{providerId:'gemini',configured:true,quotaRetryAt:'2026-10-02T08:01:00Z'},{providerId:'grok',configured:true,quotaRetryAt:null}]};
+ const {context,elements}=setup();const next={...config,providerId:'gemini',autoFallback:true,providers:[{providerId:'gemini',configured:true,quotaRetryAt:'2026-10-02T08:01:00Z'},{providerId:'groq',configured:true,quotaRetryAt:null}]};
  context.radarAIBind(next);assert.equal(elements.radarGenerateAI.disabled,false);
  next.providers[1].quotaRetryAt='2026-10-02T08:00:20Z';context.radarAIBind(next);assert.equal(elements.radarGenerateAI.disabled,true);assert.match(elements.radarGenerateAI.textContent,/20 dtk/);
 });

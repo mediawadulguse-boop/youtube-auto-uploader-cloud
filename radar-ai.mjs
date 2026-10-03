@@ -9,12 +9,12 @@ const ACTIONS = {
   analysis: 'Amati pola dari metrik publik yang diberikan sebagai hipotesis, bukan sebab-akibat. Jangan menciptakan CTR, retention atau revenue.'
 };
 const PROVIDERS = {
-  openai: { name: 'OpenAI', keyVariable: 'OPENAI_API_KEY', modelVariable: 'OPENAI_MODEL' },
+  openai: { name: 'OpenAI', keyVariable: 'OPENAI_API_KEY', modelVariable: 'OPENAI_MODEL', modelsVariable:'OPENAI_MODELS', defaultModel:'gpt-4.1-mini' },
   gemini: { name: 'Gemini', keyVariable: 'GEMINI_API_KEY', modelVariable: 'GEMINI_MODEL' },
-  grok: { name: 'Grok (xAI)', keyVariable: 'XAI_API_KEY', modelVariable: 'XAI_MODEL' }
+  groq: { name: 'Groq', keyVariable: 'GROQ_API_KEY', modelVariable: 'GROQ_MODEL', modelsVariable:'GROQ_MODELS', defaultModel:'openai/gpt-oss-120b' }
 };
-const modelName = (model, provider) => typeof model === 'string' && (
-  provider === 'gemini' ? /^gemini-[a-zA-Z0-9._-]{1,100}$/.test(model) : /^[a-zA-Z0-9_.:-]{1,160}$/.test(model)
+const modelName = (model, provider) => typeof model === 'string' && !/^(?:sk-|gsk_|AIza)/.test(model) && (
+  provider === 'gemini' ? /^gemini-[a-zA-Z0-9._-]{1,100}$/.test(model) : provider==='groq' ? /^[a-zA-Z0-9_.:-]+(?:\/[a-zA-Z0-9_.:-]+)?$/.test(model)&&model.length<=160&&!/compound|whisper|orpheus|guard|embed|tts|playai/i.test(model) : /^[a-zA-Z0-9_.:-]{1,160}$/.test(model)
 );
 export function aiInstructions(action) {
   return 'Anda membantu editor konten Bahasa Indonesia. ' + ACTIONS[action] +
@@ -64,6 +64,8 @@ export class RadarAI {
     const config = PROVIDERS[this.provider];
     this.key = String(options.key ?? (config ? process.env[config.keyVariable] || '' : '')).trim();
     this.model = String(options.model ?? (config ? process.env[config.modelVariable] || '' : '')).trim();
+    this.modelSource=!this.model&&options.model===undefined&&config?.defaultModel?'default':'configured';
+    if(this.modelSource==='default')this.model=config.defaultModel;
     if (this.provider === 'gemini') this.model = this.model.replace(/^models\//, '');
     const limit = options.limit ?? Number(process.env.AI_DAILY_LIMIT || 20);
     this.limit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 20;
@@ -76,19 +78,20 @@ export class RadarAI {
     this.inFlight = new Set();
     this.wait = options.wait ?? (ms => new Promise(resolve => setTimeout(resolve, ms)));
     this.random = options.random ?? Math.random;
-    this.extraModels = String(options.models ?? process.env[this.provider === 'grok' ? 'XAI_MODELS' : 'OPENAI_MODELS'] ?? '').split(',').map(m => m.trim()).filter(m => modelName(m, this.provider)).slice(0, 30);
+    this.extraModels = String(options.models ?? process.env[config?.modelsVariable || 'OPENAI_MODELS'] ?? (this.provider==='groq'?'openai/gpt-oss-120b,openai/gpt-oss-20b':'')).split(',').map(m => m.trim()).filter(m => modelName(m, this.provider)).slice(0, 30);
 
   }
 
   configuration() {
     const config = PROVIDERS[this.provider];
     let setupMessage = '';
-    if (!config) setupMessage = 'AI_PROVIDER harus openai, gemini, atau grok pada Railway.';
-    else if (!this.key || !this.model) setupMessage = `AI ${config.name} belum aktif. Isi ${config.keyVariable} dan ${config.modelVariable} pada Railway.`;
+    if (!config) setupMessage = 'AI_PROVIDER harus openai, gemini, atau groq pada Railway.';
+    else if (!this.key || !this.model) setupMessage = `AI ${config.name} belum aktif. Isi ${[!this.key?config.keyVariable:null,!this.model?config.modelVariable:null].filter(Boolean).join(' dan ')} pada Railway.`;
     else if (!modelName(this.model, this.provider)) setupMessage = `Nama model ${config.name} tidak valid. Periksa ${config.modelVariable} pada Railway.`;
     return {
       configured: !setupMessage, providerId: this.provider, provider: config?.name || 'Provider tidak valid',
-      model: this.model || null, setupMessage,
+      model: modelName(this.model,this.provider)?this.model:null, modelSource:this.modelSource, keyPresent:!!this.key, modelPresent:!!this.model, setupMessage,
+      missingVariables:config?[!this.key?config.keyVariable:null,!this.model?config.modelVariable:null].filter(Boolean):['AI_PROVIDER'],
       requiredVariables: config ? ['AI_PROVIDER', config.keyVariable, config.modelVariable] : ['AI_PROVIDER']
     };
   }
@@ -129,11 +132,11 @@ export class RadarAI {
             if (page === 4) throw fail('Daftar model terlalu panjang. Coba lagi nanti.', 502);
           }
         } else {
-          const data = await this.request(this.provider === 'grok' ? 'https://api.x.ai/v1/language-models' : 'https://api.openai.com/v1/models', { authorization: 'Bearer ' + this.key });
-          const list = this.provider === 'grok' ? data.models : data.data;
+          const data = await this.request(this.provider === 'groq' ? 'https://api.groq.com/openai/v1/models' : 'https://api.openai.com/v1/models', { authorization: 'Bearer ' + this.key });
+          const list = data.data;
           if (!Array.isArray(list)) throw fail('Daftar model AI tidak valid.', 502);
           const allowed = new Set([this.model, ...this.extraModels]);
-          for (const m of list) for (const id of [m?.id,...(this.provider === 'grok' && Array.isArray(m?.aliases) ? m.aliases : [])]) if (allowed.has(id)) models.push({ id, label: id });
+          for (const m of list) if(m?.active!==false&&allowed.has(m?.id)&&modelName(m.id,this.provider))models.push({id:m.id,label:m.id});
         }
         this.models = [...new Map(models.map(m => [m.id, m])).values()].sort((a,b) => a.id.localeCompare(b.id));
         this.connection = { state: 'connected', checkedAt: new Date(this.now()).toISOString(), message: 'API terhubung. Daftar model berhasil diperiksa.' };
@@ -182,18 +185,19 @@ export class RadarAI {
     }
     if (!response.ok) {
       const name = PROVIDERS[this.provider].name;
+      const remoteFail=(message,status=502)=>Object.assign(fail(message,status),{providerStatus:response.status});
       let detail;
       try { detail = (await response.json())?.error; } catch { /* never expose raw provider output */ }
       if (response.status === 400) {
         const raw = typeof detail?.message === 'string' ? detail.message : '';
         const reasons = Array.isArray(detail?.details) ? detail.details.map(d => d?.reason) : [];
         if (reasons.includes('API_KEY_INVALID') || /API key not valid|API_KEY_INVALID/i.test(raw)) {
-          const error=fail(`API key ${name} tidak valid. Periksa key pada Railway.`,502);
+          const error=remoteFail(`API key ${name} tidak valid. Periksa key pada Railway.`,502);
           error.providerUnavailable=true;error.retryDelayMs=300000;throw error;
         }
         const unsupportedFormat = this.provider === 'gemini' && /Unknown name ["']response_?format["']/i.test(raw);
         const invalidPayload = /Invalid JSON payload|Unknown name|Invalid value at/i.test(raw);
-        const error = fail(unsupportedFormat ? 'Format output Gemini belum didukung oleh endpoint ini.'
+        const error = remoteFail(unsupportedFormat ? 'Format output Gemini belum didukung oleh endpoint ini.'
           : invalidPayload ? `Struktur permintaan ${name} belum sesuai dengan API. Konfigurasi integrasi perlu diperbaiki.`
           : /response.?schema|response.?json.?schema|json schema|response.?format/i.test(raw)
             ? `Konfigurasi JSON terstruktur ${name} ditolak. Dukungan model dan format permintaan perlu diperiksa.`
@@ -203,25 +207,25 @@ export class RadarAI {
         throw error;
       }
       if ([500,502,503,504].includes(response.status)) {
-        const error = fail(`${name} sedang tidak tersedia (HTTP ${response.status}). Pratinjau belum dibuat.`, 503);
+        const error = remoteFail(`${name} sedang tidak tersedia (HTTP ${response.status}). Pratinjau belum dibuat.`, 503);
         error.transient = true;
         error.providerUnavailable = true;
         error.retryDelayMs = Math.max(30000, this.retryDelay(response));
         throw error;
       }
       const creditMessage = typeof detail === 'string' ? detail : typeof detail?.message === 'string' ? detail.message : '';
-      const creditExhausted = this.provider === 'grok' && [402, 403].includes(response.status) &&
+      const creditExhausted = this.provider === 'groq' && [402, 403].includes(response.status) &&
         /run out of credits|used all available credits|reached (?:its|your) monthly spending limit|(?:doesn't|does not) have any credits/i.test(creditMessage);
       if (response.status === 429 || creditExhausted) {
-        const error = fail(`Kuota atau batas laju ${name} tercapai. Periksa kuota provider atau coba lagi nanti.`, 429);
+        const billing=this.provider==='openai'&&['insufficient_quota','billing_hard_limit_reached'].includes(detail?.code||detail?.type);
+        const error = remoteFail(billing?'Saldo/kuota API OpenAI habis. Tambahkan kredit atau periksa batas billing API OpenAI.':`Kuota atau batas laju ${name} tercapai. Periksa kuota provider atau coba lagi nanti.`, 429);
         error.providerQuota = true;
         error.retryDelayMs = Math.max(30000, this.retryDelay(response));
         throw error;
       }
-      if (response.status===401 || response.status===404) {const error=fail(response.status===401?`API key ${name} ditolak.`:`Model ${name} tidak ditemukan pada akun ini.`,502);error.providerUnavailable=true;error.retryDelayMs=300000;throw error;}
-      if ([401, 403].includes(response.status)) throw fail(`Akses ${name} ditolak. Periksa API key, izin proyek, dan pengaturan billing provider.`, 502);
-      if (response.status === 404) throw fail(`Model ${name} tidak ditemukan atau belum tersedia pada akun Anda. Periksa nama model di Railway.`, 502);
-      throw fail(`Layanan ${name} gagal (HTTP ${response.status}). Coba lagi atau periksa pengaturan model.`, 502);
+      if (response.status===401 || response.status===404) {const error=remoteFail(response.status===401?`API key ${name} ditolak.`:`Model ${name} tidak ditemukan pada akun ini.`,502);error.providerUnavailable=true;error.retryDelayMs=300000;throw error;}
+      if (response.status===403) throw remoteFail(`Akses ${name} ditolak. Periksa API key, izin proyek, dan pengaturan billing provider.`, 502);
+      throw remoteFail(`Layanan ${name} gagal (HTTP ${response.status}). Coba lagi atau periksa pengaturan model.`, 502);
     }
     try {
       const data=await response.json();
@@ -249,10 +253,19 @@ export class RadarAI {
       if(candidate?.finishReason!=='STOP')throw fail('Hasil Gemini belum lengkap. Coba lagi dengan bahan lebih ringkas.',502);
       return candidate.content?.parts?.filter(p=>p&&!p.thought&&typeof p.text==='string').map(p=>p.text).join('')||'';
     }
-    const data=await this.request(this.provider==='grok'?'https://api.x.ai/v1/responses':'https://api.openai.com/v1/responses',{authorization:'Bearer '+this.key},{
-      model,store:false,max_output_tokens:maxTokens,
-      ...(this.provider==='grok'?{input:[{role:'system',content:instructions},{role:'user',content:input}]}:{instructions,input})
-    },deadline,{remaining:0});
+    if(this.provider==='groq'){
+      const data=await this.request('https://api.groq.com/openai/v1/chat/completions',{authorization:'Bearer '+this.key},{
+        model,messages:[{role:'system',content:instructions},{role:'user',content:input}],max_completion_tokens:maxTokens,stream:false,
+        ...(/^openai\/gpt-oss-(?:20b|120b)$/.test(model)?{reasoning_effort:'low',include_reasoning:false}:{}),
+        ...(/^qwen\/qwen3\.8-27b$/.test(model)?{reasoning_effort:'none',reasoning_format:'hidden'}:{})
+      },deadline,{remaining:0});
+      const choice=data.choices?.[0];
+      if(choice?.message?.refusal || choice?.finish_reason==='content_filter')throw fail('Provider tidak menghasilkan pratinjau untuk bahan ini.',422);
+      if(choice?.finish_reason==='length')throw fail('Hasil Groq terpotong. Ringkas bahan lalu coba lagi.',502);
+      if(choice?.finish_reason!=='stop'||typeof choice?.message?.content!=='string'||choice.message.tool_calls?.length)throw fail('Hasil Groq belum lengkap atau bukan jawaban teks.',502);
+      return choice.message.content;
+    }
+    const data=await this.request('https://api.openai.com/v1/responses',{authorization:'Bearer '+this.key},{model,store:false,max_output_tokens:maxTokens,instructions,input},deadline,{remaining:0});
     if(data.error || (data.status&&data.status!=='completed'))throw fail('Hasil AI belum lengkap. Ringkas bahan lalu coba lagi.',502);
     const content=(Array.isArray(data.output)?data.output:[]).filter(x=>x?.type==='message').flatMap(x=>Array.isArray(x.content)?x.content:[]);
     if(content.some(x=>x?.type==='refusal'))throw fail('Provider tidak menghasilkan pratinjau untuk bahan ini.',422);
@@ -321,10 +334,13 @@ export class RadarAI {
 // whole provider chain. Safety and source-validation failures never switch APIs.
 export class RadarAIProviders {
   constructor(store, options = {}) {
-    this.defaultProvider = String(options.defaultProvider ?? process.env.AI_PROVIDER ?? 'openai').trim().toLowerCase();
+    const legacy=id=>id==='grok'?'groq':id;
+    this.preferredProvider=legacy(String(options.defaultProvider ?? process.env.AI_PROVIDER ?? 'openai').trim().toLowerCase());
+    this.defaultProvider=this.preferredProvider;
     this.autoFallback = options.autoFallback ?? process.env.AI_AUTO_FALLBACK !== 'false';
-    this.order = [...new Set(String(options.order ?? process.env.AI_FALLBACK_ORDER ?? 'openai,grok,gemini').split(',').map(s => s.trim()).filter(id => Object.hasOwn(PROVIDERS,id)))];
+    this.order = [...new Set(String(options.order ?? process.env.AI_FALLBACK_ORDER ?? 'openai,groq,gemini').split(',').map(s => legacy(s.trim())).filter(id => Object.hasOwn(PROVIDERS,id)))];
     this.clients = Object.fromEntries(Object.keys(PROVIDERS).map(provider => [provider,new RadarAI(store,{...options.common,...options.providers?.[provider],provider})]));
+    if(this.autoFallback&&!this.clients[this.defaultProvider]?.configuration().configured){const ready=[...this.order,...Object.keys(this.clients)].find(id=>this.clients[id]?.configuration().configured);if(ready)this.defaultProvider=ready;}
     this.blocked = new Map();
     this.generating = false;
     this.lastAttempts=[];
@@ -335,7 +351,7 @@ export class RadarAIProviders {
     return this.clients[provider];
   }
   async status(provider = this.defaultProvider) {
-    return {...await this.client(provider).status(), defaultProvider:this.defaultProvider, autoFallback:this.autoFallback,
+    return {...await this.client(provider).status(), defaultProvider:this.defaultProvider, preferredProvider:this.preferredProvider, selectionMessage:this.preferredProvider!==this.defaultProvider?'Provider awal belum dikonfigurasi; aplikasi memakai '+this.clients[this.defaultProvider].configuration().provider+'.':'',autoFallback:this.autoFallback,
       providers:Object.values(this.clients).map(ai => ({...ai.configuration(),quotaRetryAt:this.blocked.get(ai.provider)?.retryAt || null,
         availabilityMessage:this.blocked.get(ai.provider)?.reason || '',generationTest:this.tests[ai.provider] || null})),
       fallbackOrder:this.order,lastAttempts:this.lastAttempts, generationTest:this.tests[provider] || null};
@@ -359,7 +375,7 @@ export class RadarAIProviders {
       this.blocked.delete(ai.provider);
       this.tests[ai.provider]={state:'ready',model,checkedAt:new Date(ai.now()).toISOString(),message:'Uji jawaban berhasil. Model dapat menghasilkan teks.'};
     } catch(error) {
-      this.tests[ai.provider]={state:'error',model,checkedAt:new Date(ai.now()).toISOString(),message:error.message};
+      this.tests[ai.provider]={state:'error',model,httpStatus:error.providerStatus||null,checkedAt:new Date(ai.now()).toISOString(),message:error.message};
       if(error.providerQuota || error.providerUnavailable)this.blocked.set(ai.provider,{retryAt:new Date(ai.now()+error.retryDelayMs).toISOString(),reason:error.message});
     } finally {this.generating=false;}
     return this.status(ai.provider);
