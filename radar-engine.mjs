@@ -1,8 +1,9 @@
 import crypto from 'node:crypto';
+import {enrichResearch} from './radar-research.mjs';
 import {Parser} from 'htmlparser2';
 import {publisherKey,displayHeadline} from './radar-methodology.mjs';
 
-export const ENGINE_VERSION=2;
+export const ENGINE_VERSION=3;
 const cache=new Map();
 const normalize=s=>String(s).normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase().replace(/[^\p{L}\p{N}%]+/gu,' ').trim();
 const numberPattern=/(?<![\p{L}\p{N}])(?:Rp\.?\s*)?\d+(?:[.,]\d+)*(?:\s*(?:%|persen|ribu|juta|miliar|triliun|orang|pekerja|sekolah|desa|hari|tahun))?/giu;
@@ -86,12 +87,13 @@ function collect(issue){
   summary:selected.map(x=>({...x})),...shown,totals:Object.fromEntries(Object.entries(buckets).map(([key,items])=>[key,items.length])),conflicts,sources:references,limitations,
   quality:{extractedSources:material.filter(s=>s.items.length).length,headlineOnlySources:material.filter(s=>s.headlineOnly&&s.items.length).length,excerptSources:material.filter(s=>!s.headlineOnly&&s.items.length).length,truncatedSources:material.filter(s=>s.truncated).length,emptySources:material.filter(s=>!s.items.length).length},
   note:'Ekstraksi otomatis dari sumber tersimpan, tanpa permintaan AI. Data/fakta adalah klaim yang dilaporkan sumber, bukan verifikasi otomatis. Opini dan atribusi dipilah dengan pola bahasa; periksa sumber asli. Maksimal 18 kalimat per sumber dan 6 butir per kategori ditampilkan.'};
+ Object.assign(report,enrichResearch(issue,references,Object.values(buckets).flat()));
  const cite=item=>item.text+' ['+item.sourceNumbers.join(', ')+']';
- report.text=[issue.title,'RANGKUMAN TANPA AI',`${report.quality.excerptSources} sumber dengan cuplikan · ${report.quality.headlineOnlySources} sumber judul saja · ${report.quality.truncatedSources} cuplikan terpotong`,...report.summary.map(cite),...Object.entries(shown).flatMap(([kind,items])=>[{'data':'DATA & ANGKA','facts':'KLAIM FAKTUAL','opinions':'OPINI / DUGAAN'}[kind],...(items.length?items.map(cite):['Belum ada bahan yang dapat diekstrak.'])]),...conflicts.flatMap(c=>['ANGKA PERLU DIBANDINGKAN',cite(c.left),cite(c.right),c.note]),'BATASAN',report.note,...limitations,'SUMBER',...references.map(s=>'['+s.number+'] '+s.publisher+' — '+s.title+'\n'+s.url)].join('\n\n');
+ report.text=[issue.title,'RANGKUMAN TANPA AI',`${report.quality.excerptSources} sumber dengan cuplikan · ${report.quality.headlineOnlySources} sumber judul saja · ${report.quality.truncatedSources} cuplikan terpotong`,...report.summary.map(cite),...Object.entries(shown).flatMap(([kind,items])=>[{'data':'DATA & ANGKA','facts':'KLAIM FAKTUAL','opinions':'OPINI / DUGAAN'}[kind],...(items.length?items.map(cite):['Belum ada bahan yang dapat diekstrak.'])]),...conflicts.flatMap(c=>['ANGKA PERLU DIBANDINGKAN',cite(c.left),cite(c.right),c.note]),'KRONOLOGI PUBLIKASI',report.chronologyNote,...report.chronology.map(c=>c.at+' — '+cite(c)),'NAMA DI SUMBER',...report.actors.map(c=>c.name+' — '+cite(c)),'ANGKA PENTING',...report.importantNumbers.map(c=>c.value+' — '+cite(c)),...report.differences.flatMap(c=>['PERNYATAAN BERBEDA',cite(c.left),cite(c.right),c.note]),'KEBUTUHAN RISET',...report.researchGaps,'BATASAN',report.note,...limitations,'SUMBER',...references.map(s=>'['+s.number+'] '+s.publisher+' — '+s.title+'\n'+s.url)].join('\n\n');
  return report;
 }
 export function buildIssueReport(issue){
- const key=crypto.createHash('sha256').update(JSON.stringify({version:ENGINE_VERSION,id:issue.id,title:issue.title,sources:issue.sources,groupingReview:!!issue.groupingReview})).digest('hex');
+ const key=crypto.createHash('sha256').update(JSON.stringify({version:ENGINE_VERSION,id:issue.id,title:issue.title,eventDate:issue.eventDate,sources:issue.sources,groupingReview:!!issue.groupingReview})).digest('hex');
  if(cache.has(key))return structuredClone(cache.get(key));
  const report=collect(issue);cache.set(key,report);if(cache.size>200)cache.delete(cache.keys().next().value);return structuredClone(report);
 }

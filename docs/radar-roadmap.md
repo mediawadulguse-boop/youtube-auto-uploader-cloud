@@ -6,7 +6,7 @@ Pembaruan dirilis bertahap. Fokus awal: kualitas data Radar, pengelompokan, rang
 | --- | --- | --- | --- |
 | 1 | 4.14.1 | Diimplementasikan | Audit engine, perbaikan kualitas ekstraksi, atribusi, pengelompokan lokasi dan tampilan cakupan sumber. |
 | 2 | 4.15.0 | Diimplementasikan | Variasi istilah dan identitas peristiwa, alasan penggabungan dan aturan koreksi manual. |
-| 3 | 4.16.0 | Direncanakan | Kronologi, aktor, angka penting, pernyataan berbeda dan bahan riset yang belum tersedia. |
+| 3 | 4.16.0 | Diimplementasikan | Kronologi, aktor, angka penting, pernyataan berbeda dan bahan riset yang belum tersedia. |
 | 4 | 4.17.0 | Direncanakan | Arsip laporan harian/mingguan terjadwal dan perbandingan liputan. |
 | 5 | 4.18.0 | Direncanakan | Ruang riset, brief dan kerangka naskah dari template; impor teks/transkrip. |
 | 6 | 4.19.0 | Direncanakan | Pustaka prompt, penggunaan ulang hasil AI, riwayat pemakaian dan hubungan dengan performa konten. |
@@ -40,6 +40,10 @@ Pengelompokan tersimpan tidak ditulis ulang oleh patch ini. Penjagaan lokasi ber
 - Metodologi v5 memicu backup sebelum pengelompokan ulang impor otomatis yang belum disentuh. Kelompok editorial, terhubung ke konten dan kelompok yang memiliki aturan tetap dilindungi.
 
 Pengujian mencakup alias, penjagaan entitas/tanggal/tindakan, alasan keputusan, riwayat dan pemulihan setelah restart, pemisahan ambigu, penggabungan antar keluarga aturan, perlindungan naskah, autentikasi API dan escaping antarmuka. Data produksi belum diekspor untuk evaluasi manual; pemeriksaan akurasi ini memakai regresi terkontrol dan pemeriksaan aplikasi online.
+
+## Tahap 3 — v4.16.0
+
+Kronologi memakai tanggal publikasi tersimpan; tanggal peristiwa editorial tetap terpisah. Nama hanya dari pola organisasi atau atribusi eksplisit. Angka disertai kalimat asli dan rujukan. Perbedaan negasi pada konteks literal ditampilkan untuk diperiksa, tanpa menentukan kebenaran. Daftar kebutuhan riset mengikuti cakupan, tanggal, verifikasi dan pembanding sumber. Semua ikut tampilan serta salinan rangkuman dan laporan.
 
 ## Syarat rilis
 
