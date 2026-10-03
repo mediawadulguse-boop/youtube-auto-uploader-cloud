@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import {fail,radarData} from './radar-store.mjs';
-export const PROMPT_ACTIONS=['summary','script','digest','shorts','storyboard','analysis'];
+export const PROMPT_ACTIONS=['summary','script','polish','digest','shorts','storyboard','analysis'];
 export const STARTER_PROMPTS=[{id:'starter-script',name:'Long: sejarah, sistem, manusia',action:'script',prompt:'Susun naskah percakapan dengan hook pertanyaan, bukti sejarah/data, struktur sistem, dampak manusia dan refleksi. Tandai celah riset, pertahankan atribusi serta rujukan.'},{id:'starter-shorts',name:'Tiga Short mandiri',action:'shorts',prompt:'Buat tiga Short yang dapat ditonton terpisah: satu tentang data/sejarah, satu tentang sistem, satu tentang dampak manusia. Masing-masing punya hook, bukti bersumber dan penutup reflektif.'},{id:'starter-digest',name:'Prioritas editorial',action:'digest',prompt:'Utamakan isu dengan bahan cukup, jelaskan perubahan liputan dan daftar sumber primer atau transkrip yang masih perlu diperiksa.'}];
 export class RadarMemory{
  constructor(store){this.store=store;}

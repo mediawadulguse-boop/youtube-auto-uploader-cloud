@@ -11,6 +11,7 @@ import { RadarSync } from './radar-sync.mjs';
 import {RadarMemory} from './radar-memory.mjs';
 import {buildRadarPerformance} from './radar-performance.mjs';
 import {RadarWorkspace} from './radar-workspace.mjs';
+import {RadarAcquire,acquireCaptions} from './radar-acquire.mjs';
 import {RadarArchive} from './radar-archive.mjs';
 import {buildRadarDigest} from './radar-digest.mjs';
 import {buildIssueReport} from './radar-engine.mjs';
@@ -40,6 +41,7 @@ const contentStore = new ContentStore(path.join(DATA_DIR, 'contents.json'));
 const radarStore=new RadarStore(contentStore);
 const radarMemory=new RadarMemory(radarStore);
 const radarWorkspace=new RadarWorkspace(radarStore);
+const radarAcquire=new RadarAcquire(radarStore,{captions:async source=>{const generation=tokenGeneration,db=await readDb();if(Date.parse(db.youtubeWorker?.retryAt)>Date.now())throw Object.assign(new Error('Kuota YouTube sedang dibatasi. Gunakan impor manual.'),{status:429});const result=await acquireCaptions(source,{youtube:youtubeFetch,channelId:db.channel?.id});if(generation!==tokenGeneration||(await readDb()).channel?.id!==db.channel?.id)throw Object.assign(new Error('Channel berubah selama pengambilan caption.'),{status:409});return result;}});
 const radarArchive=new RadarArchive(radarStore);
 const radarAI=new RadarAIProviders(radarStore);
 const radarSync=new RadarSync(radarStore,async url=>{const db=await readDb();if(Date.parse(db.youtubeWorker?.retryAt)>Date.now())throw Object.assign(new Error('Kuota YouTube sedang dibatasi.'),{code:'quota_exceeded'});if(process.env.YOUTUBE_API_KEY){const u=new URL(url);u.searchParams.set('key',process.env.YOUTUBE_API_KEY);return fetch(u,{signal:AbortSignal.timeout(15000)})}return youtubeFetch(url,{signal:AbortSignal.timeout(15000)});});
@@ -931,6 +933,8 @@ const server = http.createServer(async (req, res) => {
     if(pathname==='/api/radar/ai/test'&&req.method==='POST')return json(res,200,await radarAI.checkGeneration(await readJson(req)));
     if(pathname==='/api/radar/ai'&&req.method==='POST')return json(res,200,await radarAI.generate(await readJson(req)));
     if(pathname==='/api/radar/sources'&&req.method==='POST'){const body=await readJson(req);return json(res,201,await radarStore.addSources([body],[],body.issueId||null));}
+    const materialMatch=pathname.match(/^\/api\/radar\/issues\/([a-z0-9-]{1,60})\/(acquire|write)$/);
+    if(materialMatch&&req.method==='POST'){const [,id,action]=materialMatch,body=await readJson(req);return json(res,200,action==='acquire'?await radarAcquire.acquire(id,body):await radarWorkspace.write(id,body));}
     const researchMatch=pathname.match(/^\/api\/radar\/issues\/([a-z0-9-]{1,60})\/(research|import|outline)$/);
     if(researchMatch){const [,id,action]=researchMatch;if(action==='research'&&req.method==='GET')return json(res,200,await radarWorkspace.get(id));if(action==='research'&&req.method==='PATCH')return json(res,200,await radarWorkspace.save(id,await readJson(req)));if(action==='import'&&req.method==='POST')return json(res,200,await radarWorkspace.import(id,await readJson(req)));if(action==='outline'&&req.method==='POST'){const body=await readJson(req);if(!body||typeof body!=='object'||Array.isArray(body))throw Object.assign(Error('Data kerangka tidak valid.'),{status:400});return json(res,200,await radarWorkspace.outline(id,body.format));}}
     const summaryMatch=pathname.match(/^\/api\/radar\/issues\/([a-z0-9-]{1,60})\/summary$/);

@@ -2,10 +2,12 @@ import crypto from 'node:crypto';
 import {rememberActivity,rememberResult} from './radar-memory.mjs';
 import { fail, radarData, LENSES, canonicalUrl } from './radar-store.mjs';
 import {buildRadarDigest} from './radar-digest.mjs';
+import {selectSourceText,materialText} from './radar-engine.mjs';
 
 const ACTIONS = {
   summary: 'Ringkas isu, bedakan fakta, klaim, dan hal yang belum diketahui. Berikan angle dengan urutan bukti sejarah/data → struktur sistem → dampak manusia. Cantumkan [n] pada setiap klaim bersumber.',
   script: 'Buat script baru atau perbaiki script yang ada sesuai permintaan editor: alur, bahasa, ketepatan, dan refleksi. Jangan menambah fakta yang tidak ada pada sumber.',
+  polish: 'Sunting hanya draft atau bagian naskah yang diberikan. Perbaiki ritme, kejelasan, variasi kalimat dan transisi agar natural; jangan membuat ulang dari nol. Pertahankan angka, negasi, atribusi, opini sebagai opini dan nomor rujukan. Jangan menyelesaikan perbedaan sumber dengan menebak. Keluarkan hanya teks hasil penyuntingan, bukan penjelasan atau rujukan baru.',
   digest: 'Ringkas laporan Radar dalam periode yang diberikan: isu prioritas, sebaran artikel dan video YouTube, peluang angle konten, serta bahan yang masih perlu diverifikasi. Gunakan hanya data laporan dan sumber yang tersedia. Jangan mengklaim ini seluruh berita di internet.',
   shorts: 'Buat tepat tiga Short yang berdiri sendiri dengan angle berbeda berdasarkan script dan sumber.',
   storyboard: 'Buat storyboard sederhana berbasis script: adegan, narasi, visual, dan kebutuhan aset.',
@@ -30,10 +32,11 @@ export function aiInstructions(action, customPrompt = '') {
 function validateResult(raw, action, sources) {
   let out;
   try { out = JSON.parse(raw); } catch { throw fail('Format hasil AI tidak valid.', 502); }
+  const knownCitations=new Set(sources.map((s,i)=>s.number??i+1));
   if (!out || typeof out.text !== 'string' || out.text.length > 60000 ||
       !Array.isArray(out.drafts) || !Array.isArray(out.citations) || out.citations.length > 100 ||
       (action !== 'shorts' && !out.text.trim()) ||
-      out.citations.some(n => !Number.isInteger(n) || n < 1 || n > sources.length) ||
+      out.citations.some(n => !Number.isInteger(n) || !knownCitations.has(n)) ||
       (action === 'shorts' ? out.drafts.length !== 3 : out.drafts.length !== 0) ||
       out.drafts.some(d => !d || typeof d.title !== 'string' || !d.title.trim() || d.title.length > 200 ||
         typeof d.script !== 'string' || !d.script.trim() || d.script.length > 20000 ||
@@ -41,7 +44,7 @@ function validateResult(raw, action, sources) {
     throw fail('Hasil AI atau rujukannya tidak valid.', 502);
   }
   const allText = [out.text, ...out.drafts.flatMap(d => [d.title, d.script, d.angle])].join('\n');
-  if ((allText.match(/\[(\d+)\]/g) || []).some(s => Number(s.slice(1, -1)) < 1 || Number(s.slice(1, -1)) > sources.length)) {
+  if ((allText.match(/\[(\d+)\]/g) || []).some(s => !knownCitations.has(Number(s.slice(1, -1))))) {
     throw fail('Rujukan hasil AI tidak tersedia.', 502);
   }
   const known = new Set(sources.map(s => s.url).filter(Boolean));
@@ -61,6 +64,15 @@ export function decodeAIResult(raw, action, sources) {
   return validateResult(JSON.stringify({text,drafts:[],citations}),action,sources);
 }
 
+export function validatePolish(original,result){
+ const citations=text=>new Set([...text.matchAll(/\[(\d+)\]/g)].map(m=>m[1]));
+ const before=citations(original),after=citations(result);
+ if(before.size!==after.size||[...before].some(n=>!after.has(n)))throw fail('AI mengubah rujukan draft. Hasil tidak diterapkan; gunakan bagian lebih pendek atau perjelas prompt.',502);
+ const numeric=text=>new Set((text.replace(/https?:\/\/\S+|\[\d+\]/g,'').match(/\d+(?:[.,]\d+)*/g)||[]));
+ const a=numeric(original),b=numeric(result);
+ if(a.size!==b.size||[...a].some(n=>!b.has(n)))throw fail('AI mengubah angka draft. Hasil ditolak dan kuota aplikasi dikembalikan.',502);
+}
+
 export class RadarAI {
   constructor(store, options = {}) {
     this.store = store;
@@ -71,8 +83,8 @@ export class RadarAI {
     this.modelSource=!this.model&&options.model===undefined&&config?.defaultModel?'default':'configured';
     if(this.modelSource==='default')this.model=config.defaultModel;
     if (this.provider === 'gemini') this.model = this.model.replace(/^models\//, '');
-    const limit = options.limit ?? Number(process.env.AI_DAILY_LIMIT || 20);
-    this.limit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 20;
+    const limit = options.limit ?? Number(process.env.AI_DAILY_LIMIT || 50);
+    this.limit = Number.isInteger(limit) && limit > 0 ? Math.min(limit, 100) : 50;
     this.fetcher = options.fetcher ?? fetch;
     this.now = options.now ?? (() => Date.now());
     this.models = [];
@@ -299,6 +311,7 @@ export class RadarAI {
     const customPrompt=body.customPrompt ?? '';
     if(typeof customPrompt!=='string'||customPrompt.length>12000)throw fail('Prompt khusus maksimal 12.000 karakter.');
     if (typeof body.script !== 'string' || body.script.length > 60000) throw fail('Script maksimal 60.000 karakter.');
+    if(body.action==='polish'&&(!body.script.trim()||body.script.length>12000))throw fail('Perbaikan hemat memakai draft atau satu bagian maksimal 12.000 karakter.');
     const db = await this.store.contentStore.read(), r = radarData(db);
     const content = body.contentId ? db.contents.find(c => c.id === body.contentId) : null;
     const title=body.title ?? content?.title ?? '',brief=body.brief ?? content?.brief ?? '';
@@ -311,14 +324,23 @@ export class RadarAI {
     if (body.sources !== undefined && (!Array.isArray(body.sources) || body.sources.length > 100)) throw fail('Sumber AI tidak valid.');
     const material = digest?.items.flatMap(i=>i.sources.slice(0,3)) || issue?.sources || (body.sources || content?.sources || []).map(s => {
       if (!s || typeof s.label !== 'string' || s.label.length > 300 || typeof s.notes !== 'string' || s.notes.length > 10000) throw fail('Sumber riset tidak valid.');
-      return { title: s.label, url: s.url ? canonicalUrl(s.url) : '', publisher: 'Riset produksi', excerpt: s.notes.slice(0, 3000), coverage: 'manual', verification: s.verified ? 'verified' : 'unchecked' };
+      return { title: s.label, url: s.url ? canonicalUrl(s.url) : '', publisher: 'Riset produksi', excerpt: s.notes, coverage: 'manual', verification: s.verified ? 'verified' : 'unchecked' };
     });
-    const sources = material.slice(0, 30).map((s, i) => ({ number: i + 1, title: s.title, url: s.url, publisher: s.publisher, excerpt: (s.transcript?.text||s.excerpt||'').slice(0,3000), coverage: s.coverage, verification: s.verification }));
+    const numberedMaterial=(issue?[...material].sort((a,b)=>String(a.url).localeCompare(String(b.url))):material).map((s,i)=>({...s,number:i+1}));
+    const cited=new Set([...body.script.matchAll(/\[(\d+)\]/g)].map(m=>Number(m[1])));
+    if(body.action==='polish'&&(cited.size>30||[...cited].some(n=>!numberedMaterial.some(s=>s.number===n))))throw fail('Perbaiki satu bagian dengan maksimal 30 sumber yang tersedia agar nomor rujukan tetap utuh.',422);
+    const selectedMaterial=[...numberedMaterial.filter(s=>cited.has(s.number)),...numberedMaterial.filter(s=>!cited.has(s.number))].slice(0,30).sort((a,b)=>a.number-b.number);
+    let remaining=18000;
+    const priorityCount=selectedMaterial.filter(s=>cited.has(s.number)).length,otherCount=selectedMaterial.length-priorityCount;
+    const priorityBudget=priorityCount?Math.min(3000,Math.floor((18000-otherCount*200)/priorityCount)):0,otherBudget=otherCount?Math.min(3000,Math.floor((18000-priorityBudget*priorityCount)/otherCount)):0;
+    const sources=selectedMaterial.map(s=>{const budget=Math.min(remaining,cited.has(s.number)?priorityBudget:otherBudget),excerpt=selectSourceText(s,budget,title+'\n'+body.script+'\n'+brief);remaining-=excerpt.length;return {number:s.number,title:s.title,url:s.url,publisher:s.publisher,excerpt,coverage:s.coverage,verification:s.verification,materialKind:s.transcript?'transcript':s.article?'article':s.coverage||'snippet',selection:'Kalimat terpilih dari bahan tersimpan; bukan seluruh teks.'};});
+    if(body.action==='polish'&&[...cited].some(n=>!sources.find(s=>s.number===n)?.excerpt))throw fail('Bahan untuk rujukan draft belum tersedia. Lengkapi sumber sebelum memakai AI.',422);
+    const efficiency={selectedCharacters:18000-remaining,availableCharacters:selectedMaterial.reduce((n,s)=>n+materialText(s).length,0),sourceLimit:30,materialBudget:18000,mode:body.action==='polish'?'edit-only':'selected-evidence'};
     const channel = body.channelId ? r.channels.find(c => c.id === body.channelId) : null;
     if (body.action === 'analysis' && !channel) throw fail('Pilih channel yang sudah dipantau.');
     const instructions = aiInstructions(body.action,customPrompt.trim());
     const input = JSON.stringify({ title,brief,digest:digest?{...digest,generatedAt:undefined,throughAt:undefined,items:digest.items.map(({sources,report,...item})=>item)}:null,issue: issue ? { title: issue.title, eventDate: issue.eventDate } : null, script: body.script, sources, channel: channel ? { name: channel.name, videos: channel.videos } : null });
-    const cacheKey=crypto.createHash('sha256').update(JSON.stringify({version:1,instructions,input,provider:this.provider,model:selectedModel,scope:options.cacheScope||null,material:crypto.createHash('sha256').update(JSON.stringify(material.slice(0,30))).digest('hex')})).digest('hex');
+    const cacheKey=crypto.createHash('sha256').update(JSON.stringify({version:2,instructions,input,provider:this.provider,model:selectedModel,scope:options.cacheScope||null,material:crypto.createHash('sha256').update(JSON.stringify(selectedMaterial)).digest('hex')})).digest('hex');
     const cached=!body.forceNew&&(r.aiCache||[]).find(c=>c.key===cacheKey&&this.now()-c.at<30*86400000);
     const activity={at:new Date(this.now()).toISOString(),action:body.action,issueId:body.issueId||null,contentId:body.contentId||null,provider:this.provider,model:selectedModel};
     if(cached){await this.store.mutate(r=>rememberActivity(r,{...activity,status:'cached',provider:cached.result.providerId,model:cached.result.model}));return {...structuredClone(cached.result),cached:true,reusedAt:new Date(cached.at).toISOString()};}
@@ -339,9 +361,10 @@ export class RadarAI {
       const completion = options.complete ? await options.complete(instructions, input, selectedModel, body.action, sources)
         : {raw:await this.complete(instructions, input, selectedModel)};
       const result = decodeAIResult(completion.raw, body.action, sources);
+      if(body.action==='polish')validatePolish(body.script,result.text);
       await settle(true);
       this.modelResults[selectedModel] = { state: completion.fallbackHistory?.length ? 'fallback' : 'ready', checkedAt: new Date(this.now()).toISOString(), message: completion.fallbackHistory?.length ? `Provider utama dilewati. Pratinjau dibuat oleh ${completion.provider} · ${completion.model}.` : 'Pratinjau berhasil dibuat dengan model ini.' };
-      const preview={ ...result, sources, provider: completion.provider || config.provider, providerId: completion.providerId || this.provider, model: completion.model || selectedModel, action: body.action, fallbackHistory: completion.fallbackHistory || [],cached:false };
+      const preview={ ...result, sources,efficiency, provider: completion.provider || config.provider, providerId: completion.providerId || this.provider, model: completion.model || selectedModel, action: body.action, fallbackHistory: completion.fallbackHistory || [],cached:false };
       await this.store.mutate(r=>{rememberResult(r,cacheKey,preview,this.now());rememberActivity(r,{...activity,status:'success',provider:preview.providerId,model:preview.model,fallbacks:preview.fallbackHistory.map(h=>({provider:h.providerId,model:h.model}))});});
       return preview;
     } catch (error) {

@@ -24,7 +24,7 @@ export function enrichResearch(issue,references,claims){
  const researchGaps=[];
  if(!issue.eventDate)researchGaps.push('Pastikan tanggal peristiwa; kronologi ini memakai tanggal publikasi, bukan tanggal kejadian.');
  if(references.some(s=>!s.publishedAt))researchGaps.push('Lengkapi tanggal publikasi sumber yang belum bertanggal.');
- if(references.some(s=>!s.hasTranscript&&(s.coverage==='headline'||s.coverage==='snippet')))researchGaps.push('Baca artikel lengkap atau impor transkrip untuk menambah konteks cuplikan.');
+ if(references.some(s=>!s.hasTranscript&&!s.hasArticle&&(s.coverage==='headline'||s.coverage==='snippet')))researchGaps.push('Baca artikel lengkap atau impor transkrip untuk menambah konteks cuplikan.');
  if(references.some(s=>s.verification!=='verified'))researchGaps.push('Periksa klaim pada sumber primer dan tandai verifikasi secara manual.');
  if(new Set(references.filter(s=>!s.repost).map(s=>s.publisher)).size<2)researchGaps.push('Cari pembanding dari penerbit atau akun lain.');
  if(differences.length)researchGaps.push('Telusuri perbedaan pernyataan sebelum menyusun kesimpulan.');
