@@ -45,3 +45,7 @@ test('real response evidence is separate from catalog success and failure messag
  const {context}=setup();const next={...config,generationTest:{model:'gemini-test',state:'error',message:'<secret>',checkedAt:'2026-10-02T08:00:00Z'}};
  const html=context.radarAIConnection(next,'gemini-test');assert.match(html,/API terhubung/);assert.match(html,/Uji jawaban gagal/);assert.ok(!html.includes('<secret>'));assert.ok(!context.radarAIConnection(next,'other-model').includes('Uji jawaban gagal'));
 });
+test('reuse remains available during provider cooldown while forcing a new request obeys it',()=>{
+ const {context,elements}=setup();elements.radarForceAI={checked:false};context.radarAIBind(config);assert.equal(elements.radarGenerateAI.disabled,false);assert.equal(elements.radarGenerateAI.textContent,'Gunakan hasil tersimpan');
+ elements.radarForceAI.checked=true;elements.radarForceAI.onchange();assert.equal(elements.radarGenerateAI.disabled,true);assert.match(elements.radarGenerateAI.textContent,/30 dtk/);
+});

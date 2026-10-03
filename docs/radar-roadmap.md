@@ -9,7 +9,7 @@ Pembaruan dirilis bertahap. Fokus awal: kualitas data Radar, pengelompokan, rang
 | 3 | 4.16.0 | Diimplementasikan | Kronologi, aktor, angka penting, pernyataan berbeda dan bahan riset yang belum tersedia. |
 | 4 | 4.17.0 | Diimplementasikan | Arsip laporan harian/mingguan terjadwal dan perbandingan liputan. |
 | 5 | 4.18.0 | Diimplementasikan | Ruang riset, brief dan kerangka naskah dari template; impor teks/transkrip. |
-| 6 | 4.19.0 | Direncanakan | Pustaka prompt, penggunaan ulang hasil AI, riwayat pemakaian dan hubungan dengan performa konten. |
+| 6 | 4.19.0 | Diimplementasikan | Pustaka prompt, penggunaan ulang hasil AI, riwayat pemakaian dan hubungan dengan performa konten. |
 
 ## Tahap 1 — v4.14.1
 
@@ -52,6 +52,17 @@ Arsip otomatis berjalan tiap jam sesudah periode WIB selesai. Snapshot idempoten
 ## Tahap 5 — v4.18.0
 
 Catatan dan checklist mengikuti revisi isu. Impor teks maksimal 50.000 karakter terikat sumber asal; TXT/SRT/VTT dibersihkan dan tidak menimpa deskripsi. Penggantian transkrip eksplisit dan mengembalikan status belum diperiksa. Engine mengambil maksimal 18 kalimat per sumber. Template Long/Short/3 Short menghasilkan brief dan kerangka dengan ruang isian, klaim tersimpan serta URL rujukan. Draft belum tersimpan sampai editor menekan Simpan. Penggabungan menjaga kedua catatan dan menolak jika melebihi kapasitas.
+
+## Tahap 6 — v4.19.0
+
+- Pustaka maksimal 50 prompt, dengan lima versi sebelumnya dan kontrol revisi. Contoh template tersedia pada pemilih Bantuan AI.
+- Hasil AI tervalidasi dicache berdasarkan instruksi, seluruh bahan sumber terpilih, input, provider/model dan susunan cadangan. Perubahan bahan/prompt/model membatalkan kecocokan. Cache bertahan restart, maksimal 40 hasil atau 4 MB dengan umur 30 hari. Hasil gagal tidak dicache. Penggunaan ulang tidak menambah kuota atau memanggil provider, termasuk saat kuota penuh/jeda provider. Hasil baru dapat diminta eksplisit.
+- Riwayat maksimal 300 aktivitas pratinjau: berhasil, gagal dan dipakai ulang, dengan provider/model serta tautan isu/konten. Token, biaya aktual dan uji koneksi provider belum dicatat sebagai tagihan.
+- Performa memetakan isu ke konten dan ID video tersimpan. Metrik publik sepanjang umur video berasal dari cache channel sendiri; nilai kosong tetap kosong dan data berumur lebih dari 30 hari ditandai lama. Analytics video dapat dibuka untuk rincian; angka tidak membuktikan efektivitas prompt atau sebab-akibat.
+- Impor per sumber maksimal 50.000 karakter dan kapasitas total teks impor 10 MB. AI menerima paling banyak 30 sumber dan 3.000 karakter teks per sumber; engine mengambil maksimal 18 kalimat per sumber.
+- API baru diuji dengan sesi lokal terautentikasi serta penolakan akses tanpa sesi. Pengujian antarmuka memeriksa escaping, revisi prompt, perpindahan dialog dan penggunaan ulang saat provider jeda. Pengujian AI memakai respons simulasi; tidak mengklaim pengujian provider produksi.
+
+Semua tahap roadmap sudah diimplementasikan. Validasi visual langsung pada sesi produksi tetap memerlukan sesi aplikasi terautentikasi; pemeriksaan rilis online memakai health, aset dan status deployment.
 
 ## Syarat rilis
 

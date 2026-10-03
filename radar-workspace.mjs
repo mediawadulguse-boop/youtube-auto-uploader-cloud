@@ -15,12 +15,12 @@ export function transcriptText(text,format='txt'){
 export class RadarWorkspace{
  constructor(store){this.store=store;}
  async get(id){const issue=(await this.store.read()).issues.find(i=>i.id===id);if(!issue)throw fail('Isu tidak ditemukan.',404);return {issue,workspace:issue.research||{notes:'',checklist:[]},report:buildIssueReport(issue)};}
- save(id,body){return this.store.mutate(r=>{const issue=r.issues.find(i=>i.id===id);if(!issue)throw fail('Isu tidak ditemukan.',404);if(body.revision!==issue.revision)throw fail('Isu berubah. Muat riset terbaru.',409);
+ save(id,body){if(!body||typeof body!=='object'||Array.isArray(body))throw fail('Data riset tidak valid.');return this.store.mutate(r=>{const issue=r.issues.find(i=>i.id===id);if(!issue)throw fail('Isu tidak ditemukan.',404);if(body.revision!==issue.revision)throw fail('Isu berubah. Muat riset terbaru.',409);
   if(typeof body.notes!=='string'||body.notes.length>20000||!Array.isArray(body.checklist)||body.checklist.length>60||body.checklist.some(c=>!c||typeof c.label!=='string'||!c.label.trim()||c.label.length>500||typeof c.done!=='boolean'))throw fail('Catatan/checklist riset tidak valid.');
   issue.research={notes:body.notes.trim(),checklist:body.checklist.map(c=>({label:c.label.trim(),done:c.done}))};issue.groupingLocked=true;issue.revision++;return issue;
  });}
- import(id,body){return this.store.mutate(r=>{const issue=r.issues.find(i=>i.id===id);if(!issue)throw fail('Isu tidak ditemukan.',404);if(body.revision!==issue.revision)throw fail('Isu berubah. Muat riset terbaru.',409);const source=issue.sources.find(s=>s.id===body.sourceId);if(!source)throw fail('Pilih sumber asal transkrip.',404);
-  const text=transcriptText(body.text,body.format);if(source.transcript&&!body.replace)throw fail('Sumber sudah memiliki teks impor. Pilih ganti secara eksplisit.',409);
+ import(id,body){if(!body||typeof body!=='object'||Array.isArray(body))throw fail('Data impor tidak valid.');return this.store.mutate(r=>{const issue=r.issues.find(i=>i.id===id);if(!issue)throw fail('Isu tidak ditemukan.',404);if(body.revision!==issue.revision)throw fail('Isu berubah. Muat riset terbaru.',409);const source=issue.sources.find(s=>s.id===body.sourceId);if(!source)throw fail('Pilih sumber asal transkrip.',404);
+  if(body.replace!==undefined&&typeof body.replace!=='boolean')throw fail('Pilihan ganti teks tidak valid.');const text=transcriptText(body.text,body.format);if(r.issues.flatMap(i=>i.sources).filter(s=>s.id!==source.id).reduce((n,s)=>n+Buffer.byteLength(s.transcript?.text||''),Buffer.byteLength(text))>10*1024*1024)throw fail('Kapasitas teks impor 10 MB tercapai. Ringkas teks impor sebelumnya.');if(source.transcript&&!body.replace)throw fail('Sumber sudah memiliki teks impor. Pilih ganti secara eksplisit.',409);
   source.transcript={text,format:body.format||'txt',importedAt:new Date(this.store.now()).toISOString()};source.verification='unchecked';issue.groupingLocked=true;issue.revision++;return issue;
  });}
  async outline(id,format='long'){

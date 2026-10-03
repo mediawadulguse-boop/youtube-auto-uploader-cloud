@@ -32,7 +32,7 @@ export class RadarStore{
   });
   const hotIssues=issues.filter(i=>i.stats.isHot&&!['ignored','discussed'].includes(i.status)).sort((a,b)=>b.stats.score-a.stats.score||Date.parse(b.stats.latestPublishedAt)-Date.parse(a.stats.latestPublishedAt)||a.id.localeCompare(b.id));
   const rankedIssues=issues.filter(i=>i.stats.relevant&&!['ignored','discussed'].includes(i.status)).sort((a,b)=>b.stats.score-a.stats.score||Date.parse(b.stats.latestPublishedAt||0)-Date.parse(a.stats.latestPublishedAt||0)||a.id.localeCompare(b.id));
-  const {reportArchive,aiCache,aiHistory,...visible}=r;
+  const {reportArchive,aiCache,aiHistory,promptLibrary,...visible}=r;
   return {...visible,lenses:LENSES,issues,hotIssues,rankedIssueIds:rankedIssues.map(i=>i.id),methodology:RADAR_METHOD,
    radarSummary:{groups:issues.length,ranked:rankedIssues.length,hot:hotIssues.length,belowThreshold:issues.filter(i=>!i.stats.isHot).length,ratedAt:new Date(now).toISOString()},
    linkedContents:db.contents.map(c=>({id:c.id,title:c.title,format:c.format})),

@@ -8,6 +8,8 @@ import { ContentStore } from './content-store.mjs';
 import { RadarStore } from './radar-store.mjs';
 import { RADAR_METHOD } from './radar-methodology.mjs';
 import { RadarSync } from './radar-sync.mjs';
+import {RadarMemory} from './radar-memory.mjs';
+import {buildRadarPerformance} from './radar-performance.mjs';
 import {RadarWorkspace} from './radar-workspace.mjs';
 import {RadarArchive} from './radar-archive.mjs';
 import {buildRadarDigest} from './radar-digest.mjs';
@@ -36,6 +38,7 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 let storage=null;
 const contentStore = new ContentStore(path.join(DATA_DIR, 'contents.json'));
 const radarStore=new RadarStore(contentStore);
+const radarMemory=new RadarMemory(radarStore);
 const radarWorkspace=new RadarWorkspace(radarStore);
 const radarArchive=new RadarArchive(radarStore);
 const radarAI=new RadarAIProviders(radarStore);
@@ -910,6 +913,13 @@ const server = http.createServer(async (req, res) => {
       }catch(e){return json(res,e.status||502,{code:e.code||'upstream_error',error:e.message},{'cache-control':'no-store'});}
     }
     if(pathname==='/api/radar'&&req.method==='GET')return json(res,200,{...await radarStore.read(),ai:await radarAI.status(u.searchParams.get('aiProvider') || undefined),syncBusy:radarSync.busy});
+    if(pathname==='/api/radar/prompts'&&req.method==='GET')return json(res,200,await radarMemory.list());
+    if(pathname==='/api/radar/prompts'&&req.method==='POST')return json(res,201,await radarMemory.save(await readJson(req)));
+    const promptMatch=pathname.match(/^\/api\/radar\/prompts\/([a-z0-9-]{1,60})$/);
+    if(promptMatch&&req.method==='PATCH')return json(res,200,await radarMemory.save(await readJson(req),promptMatch[1]));
+    if(promptMatch&&req.method==='DELETE')return json(res,200,await radarMemory.remove(promptMatch[1],await readJson(req)));
+    if(pathname==='/api/radar/ai/usage'&&req.method==='GET')return json(res,200,await radarMemory.usage());
+    if(pathname==='/api/radar/performance'&&req.method==='GET'){const db=await readDb(),channelId=db.channel?.id||'';return json(res,200,buildRadarPerformance(await contentStore.read(),channelId?await analytics.store.read(channelId):{},{channelId}));}
     if(pathname==='/api/radar/reports'&&req.method==='GET')return json(res,200,await radarArchive.list());
     if(pathname==='/api/radar/reports'&&req.method==='POST')return json(res,201,await radarArchive.save(await readJson(req)));
     if(pathname==='/api/radar/report-schedule'&&req.method==='PATCH')return json(res,200,await radarArchive.configure(await readJson(req)));
@@ -922,7 +932,7 @@ const server = http.createServer(async (req, res) => {
     if(pathname==='/api/radar/ai'&&req.method==='POST')return json(res,200,await radarAI.generate(await readJson(req)));
     if(pathname==='/api/radar/sources'&&req.method==='POST'){const body=await readJson(req);return json(res,201,await radarStore.addSources([body],[],body.issueId||null));}
     const researchMatch=pathname.match(/^\/api\/radar\/issues\/([a-z0-9-]{1,60})\/(research|import|outline)$/);
-    if(researchMatch){const [,id,action]=researchMatch;if(action==='research'&&req.method==='GET')return json(res,200,await radarWorkspace.get(id));if(action==='research'&&req.method==='PATCH')return json(res,200,await radarWorkspace.save(id,await readJson(req)));if(action==='import'&&req.method==='POST')return json(res,200,await radarWorkspace.import(id,await readJson(req)));if(action==='outline'&&req.method==='POST')return json(res,200,await radarWorkspace.outline(id,(await readJson(req)).format));}
+    if(researchMatch){const [,id,action]=researchMatch;if(action==='research'&&req.method==='GET')return json(res,200,await radarWorkspace.get(id));if(action==='research'&&req.method==='PATCH')return json(res,200,await radarWorkspace.save(id,await readJson(req)));if(action==='import'&&req.method==='POST')return json(res,200,await radarWorkspace.import(id,await readJson(req)));if(action==='outline'&&req.method==='POST'){const body=await readJson(req);if(!body||typeof body!=='object'||Array.isArray(body))throw Object.assign(Error('Data kerangka tidak valid.'),{status:400});return json(res,200,await radarWorkspace.outline(id,body.format));}}
     const summaryMatch=pathname.match(/^\/api\/radar\/issues\/([a-z0-9-]{1,60})\/summary$/);
     if(summaryMatch&&req.method==='GET'){
       const issue=(await radarStore.read()).issues.find(i=>i.id===summaryMatch[1]);

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import {rememberActivity,rememberResult} from './radar-memory.mjs';
 import { fail, radarData, LENSES, canonicalUrl } from './radar-store.mjs';
 import {buildRadarDigest} from './radar-digest.mjs';
 
@@ -283,8 +284,6 @@ export class RadarAI {
   async generate(body, options = {}) {
     const model = body?.model ?? this.model;
     if (this.inFlight.has(model)) throw fail('Pratinjau model ini sedang dibuat. Tunggu sampai selesai.', 429);
-    const retryAt = Date.parse(this.modelResults[model]?.retryAt || '');
-    if (!options.skipCooldown && retryAt > this.now()) throw fail(`Provider masih dalam jeda setelah gangguan layanan. Coba lagi dalam ${Math.ceil((retryAt - this.now()) / 1000)} detik atau pilih model lain.`, 503);
     this.inFlight.add(model);
     try { return await this.generatePreview(body, options); } finally { this.inFlight.delete(model); }
   }
@@ -294,9 +293,9 @@ export class RadarAI {
     if (!config.configured) throw fail(config.setupMessage, 503);
     const selectedModel = body?.model ?? this.model;
     const catalogFresh = this.connection.state === 'connected' && this.now() - Date.parse(this.connection.checkedAt) < 600000;
-    if (!modelName(selectedModel, this.provider) || (selectedModel !== this.model && (!catalogFresh || !this.models.some(m => m.id === selectedModel)))) throw fail('Model tidak tersedia. Cek koneksi & model terlebih dahulu.');
-    if (catalogFresh && !this.models.some(m => m.id === selectedModel)) throw fail('Model ini tidak tersedia pada akun Anda. Pilih model lain dari daftar.');
+    if (!modelName(selectedModel, this.provider)) throw fail('Nama model tidak valid.');
     if (!ACTIONS[body?.action]) throw fail('Aksi AI tidak valid.');
+    if(body.forceNew!==undefined&&typeof body.forceNew!=='boolean')throw fail('Pilihan hasil baru tidak valid.');
     const customPrompt=body.customPrompt ?? '';
     if(typeof customPrompt!=='string'||customPrompt.length>12000)throw fail('Prompt khusus maksimal 12.000 karakter.');
     if (typeof body.script !== 'string' || body.script.length > 60000) throw fail('Script maksimal 60.000 karakter.');
@@ -314,9 +313,18 @@ export class RadarAI {
       if (!s || typeof s.label !== 'string' || s.label.length > 300 || typeof s.notes !== 'string' || s.notes.length > 10000) throw fail('Sumber riset tidak valid.');
       return { title: s.label, url: s.url ? canonicalUrl(s.url) : '', publisher: 'Riset produksi', excerpt: s.notes.slice(0, 3000), coverage: 'manual', verification: s.verified ? 'verified' : 'unchecked' };
     });
-    const sources = material.slice(0, 30).map((s, i) => ({ number: i + 1, title: s.title, url: s.url, publisher: s.publisher, excerpt: s.excerpt, coverage: s.coverage, verification: s.verification }));
+    const sources = material.slice(0, 30).map((s, i) => ({ number: i + 1, title: s.title, url: s.url, publisher: s.publisher, excerpt: (s.transcript?.text||s.excerpt||'').slice(0,3000), coverage: s.coverage, verification: s.verification }));
     const channel = body.channelId ? r.channels.find(c => c.id === body.channelId) : null;
     if (body.action === 'analysis' && !channel) throw fail('Pilih channel yang sudah dipantau.');
+    const instructions = aiInstructions(body.action,customPrompt.trim());
+    const input = JSON.stringify({ title,brief,digest:digest?{...digest,generatedAt:undefined,throughAt:undefined,items:digest.items.map(({sources,report,...item})=>item)}:null,issue: issue ? { title: issue.title, eventDate: issue.eventDate } : null, script: body.script, sources, channel: channel ? { name: channel.name, videos: channel.videos } : null });
+    const cacheKey=crypto.createHash('sha256').update(JSON.stringify({version:1,instructions,input,provider:this.provider,model:selectedModel,scope:options.cacheScope||null,material:crypto.createHash('sha256').update(JSON.stringify(material.slice(0,30))).digest('hex')})).digest('hex');
+    const cached=!body.forceNew&&(r.aiCache||[]).find(c=>c.key===cacheKey&&this.now()-c.at<30*86400000);
+    const activity={at:new Date(this.now()).toISOString(),action:body.action,issueId:body.issueId||null,contentId:body.contentId||null,provider:this.provider,model:selectedModel};
+    if(cached){await this.store.mutate(r=>rememberActivity(r,{...activity,status:'cached',provider:cached.result.providerId,model:cached.result.model}));return {...structuredClone(cached.result),cached:true,reusedAt:new Date(cached.at).toISOString()};}
+    if ((selectedModel !== this.model && (!catalogFresh || !this.models.some(m => m.id === selectedModel))) || (catalogFresh && !this.models.some(m => m.id === selectedModel))) throw fail('Model tidak tersedia. Cek koneksi & model terlebih dahulu.');
+    const retryAt=Date.parse(this.modelResults[selectedModel]?.retryAt||'');
+    if(!options.skipCooldown&&retryAt>this.now())throw fail('Provider masih dalam jeda. Gunakan hasil tersimpan atau tunggu.',503);
     const reservation=crypto.randomUUID(),reservationDay=new Date(this.now()).toISOString().slice(0,10);
     await this.store.mutate(r=>{
       const u=r.aiUsage?.day===reservationDay?r.aiUsage:{day:reservationDay,count:0};
@@ -327,17 +335,18 @@ export class RadarAI {
       u.count=(u.count||0)+1;u.lastAt=new Date(this.now()).toISOString();u.pending[reservation]=this.now()+120000;r.aiUsage=u;
     });
     const settle=async(success)=>this.store.mutate(r=>{const u=r.aiUsage;if(u?.day===reservationDay&&Object.hasOwn(u.pending||{},reservation)){delete u.pending[reservation];if(!success)u.count=Math.max(0,u.count-1);}});
-    const instructions = aiInstructions(body.action,customPrompt.trim());
-    const input = JSON.stringify({ title,brief,digest:digest?{...digest,items:digest.items.map(({sources,report,...item})=>item)}:null,issue: issue ? { title: issue.title, eventDate: issue.eventDate } : null, script: body.script, sources, channel: channel ? { name: channel.name, videos: channel.videos } : null });
     try {
       const completion = options.complete ? await options.complete(instructions, input, selectedModel, body.action, sources)
         : {raw:await this.complete(instructions, input, selectedModel)};
       const result = decodeAIResult(completion.raw, body.action, sources);
       await settle(true);
       this.modelResults[selectedModel] = { state: completion.fallbackHistory?.length ? 'fallback' : 'ready', checkedAt: new Date(this.now()).toISOString(), message: completion.fallbackHistory?.length ? `Provider utama dilewati. Pratinjau dibuat oleh ${completion.provider} · ${completion.model}.` : 'Pratinjau berhasil dibuat dengan model ini.' };
-      return { ...result, sources, provider: completion.provider || config.provider, providerId: completion.providerId || this.provider, model: completion.model || selectedModel, action: body.action, fallbackHistory: completion.fallbackHistory || [] };
+      const preview={ ...result, sources, provider: completion.provider || config.provider, providerId: completion.providerId || this.provider, model: completion.model || selectedModel, action: body.action, fallbackHistory: completion.fallbackHistory || [],cached:false };
+      await this.store.mutate(r=>{rememberResult(r,cacheKey,preview,this.now());rememberActivity(r,{...activity,status:'success',provider:preview.providerId,model:preview.model,fallbacks:preview.fallbackHistory.map(h=>({provider:h.providerId,model:h.model}))});});
+      return preview;
     } catch (error) {
       await settle(false);
+      await this.store.mutate(r=>rememberActivity(r,{...activity,status:'error',message:error.message}));
       this.modelResults[selectedModel] = { state: error.transient ? 'busy' : 'error', checkedAt: new Date(this.now()).toISOString(), message: error.message, ...(error.transient ? { retryAt: new Date(this.now() + error.retryDelayMs).toISOString() } : {}) };
       throw error;
     }
@@ -399,10 +408,10 @@ export class RadarAIProviders {
     const primary=this.client(body?.provider??this.defaultProvider);
     if(this.generating)throw fail('Pratinjau AI sedang dibuat. Tunggu sampai selesai.',429);
     const chain=[primary,...(this.autoFallback?this.order.filter(id=>id!==primary.provider).map(id=>this.clients[id]).filter(ai=>ai.configuration().configured):[])];
-    const usable=chain.filter(ai=>!this.blocked.get(ai.provider)||Date.parse(this.blocked.get(ai.provider).retryAt)<=ai.now());
-    if(!usable.length)throw fail('Semua provider masih dibatasi. Periksa rincian provider atau tunggu jeda berakhir.',429);
+
     this.generating=true;this.lastAttempts=[];
-    try{return await primary.generate(body,{skipCooldown:true,complete:async(instructions,input,model,action,sources)=>{
+    try{return await primary.generate(body,{skipCooldown:true,cacheScope:chain.map(ai=>({provider:ai.provider,model:ai.model,configured:ai.configuration().configured})),complete:async(instructions,input,model,action,sources)=>{
+      if(!chain.some(ai=>!this.blocked.get(ai.provider)||Date.parse(this.blocked.get(ai.provider).retryAt)<=ai.now()))throw fail('Semua provider masih dibatasi. Tunggu jeda berakhir.',429);
       const deadline=primary.now()+60000,history=[];
       for(const [index,ai] of chain.entries()){
         const selected=ai===primary?model:ai.model,blocked=this.blocked.get(ai.provider);

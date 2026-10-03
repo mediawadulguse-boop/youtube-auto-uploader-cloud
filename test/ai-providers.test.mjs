@@ -51,8 +51,8 @@ test('fallback output validation failure stops chain rather than bypassing sourc
 });
 test('quota cooldown skips exhausted providers on next action and actual chain has one total deadline',async t=>{
  const calls=[];const {ai,advance}=await setup(t,async url=>{calls.push(url);return url.includes('googleapis')?Response.json({},{status:429,headers:{'retry-after':'120'}}):success();});
- await ai.generate(body);advance(11000);const out=await ai.generate(body);assert.equal(calls.length,3);assert.equal(out.providerId,'openai');assert.match(out.fallbackHistory[0].reason,/jeda/);assert.equal((await ai.status()).used,2);
- let attempted=0;const bounded=await setup(t,async()=>{attempted++;bounded.advance(61000);return Response.json({},{status:429});});await assert.rejects(bounded.ai.generate(body),{status:502});assert.equal(attempted,1);
+ await ai.generate({...body,forceNew:true});advance(11000);const out=await ai.generate({...body,forceNew:true});assert.equal(calls.length,3);assert.equal(out.providerId,'openai');assert.match(out.fallbackHistory[0].reason,/jeda/);assert.equal((await ai.status()).used,2);
+ let attempted=0;const bounded=await setup(t,async()=>{attempted++;bounded.advance(61000);return Response.json({},{status:429});});await assert.rejects(bounded.ai.generate({...body,forceNew:true}),{status:502});assert.equal(attempted,1);
 });
 
 test('concurrent different provider requests cannot duplicate a running fallback chain',async t=>{
