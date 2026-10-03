@@ -1,5 +1,5 @@
 const HOUR=3600000;
-export const RADAR_METHOD={version:3,displayLimit:10,threshold:65,minRating:4,windowHours:72,minPublishers:3,minPublishers24h:2,
+export const RADAR_METHOD={version:4,displayLimit:10,threshold:65,minRating:4,windowHours:72,minPublishers:3,minPublishers24h:2,
   weights:{coverage:40,activity:30,recency:20,breadth:10},
   description:'Judul atau cuplikan isi serupa dikelompokkan dengan penjagaan peristiwa dan waktu. Radar menampilkan 10 isu dengan skor tertinggi tanpa syarat minimal rating. Rating adalah indikator liputan terpantau, bukan ukuran kebenaran atau viralitas.'};
 const STOP=new Set('di ia para namun jika karena terhadap agar masih lebih terus seperti yang dan atau dengan untuk dari ke pada oleh dalam ini itu tersebut akan sudah telah juga sebagai adalah sebuah saat tentang jadi menjadi setelah sebelum serta atas hingga lalu hari terbaru update breaking news video foto'.split(' '));
@@ -65,7 +65,7 @@ function compareSources(a,b) {
   if(shared.length<10||leftInContent.length<Math.max(2,Math.ceil(left.tokens.size*.35))||rightInContent.length<Math.max(2,Math.ceil(right.tokens.size*.35)))return 0;
   const sum=tokens=>[...tokens].reduce((n,token)=>n+weight(token),0),common=sum(shared),aa=sum(ac.tokens),bb=sum(bc.tokens);
   const dice=2*common/(aa+bb),jaccard=common/(aa+bb-common);
-  return dice>=.74&&jaccard>=.58?dice:0;
+  return dice>=.74&&jaccard>=.58 || shared.length>=12&&leftInContent.length>=3&&rightInContent.length>=3&&dice>=.68&&jaccard>=.52?dice:0;
 }
 export function sourceSimilarity(a,b){return compareSources(sourceProfile(a),sourceProfile(b));}
 export function createIssueMatcher() {
@@ -74,7 +74,12 @@ export function createIssueMatcher() {
     if(!issue.sources.length || issue.sources.length>=100)return 0;
     const incoming=sourceTime(input),times=issue.sources.map(sourceTime).filter(Number.isFinite);
     if(!Number.isFinite(incoming)||!times.length||Math.max(incoming,...times)-Math.min(incoming,...times)>72*HOUR)return 0;
-    return compareSources(profile(issue.sources[0]),profile(input));
+    const next=profile(input),profiles=issue.sources.map(profile);
+    // Multiple supporting sources can rescue a weak primary headline, without chain-only matches.
+    if(profiles.some(p=>!compatibleProfiles(p.title,next.title)))return 0;
+    const primary=compareSources(profiles[0],next);if(primary)return primary;
+    const supporting=profiles.slice(1).map(p=>compareSources(p,next)).filter(Boolean).sort((a,b)=>b-a);
+    return supporting.length>=2?supporting[1]:0;
   };
 }
 export function publisherKey(source) {

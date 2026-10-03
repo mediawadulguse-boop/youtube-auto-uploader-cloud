@@ -1,4 +1,5 @@
 import {fail,issueStats} from './radar-store.mjs';
+import {buildIssueReport,ENGINE_VERSION} from './radar-engine.mjs';
 
 // Calendar boundaries in WIB (UTC+7), including Monday–Sunday weeks.
 export function digestRange(period='daily',date,now=Date.now()) {
@@ -22,6 +23,8 @@ export function buildRadarDigest(data,{period='daily',date,topic='',now=Date.now
   }).sort((a,b)=>b.stats.score-a.stats.score||Date.parse(b.stats.latestPublishedAt)-Date.parse(a.stats.latestPublishedAt)||a.id.localeCompare(b.id));
   const sources=groups.flatMap(i=>i.sources),platforms={};
   for(const source of sources)platforms[source.platform]=(platforms[source.platform]||0)+1;
-  return {...range,generatedAt:new Date(now).toISOString(),topic,groups:groups.length,sourceCount:sources.length,publishers:new Set(sources.map(s=>s.publisherUrl||s.publisher)).size,platforms,items:groups.slice(0,10),
+  const items=groups.slice(0,10).map(issue=>({...issue,report:buildIssueReport(issue)}));
+  const summary=groups.length?`${groups.length} kelompok isu dari ${sources.length} sumber dalam periode ini, termasuk ${platforms.YouTube||0} video YouTube. Liputan teratas: ${items.slice(0,3).map(i=>i.title).join('; ')}.`:'Belum ada sumber bertanggal dalam periode ini.';
+  return {...range,engine:'extractive-rules',engineVersion:ENGINE_VERSION,usesAI:false,summary,generatedAt:new Date(now).toISOString(),topic,groups:groups.length,sourceCount:sources.length,publishers:new Set(sources.map(s=>s.publisherUrl||s.publisher)).size,platforms,items,
     note:'Ringkasan dari sumber Radar yang tersimpan, menurut tanggal publikasi WIB. Isu diabaikan dan sumber tanpa tanggal tidak disertakan. Skor dihitung dari liputan dalam periode ini; cuplikan dan deskripsi belum membuktikan klaim.'};
 }

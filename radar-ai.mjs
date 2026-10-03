@@ -328,7 +328,7 @@ export class RadarAI {
     });
     const settle=async(success)=>this.store.mutate(r=>{const u=r.aiUsage;if(u?.day===reservationDay&&Object.hasOwn(u.pending||{},reservation)){delete u.pending[reservation];if(!success)u.count=Math.max(0,u.count-1);}});
     const instructions = aiInstructions(body.action,customPrompt.trim());
-    const input = JSON.stringify({ title,brief,digest:digest?{...digest,items:digest.items.map(({sources,...item})=>item)}:null,issue: issue ? { title: issue.title, eventDate: issue.eventDate } : null, script: body.script, sources, channel: channel ? { name: channel.name, videos: channel.videos } : null });
+    const input = JSON.stringify({ title,brief,digest:digest?{...digest,items:digest.items.map(({sources,report,...item})=>item)}:null,issue: issue ? { title: issue.title, eventDate: issue.eventDate } : null, script: body.script, sources, channel: channel ? { name: channel.name, videos: channel.videos } : null });
     try {
       const completion = options.complete ? await options.complete(instructions, input, selectedModel, body.action, sources)
         : {raw:await this.complete(instructions, input, selectedModel)};

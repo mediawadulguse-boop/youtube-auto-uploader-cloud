@@ -9,6 +9,7 @@ import { RadarStore } from './radar-store.mjs';
 import { RADAR_METHOD } from './radar-methodology.mjs';
 import { RadarSync } from './radar-sync.mjs';
 import {buildRadarDigest} from './radar-digest.mjs';
+import {buildIssueReport} from './radar-engine.mjs';
 import { RadarAIProviders } from './radar-ai.mjs';
 import { runAISmoke } from './ai-smoke.mjs';
 import { NotesStore } from './notes-store.mjs';
@@ -907,6 +908,12 @@ const server = http.createServer(async (req, res) => {
     if(pathname==='/api/radar/ai/test'&&req.method==='POST')return json(res,200,await radarAI.checkGeneration(await readJson(req)));
     if(pathname==='/api/radar/ai'&&req.method==='POST')return json(res,200,await radarAI.generate(await readJson(req)));
     if(pathname==='/api/radar/sources'&&req.method==='POST'){const body=await readJson(req);return json(res,201,await radarStore.addSources([body],[],body.issueId||null));}
+    const summaryMatch=pathname.match(/^\/api\/radar\/issues\/([a-z0-9-]{1,60})\/summary$/);
+    if(summaryMatch&&req.method==='GET'){
+      const issue=(await radarStore.read()).issues.find(i=>i.id===summaryMatch[1]);
+      if(!issue)return json(res,404,{error:'Isu tidak ditemukan.'});
+      return json(res,200,buildIssueReport(issue),{'cache-control':'no-store'});
+    }
     const radarMatch=pathname.match(/^\/api\/radar\/(topics|feeds|channels|issues)(?:\/([a-z0-9-]{1,60}))?(?:\/(merge|split))?$/);
     if(radarMatch){const [,kind,id,action]=radarMatch;const body=await readJson(req);if(!body||typeof body!=='object'||Array.isArray(body))throw Object.assign(Error('Data Radar tidak valid.'),{status:400});
       if(kind==='topics'&&['POST','PATCH'].includes(req.method)&&!action)return json(res,200,await radarStore.saveTopic(body,id));
