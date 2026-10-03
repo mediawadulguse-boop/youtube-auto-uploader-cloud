@@ -57,6 +57,8 @@ const sourceProfile=source=>({title:headline(source.title,source.publisher),cont
 function compareSources(a,b) {
   const left=a.title,right=b.title;
   if(!compatibleProfiles(left,right))return 0;
+  // Identical generic headlines can cover different places; use available body geography too.
+  if(a.content&&b.content)for(const key of Object.keys(a.content.entities))if(b.content.entities[key]&&!overlap(a.content.entities[key],b.content.entities[key]))return 0;
   const titleScore=headlineSimilarity(left,right);if(titleScore)return titleScore;
   const ac=a.content,bc=b.content;if(!ac||!bc||!compatibleProfiles(ac,bc))return 0;
   const shared=[...ac.tokens].filter(token=>bc.tokens.has(token));
