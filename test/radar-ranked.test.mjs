@@ -52,6 +52,6 @@ test('trend uses actual spaced observations, ignores same-publisher link volume,
 });
 test('publication timestamp stays visible on older zero-score groups and empty RSS is a successful zero-result sync',async t=>{
  const stats=rateIssue({sources:[{...input(1,{publishedAt:date(120)}),platform:'Berita / Web'}]},start);assert.equal(stats.score,0);assert.equal(stats.latestPublishedAt,date(120));assert.equal(stats.freshness,'older');
- const {radar}=await setup(t),sync=new RadarSync(radar,()=>{throw Error('unexpected')},{now:()=>start,feed:async()=>'<rss><channel/></rss>'});const result=await sync.sync();assert.equal(result.news,0);assert.deepEqual(result.errors,[]);assert.ok((await radar.read()).sync.newsAt);
+ const {radar}=await setup(t),sync=new RadarSync(radar,async()=>Response.json({items:[]}),{now:()=>start,feed:async()=>'<rss><channel/></rss>'});const result=await sync.sync();assert.equal(result.news,0);assert.deepEqual(result.errors,[]);assert.ok((await radar.read()).sync.newsAt);
  const feed=parseFeed(`<rss><channel><item><title>Pajak PPN</title><link>https://media.example/old</link><pubDate>${date(120)}</pubDate><content:encoded><![CDATA[<p>Isi feed yang tersedia.</p>]]></content:encoded></item></channel></rss>`);assert.equal(freshNews(feed,start).length,1);assert.match(feed[0].excerpt,/Isi feed/);
 });

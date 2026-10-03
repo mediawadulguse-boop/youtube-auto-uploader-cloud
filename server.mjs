@@ -8,6 +8,7 @@ import { ContentStore } from './content-store.mjs';
 import { RadarStore } from './radar-store.mjs';
 import { RADAR_METHOD } from './radar-methodology.mjs';
 import { RadarSync } from './radar-sync.mjs';
+import {buildRadarDigest} from './radar-digest.mjs';
 import { RadarAIProviders } from './radar-ai.mjs';
 import { runAISmoke } from './ai-smoke.mjs';
 import { NotesStore } from './notes-store.mjs';
@@ -900,6 +901,7 @@ const server = http.createServer(async (req, res) => {
       }catch(e){return json(res,e.status||502,{code:e.code||'upstream_error',error:e.message},{'cache-control':'no-store'});}
     }
     if(pathname==='/api/radar'&&req.method==='GET')return json(res,200,{...await radarStore.read(),ai:await radarAI.status(u.searchParams.get('aiProvider') || undefined),syncBusy:radarSync.busy});
+    if(pathname==='/api/radar/digest'&&req.method==='GET')return json(res,200,buildRadarDigest(await radarStore.read(),{period:u.searchParams.get('period')||'daily',date:u.searchParams.get('date')||undefined,topic:u.searchParams.get('topic')||''}),{'cache-control':'no-store'});
     if(pathname==='/api/radar/sync'&&req.method==='POST')return json(res,200,await radarSync.sync({force:true}));
     if(pathname==='/api/radar/ai/check'&&req.method==='POST')return json(res,200,await radarAI.checkConnection(await readJson(req)));
     if(pathname==='/api/radar/ai/test'&&req.method==='POST')return json(res,200,await radarAI.checkGeneration(await readJson(req)));

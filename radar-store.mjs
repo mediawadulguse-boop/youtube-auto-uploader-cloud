@@ -12,6 +12,10 @@ export function radarData(db){return db.radar||defaults()}
 function writable(db){return db.radar||=defaults()}
 const find=(arr,id)=>{const v=arr.find(x=>x.id===id);if(!v)throw fail('Data Radar tidak ditemukan.',404);return v};
 const revision=(old,body)=>{if(old&&body.revision!==old.revision)throw fail('Data berubah di tab lain. Muat Radar terbaru.',409)};
+function videoMetadata(video){
+ if(!video||typeof video!=='object'||Array.isArray(video))throw fail('Metadata video tidak valid.');
+ return {thumbnail:typeof video.thumbnail==='string'&&/^https:\/\/i\.ytimg\.com\//.test(video.thumbnail)?video.thumbnail.slice(0,2048):'',duration:typeof video.duration==='string'&&/^PT[0-9HMS.]+$/.test(video.duration)?video.duration.slice(0,60):'',viewCount:Number.isSafeInteger(video.viewCount)&&video.viewCount>=0?video.viewCount:null};
+}
 export const issueStats=rateIssue;
 export function matchesTopic(source,topic){const hay=(source.title+' '+(source.excerpt||'')).toLocaleLowerCase('id');return topic.enabled&&topic.keywords.some(x=>hay.includes(x.toLowerCase()))&&!topic.exclusions.some(x=>hay.includes(x.toLowerCase()));}
 export class RadarStore{
@@ -29,7 +33,7 @@ export class RadarStore{
   return {...r,lenses:LENSES,issues,hotIssues,rankedIssueIds:rankedIssues.map(i=>i.id),methodology:RADAR_METHOD,
    radarSummary:{groups:issues.length,ranked:rankedIssues.length,hot:hotIssues.length,belowThreshold:issues.filter(i=>!i.stats.isHot).length,ratedAt:new Date(now).toISOString()},
    linkedContents:db.contents.map(c=>({id:c.id,title:c.title,format:c.format})),
-   coverage:{YouTube:r.channels.some(c=>c.enabled&&c.lastSyncAt)?'Dipantau':'Belum dipantau','Berita / Web':r.sync.newsAt?'Dipantau':'Belum dipantau',X:'Belum dipantau',Instagram:'Belum dipantau',TikTok:'Belum dipantau'}};
+   coverage:{YouTube:(r.sync.youtubeAt||r.channels.some(c=>c.enabled&&c.lastSyncAt))?'Dipantau':'Belum dipantau','Berita / Web':r.sync.newsAt?'Dipantau':'Belum dipantau',X:'Belum dipantau',Instagram:'Belum dipantau',TikTok:'Belum dipantau'}};
  }
  // Re-group only untouched machine imports. Editorial choices and IDs of saved/linked groups stay intact.
  async recluster(){
@@ -70,6 +74,8 @@ export class RadarStore{
    if(existing){
     if(issueId&&issueId!==existing.id)throw fail('Link ini sudah ada di isu lain. Gunakan Gabungkan isu.',409);
     const old=existing.sources.find(s=>s.url===url);
+    if(platform(url)==='YouTube'&&input.video){old.video=videoMetadata(input.video);existing.revision++;}
+    if(old.coverage!=='manual'&&input.excerpt&&!old.excerpt){old.excerpt=txt(input.excerpt,3000);old.coverage='snippet';existing.revision++;}
     if(old.coverage!=='manual' && !old.publisherUrl && input.publisherUrl){old.publisherUrl=canonicalUrl(input.publisherUrl);existing.revision++;}
     const ids=[...new Set([...existing.topicIds,...topicMatches])];
     if(ids.length!==existing.topicIds.length){existing.topicIds=ids;existing.revision++;}
@@ -79,7 +85,7 @@ export class RadarStore{
    if(r.issues.reduce((n,i)=>n+i.sources.length,0)>=2000)throw fail('Radar penuh (2.000 sumber). Hapus isu yang tidak diperlukan.');
    const title=txt(input.title,300,true),now=new Date(this.now()).toISOString();
    const source={id:crypto.randomUUID(),url,title,publisher:txt(input.publisher||new URL(url).hostname,160,true),
-    ...(input.publisherUrl?{publisherUrl:canonicalUrl(input.publisherUrl)}:{}),platform:platform(url),publishedAt:when(input.publishedAt),discoveredAt:now,
+    ...(input.publisherUrl?{publisherUrl:canonicalUrl(input.publisherUrl)}:{}),platform:platform(url),...(platform(url)==='YouTube'&&input.video?{video:videoMetadata(input.video)}:{}),publishedAt:when(input.publishedAt),discoveredAt:now,
     excerpt:txt(input.excerpt||'',3000),coverage:input.coverage==='snippet'?'snippet':input.coverage==='manual'?'manual':'headline',verification:'unchecked',repost:input.repost===true};
    let issue=issueId?find(r.issues,issueId):null,best=0;
    if(!issueId)for(const candidate of r.issues){const score=match(candidate,source);if(score>best){best=score;issue=candidate;}}

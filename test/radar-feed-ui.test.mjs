@@ -13,6 +13,7 @@ test('main Radar includes low scores, sorts descending, excludes ignored/discuss
  assert.deepEqual(Array.from(ctx.radarVisibleIssues(data,'issues',{q:'varian sumber cold'}),i=>i.id),['cold']);
  assert.equal(ctx.radarVisibleIssues(data,'issues',{q:'rincian kebijakan'}).length,3);
  assert.equal(ctx.radarVisibleIssues(data,'issues',{topic:'different'}).length,0);
+ data.issues[0].sources[0].platform='YouTube';assert.deepEqual(Array.from(ctx.radarVisibleIssues(data,'issues',{platform:'YouTube'}),i=>i.id),['cold']);
 });
 test('saved references and all ratings remain accessible and star label is readable',()=>{
  const saved=item('saved',10,false,'saved'),data={issues:[saved,item('cold',10,false),item('hot',79,true)]};
