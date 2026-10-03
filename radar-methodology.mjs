@@ -1,5 +1,5 @@
 const HOUR=3600000;
-export const RADAR_METHOD={version:4,displayLimit:10,threshold:65,minRating:4,windowHours:72,minPublishers:3,minPublishers24h:2,
+export const RADAR_METHOD={version:5,displayLimit:10,threshold:65,minRating:4,windowHours:72,minPublishers:3,minPublishers24h:2,
   weights:{coverage:40,activity:30,recency:20,breadth:10},
   description:'Judul atau cuplikan isi serupa dikelompokkan dengan penjagaan peristiwa dan waktu. Radar menampilkan 10 isu dengan skor tertinggi tanpa syarat minimal rating. Rating adalah indikator liputan terpantau, bukan ukuran kebenaran atau viralitas.'};
 const STOP=new Set('di ia para namun jika karena terhadap agar masih lebih terus seperti yang dan atau dengan untuk dari ke pada oleh dalam ini itu tersebut akan sudah telah juga sebagai adalah sebuah saat tentang jadi menjadi setelah sebelum serta atas hingga lalu hari terbaru update breaking news video foto'.split(' '));
@@ -7,6 +7,11 @@ const COMMON=new Set('pemerintah pemkab kebijakan aturan pajak subsidi ekonomi p
 const FORMS={menaikkan:'naik',naikkan:'naik',kenaikan:'naik',dinaikkan:'naik',menurunkan:'turun',penurunan:'turun',diturunkan:'turun',dicabut:'cabut',mencabut:'cabut',pencabutan:'cabut',diperpanjang:'perpanjang',perpanjangan:'perpanjang',dibatalkan:'batal',membatalkan:'batal',disetujui:'setuju',menyetujui:'setuju',ditolak:'tolak',menolak:'tolak',diubah:'ubah',mengubah:'ubah',perubahan:'ubah',penataan:'tata',menata:'tata',ditata:'tata',dimulai:'mulai',memulai:'mulai',diberlakukan:'berlaku',memberlakukan:'berlaku',pemberlakuan:'berlaku',berlakukan:'berlaku'};
 const PLACES=new Set('jember banyuwangi surabaya jakarta bandung bogor malang sidoarjo lumajang situbondo bondowoso probolinggo semarang yogyakarta surakarta denpasar medan makassar palembang padang manado pontianak balikpapan samarinda banjarmasin pekanbaru batam bengkulu kendari kupang mataram ambon jayapura aceh papua banten bali kencong puger rambipuji sumbersari kaliwates mumbulsari wuluhan lengkong gambiran'.split(' '));
 const clean=s=>String(s||'').normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase();
+Object.assign(FORMS,{melonjak:'naik',melambung:'naik',meningkat:'naik',peningkatan:'naik',merosot:'turun',menurun:'turun',dibuka:'buka',membuka:'buka',pembukaan:'buka',ditutup:'tutup',menutup:'tutup',penutupan:'tutup'});
+const ALIASES={pemkab:'pemerintah kabupaten',pemkot:'pemerintah kota',pemprov:'pemerintah provinsi',disdik:'dinas pendidikan',dishub:'dinas perhubungan',dinkes:'dinas kesehatan',phk:'pemutusan hubungan kerja',elpiji:'lpg'};
+const aliasText=text=>clean(text).replace(/\b(pemkab|pemkot|pemprov|disdik|dishub|dinkes|phk|elpiji)\b/g,key=>ALIASES[key]).replace(/\b(?:jl|jln)\./g,'jalan');
+const NAME_END=new Set([...STOP,...COMMON,...Object.keys(FORMS),...Object.values(FORMS),...'umumkan diumumkan umum rilis merilis catat mencatat tetapkan menetapkan terapkan menerapkan sebut menyebut jelaskan menjelaskan kritik mengkritik rencana wacana usul minta meminta tinjau meninjau sidak hadiri menghadiri temui menemui serahkan pastikan dorong bantu bantuan anggaran harga korban pekerja'.split(' ')]);
+const MONTHS='januari februari maret april mei juni juli agustus september oktober november desember'.split(' ');
 export function displayHeadline(title,publisher='') {
   const text=String(title||'').trim(),suffix=String(publisher||'').trim();
   if(suffix&&clean(text).endsWith(clean(suffix))){
@@ -16,28 +21,37 @@ export function displayHeadline(title,publisher='') {
   return text;
 }
 export function headline(title,publisher='') {
-  const text=clean(displayHeadline(title,publisher));
+  const text=aliasText(displayHeadline(title,publisher));
   const words=text.match(/[\p{L}\p{N}]+/gu)||[], tokens=new Set(words.filter(w=>!STOP.has(w)).map(w=>FORMS[w]||w));
   const entities={};
   for(const place of words.filter(w=>PLACES.has(w)))(entities.place ||= new Set()).add(place);
   for(const m of text.matchAll(/\b(kabupaten|kota|kecamatan|desa|jalan|pantai|pasar|sman|smpn)\s+([\p{L}\p{N}]+)/gu)){
-    if(!STOP.has(m[2]))(entities[m[1]] ||= new Set()).add(m[2]);
+    if(!NAME_END.has(m[2]))(entities[m[1]] ||= new Set()).add(m[2]);
   }
+  for(const match of text.matchAll(/\b(pt|cv|bank|universitas|partai|gus|ning)\s+([\p{L}]+(?:\s+[\p{L}]+){0,2})/gu)){
+    const name=[];for(const word of match[2].split(' ')){if(NAME_END.has(word)||MONTHS.includes(word))break;name.push(word);}
+    if(name.length)(entities[['gus','ning'].includes(match[1])?'person':match[1]] ||= new Set()).add(name.join(' '));
+  }
+  for(const kind of ['pendidikan','perhubungan','kesehatan'])if(text.includes('dinas '+kind))(entities.institution ||= new Set()).add(kind);
   const rates=new Set([...text.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:%|persen)/g)].map(m=>m[1].replace(',','.')));
   const years=new Set(words.filter(w=>/^(19|20)\d{2}$/.test(w)));
-  return {key:words.join(' '),tokens,entities,rates,years,negative:words.some(w=>['tidak','bukan','bantah','membantah','menyangkal'].includes(w))};
+  const dates=new Set([...text.matchAll(/\b(\d{1,2})\s+(januari|februari|maret|april|mei|juni|juli|agustus|september|oktober|november|desember)(?:\s+((?:19|20)\d{2}))?\b/g)].map(m=>`${MONTHS.indexOf(m[2])+1}-${Number(m[1])}`));
+  for(const match of text.matchAll(/\b(?:19|20)\d{2}-(\d{1,2})-(\d{1,2})\b/g))if(+match[1]>=1&&+match[1]<=12&&+match[2]>=1&&+match[2]<=31)dates.add(`${+match[1]}-${+match[2]}`);
+  return {key:words.join(' '),tokens,entities,rates,years,dates,negative:words.some(w=>['tidak','bukan','bantah','membantah','menyangkal'].includes(w))};
 }
 const overlap=(a,b)=>[...a].some(x=>b.has(x));
 const weight=t=>/^\d+$/.test(t)?3:COMMON.has(t)?1:2;
-function compatibleProfiles(a,b) {
-  if(a.negative!==b.negative)return 0;
-  for(const key of Object.keys(a.entities))if(b.entities[key]&&!overlap(a.entities[key],b.entities[key]))return 0;
-  for(const key of ['rates','years'])if(a[key].size&&b[key].size&&!overlap(a[key],b[key]))return 0;
-  for(const [left,right] of [['naik','turun'],['setuju','tolak'],['cabut','perpanjang'],['batal','berlaku']]){
-    if(a.tokens.has(left)&&b.tokens.has(right)||a.tokens.has(right)&&b.tokens.has(left))return 0;
+function profileConflicts(a,b,entitiesOnly=false) {
+  const conflicts=[];
+  if(!entitiesOnly&&a.negative!==b.negative)conflicts.push('Pernyataan dan penyangkalan berbeda.');
+  for(const key of Object.keys(a.entities))if(b.entities[key]&&!overlap(a.entities[key],b.entities[key]))conflicts.push((['place','kabupaten','kota','kecamatan','desa','jalan','pantai','pasar','sman','smpn'].includes(key)?'Lokasi':key==='person'?'Nama tokoh':'Organisasi')+' berbeda ('+key+').');
+  if(!entitiesOnly){
+    for(const key of ['rates','years','dates'])if(a[key]?.size&&b[key]?.size&&!overlap(a[key],b[key]))conflicts.push({rates:'Angka persentase berbeda.',years:'Tahun berbeda.',dates:'Tanggal peristiwa dalam judul berbeda.'}[key]);
+    for(const [left,right] of [['naik','turun'],['setuju','tolak'],['cabut','perpanjang'],['batal','berlaku'],['buka','tutup']])if(a.tokens.has(left)&&!a.tokens.has(right)&&b.tokens.has(right)&&!b.tokens.has(left)||a.tokens.has(right)&&!a.tokens.has(left)&&b.tokens.has(left)&&!b.tokens.has(right))conflicts.push('Tindakan berlawanan: '+left+' / '+right+'.');
   }
-  return true;
+  return conflicts;
 }
+const compatibleProfiles=(a,b)=>!profileConflicts(a,b).length;
 export function headlineSimilarity(a,b) {
   if(!compatibleProfiles(a,b))return 0;
   if(a.key && a.key===b.key)return 1;
@@ -58,7 +72,7 @@ function compareSources(a,b) {
   const left=a.title,right=b.title;
   if(!compatibleProfiles(left,right))return 0;
   // Identical generic headlines can cover different places; use available body geography too.
-  if(a.content&&b.content)for(const key of Object.keys(a.content.entities))if(b.content.entities[key]&&!overlap(a.content.entities[key],b.content.entities[key]))return 0;
+  if(a.content&&b.content&&profileConflicts(a.content,b.content,true).length)return 0;
   const titleScore=headlineSimilarity(left,right);if(titleScore)return titleScore;
   const ac=a.content,bc=b.content;if(!ac||!bc||!compatibleProfiles(ac,bc))return 0;
   const shared=[...ac.tokens].filter(token=>bc.tokens.has(token));
@@ -70,9 +84,17 @@ function compareSources(a,b) {
   return dice>=.74&&jaccard>=.58 || shared.length>=12&&leftInContent.length>=3&&rightInContent.length>=3&&dice>=.68&&jaccard>=.52?dice:0;
 }
 export function sourceSimilarity(a,b){return compareSources(sourceProfile(a),sourceProfile(b));}
+function profileMatchDetail(a,b){
+  const score=compareSources(a,b),titleScore=headlineSimilarity(a.title,b.title),left=titleScore?a.title:a.content||a.title,right=titleScore?b.title:b.content||b.title;
+  const conflicts=[...profileConflicts(a.title,b.title),...(a.content&&b.content?profileConflicts(a.content,b.content,true):[])];
+  const basis=score?(titleScore?(a.title.key===b.title.key?'title_exact':'title_similarity'):'content_similarity'):null;
+  return {matched:score>0,score,basis,sharedTerms:[...left.tokens].filter(t=>right.tokens.has(t)&&!COMMON.has(t)).sort().slice(0,12),sharedEntities:Object.entries(left.entities).flatMap(([kind,values])=>[...values].filter(value=>right.entities[kind]?.has(value)).map(value=>({kind,value}))).slice(0,12),reasons:score?[]:[...new Set(conflicts.length?conflicts:['Kemiripan judul/cuplikannya belum cukup untuk menggabungkan peristiwa.'])]};
+}
+export function explainSourceMatch(a,b){return profileMatchDetail(sourceProfile(a),sourceProfile(b));}
+export const sourceMaterialKey=source=>aliasText(displayHeadline(source.title,source.publisher)).replace(/\s+/g,' ').trim()+'\n'+clean(source.excerpt).replace(/\s+/g,' ').trim();
 export function createIssueMatcher() {
-  const cache=new WeakMap(),profile=source=>{if(!cache.has(source))cache.set(source,sourceProfile(source));return cache.get(source);};
-  return (issue,input)=>{
+  const cache=new WeakMap(),profile=source=>{const old=cache.get(source);if(!old||old.title!==source.title||old.publisher!==source.publisher||old.excerpt!==source.excerpt)cache.set(source,{title:source.title,publisher:source.publisher,excerpt:source.excerpt,value:sourceProfile(source)});return cache.get(source).value;};
+  const match=(issue,input)=>{
     if(!issue.sources.length || issue.sources.length>=100)return 0;
     const incoming=sourceTime(input),times=issue.sources.map(sourceTime).filter(Number.isFinite);
     if(!Number.isFinite(incoming)||!times.length||Math.max(incoming,...times)-Math.min(incoming,...times)>72*HOUR)return 0;
@@ -83,6 +105,19 @@ export function createIssueMatcher() {
     const supporting=profiles.slice(1).map(p=>compareSources(p,next)).filter(Boolean).sort((a,b)=>b-a);
     return supporting.length>=2?supporting[1]:0;
   };
+  match.explain=(issue,input)=>{
+    const score=match(issue,input),next=profile(input),times=[sourceTime(input),...issue.sources.map(sourceTime)].filter(Number.isFinite),windowHours=times.length?(Math.max(...times)-Math.min(...times))/HOUR:null;
+    const base={methodVersion:RADAR_METHOD.version,usesAI:false,matched:score>0,score,basis:null,referenceSourceIds:[],sharedTerms:[],sharedEntities:[],windowHours,reasons:[]};
+    if(!issue.sources.length)return {...base,reasons:['Belum ada sumber pembanding dalam kelompok.']};
+    if(issue.sources.length>=100)return {...base,reasons:['Kelompok sudah mencapai batas 100 sumber.']};
+    if(!Number.isFinite(sourceTime(input))||!issue.sources.some(s=>Number.isFinite(sourceTime(s))))return {...base,reasons:['Tanggal publikasi/penemuan belum cukup untuk membandingkan waktu.']};
+    if(windowHours>72)return {...base,reasons:['Rentang publikasi/penemuan kelompok melebihi 72 jam.']};
+    const details=issue.sources.map(source=>({source,...profileMatchDetail(profile(source),next)}));
+    if(score){const selected=details[0].matched?[details[0]]:details.slice(1).filter(d=>d.matched).sort((a,b)=>b.score-a.score).slice(0,2);return {...base,basis:selected.length===2?'multiple_sources':selected[0].basis,referenceSourceIds:selected.map(d=>d.source.id),sharedTerms:[...new Set(selected.flatMap(d=>d.sharedTerms))].slice(0,12),sharedEntities:selected[0].sharedEntities};}
+    const guards=issue.sources.flatMap(source=>profileConflicts(profile(source).title,next.title));
+    return {...base,reasons:[...new Set(guards.length?guards:details[0].reasons.length?details[0].reasons:['Hanya satu anggota kelompok yang cocok; belum cukup dukungan pembanding.'])]};
+  };
+  return match;
 }
 export function publisherKey(source) {
   let name=source.publisherUrl || source.publisher || '';

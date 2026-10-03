@@ -20,7 +20,8 @@ export function buildRadarDigest(data,{period='daily',date,topic='',now=Date.now
   const groups=data.issues.filter(i=>i.status!=='ignored'&&i.stats.relevant!==false&&(!topic||i.topicIds.includes(topic))).flatMap(i=>{
     const sources=i.sources.filter(s=>{const published=Date.parse(s.publishedAt||'');return published>=start&&published<end;});
     if(!sources.length)return [];
-    return [{id:i.id,title:i.title,status:i.status,topicIds:i.topicIds,sources,stats:issueStats({...i,sources,observations:[]},end)}];
+    const stats=issueStats({...i,sources,observations:[]},end);if(i.groupingReview){stats.isHot=false;stats.reason+=' Pengelompokan sumber perlu ditinjau.';}
+    return [{id:i.id,title:i.title,status:i.status,topicIds:i.topicIds,groupingReview:!!i.groupingReview,sources,stats}];
   }).sort((a,b)=>b.stats.score-a.stats.score||Date.parse(b.stats.latestPublishedAt)-Date.parse(a.stats.latestPublishedAt)||a.id.localeCompare(b.id));
   const sources=groups.flatMap(i=>i.sources),platforms={};
   for(const source of sources)platforms[source.platform]=(platforms[source.platform]||0)+1;

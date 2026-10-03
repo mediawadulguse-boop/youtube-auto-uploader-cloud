@@ -73,6 +73,7 @@ function collect(issue){
  const lead=[...buckets.data,...buckets.facts].filter(x=>!x.headlineOnly).sort((a,b)=>b.publishers-a.publishers||a.sourceNumbers[0]-b.sourceNumbers[0]).slice(0,3);
  const selected=lead.length?lead:[...buckets.data,...buckets.facts,...buckets.opinions].slice(0,2);
  const limitations=[];
+ if(issue.groupingReview)limitations.push('Pengelompokan perlu ditinjau: bahan cocok dengan beberapa kelompok yang pernah dipisahkan.');
  if(material.some(s=>s.headlineOnly))limitations.push('Sebagian sumber hanya memiliki judul yang dapat diekstrak, sehingga konteks klaim belum lengkap.');
  if(material.some(s=>s.truncated))limitations.push('Akhir cuplikan yang terpotong tidak dimasukkan sebagai klaim lengkap.');
  if(material.some(s=>!s.items.length))limitations.push('Ada sumber tanpa kalimat yang cukup untuk dirangkum.');
@@ -90,7 +91,7 @@ function collect(issue){
  return report;
 }
 export function buildIssueReport(issue){
- const key=crypto.createHash('sha256').update(JSON.stringify({version:ENGINE_VERSION,id:issue.id,title:issue.title,sources:issue.sources})).digest('hex');
+ const key=crypto.createHash('sha256').update(JSON.stringify({version:ENGINE_VERSION,id:issue.id,title:issue.title,sources:issue.sources,groupingReview:!!issue.groupingReview})).digest('hex');
  if(cache.has(key))return structuredClone(cache.get(key));
  const report=collect(issue);cache.set(key,report);if(cache.size>200)cache.delete(cache.keys().next().value);return structuredClone(report);
 }

@@ -10,6 +10,7 @@ import { RADAR_METHOD } from './radar-methodology.mjs';
 import { RadarSync } from './radar-sync.mjs';
 import {buildRadarDigest} from './radar-digest.mjs';
 import {buildIssueReport} from './radar-engine.mjs';
+import {explainIssueGrouping} from './radar-grouping.mjs';
 import { RadarAIProviders } from './radar-ai.mjs';
 import { runAISmoke } from './ai-smoke.mjs';
 import { NotesStore } from './notes-store.mjs';
@@ -913,6 +914,12 @@ const server = http.createServer(async (req, res) => {
       const issue=(await radarStore.read()).issues.find(i=>i.id===summaryMatch[1]);
       if(!issue)return json(res,404,{error:'Isu tidak ditemukan.'});
       return json(res,200,buildIssueReport(issue),{'cache-control':'no-store'});
+    }
+    const groupingMatch=pathname.match(/^\/api\/radar\/issues\/([a-z0-9-]{1,60})\/grouping$/);
+    if(groupingMatch&&req.method==='GET'){
+      const issue=(await radarStore.read()).issues.find(i=>i.id===groupingMatch[1]);
+      if(!issue)return json(res,404,{error:'Isu tidak ditemukan.'});
+      return json(res,200,explainIssueGrouping(issue),{'cache-control':'no-store'});
     }
     const radarMatch=pathname.match(/^\/api\/radar\/(topics|feeds|channels|issues)(?:\/([a-z0-9-]{1,60}))?(?:\/(merge|split))?$/);
     if(radarMatch){const [,kind,id,action]=radarMatch;const body=await readJson(req);if(!body||typeof body!=='object'||Array.isArray(body))throw Object.assign(Error('Data Radar tidak valid.'),{status:400});
