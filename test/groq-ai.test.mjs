@@ -48,10 +48,14 @@ test('legacy Grok selection resolves to Groq and an absent preferred provider se
 });
 test('OpenAI generation distinguishes billing exhaustion, rate limits and invalid credentials without raw details',async t=>{
  const {store}=await setup(t);
- for(const [status,code,message]of [[429,'insufficient_quota',/Saldo\/kuota API OpenAI/],[429,'rate_limit_exceeded',/batas laju/],[401,'invalid_api_key',/API key OpenAI ditolak/],[404,'model_not_found',/Model OpenAI tidak ditemukan/]]){
-  const ai=new RadarAIProviders(store,{providers:{openai:{key:'private',model:'gpt-4.1-mini',fetcher:async()=>Response.json({error:{code,message:'secret key and prompt'}},{status})},groq:{key:'',model:''},gemini:{key:'',model:''}}});
+ for(const [status,code,message]of [[429,'insufficient_quota',/Saldo\/kuota API OpenAI/],[429,'rate_limit_exceeded',/Batas laju/],[401,'invalid_api_key',/API key OpenAI ditolak/],[404,'model_not_found',/Model OpenAI tidak ditemukan/]]){
+  const ai=new RadarAIProviders(store,{providers:{openai:{key:'private',model:'gpt-4.1-mini',fetcher:async(_url,options)=>{assert.equal(JSON.parse(options.body).max_output_tokens,64);return Response.json({error:{code,message:'secret key and prompt'}},{status});}},groq:{key:'',model:''},gemini:{key:'',model:''}}});
   const out=await ai.checkGeneration({provider:'openai'});assert.equal(out.generationTest.state,'error');assert.equal(out.generationTest.httpStatus,status);assert.match(out.generationTest.message,message);assert.ok(!JSON.stringify(out).includes('secret'));assert.equal(out.used,0);
  }
+});
+test('billing type wins over other codes and only recognized error metadata and numeric limits are exposed',async t=>{
+ const {store}=await setup(t);const ai=new RadarAIProviders(store,{providers:{openai:{key:'private',model:'gpt-4.1-mini',fetcher:async()=>Response.json({error:{code:'rate_limit_exceeded',type:'insufficient_quota',message:'private billing details'}},{status:429,headers:{'x-ratelimit-limit-requests':'3','x-ratelimit-remaining-tokens':'private','x-ratelimit-limit-tokens':'10000'}})},groq:{key:'',model:''},gemini:{key:'',model:''}}});
+ const status=await ai.checkGeneration({provider:'openai'});assert.equal(status.generationTest.quotaKind,'billing');assert.equal(status.generationTest.providerErrorType,'insufficient_quota');assert.deepEqual(status.generationTest.rateLimits,{'limit-requests':3,'limit-tokens':10000});assert.ok(!JSON.stringify(status).includes('private'));assert.match(status.generationTest.message,/Saldo\/kuota/);
 });
 test('filtered one-shot diagnosis reports safe configuration and continues after a failed provider',async t=>{
  const {dir}=await setup(t);const logs=[],calls=[];

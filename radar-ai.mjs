@@ -217,8 +217,13 @@ export class RadarAI {
       const creditExhausted = this.provider === 'groq' && [402, 403].includes(response.status) &&
         /run out of credits|used all available credits|reached (?:its|your) monthly spending limit|(?:doesn't|does not) have any credits/i.test(creditMessage);
       if (response.status === 429 || creditExhausted) {
-        const billing=this.provider==='openai'&&['insufficient_quota','billing_hard_limit_reached'].includes(detail?.code||detail?.type);
-        const error = remoteFail(billing?'Saldo/kuota API OpenAI habis. Tambahkan kredit atau periksa batas billing API OpenAI.':`Kuota atau batas laju ${name} tercapai. Periksa kuota provider atau coba lagi nanti.`, 429);
+        const codes=['insufficient_quota','billing_hard_limit_reached','rate_limit_exceeded','tokens','requests'];
+        const providerCode=codes.includes(detail?.code)?detail.code:null,providerErrorType=codes.includes(detail?.type)?detail.type:null;
+        const billing=this.provider==='openai'&&[providerCode,providerErrorType].some(code=>['insufficient_quota','billing_hard_limit_reached'].includes(code));
+        const rateLimited=[providerCode,providerErrorType].some(code=>['rate_limit_exceeded','tokens','requests'].includes(code));
+        const error = remoteFail(billing?'Saldo/kuota API OpenAI habis. Tambahkan kredit atau periksa batas billing API OpenAI.':rateLimited?`Batas laju ${name} tercapai. Tunggu jeda provider atau periksa batas token/permintaan akun.`:`Kuota atau batas laju ${name} tercapai. Periksa kuota provider atau coba lagi nanti.`, 429);
+        error.providerCode=providerCode;error.providerErrorType=providerErrorType;error.quotaKind=billing?'billing':rateLimited?'rate-limit':'quota';
+        error.rateLimits=Object.fromEntries(['limit-requests','remaining-requests','limit-tokens','remaining-tokens'].flatMap(field=>{const value=response.headers?.get('x-ratelimit-'+field);return /^\d{1,15}$/.test(value||'')?[[field,Number(value)]]:[];}));
         error.providerQuota = true;
         error.retryDelayMs = Math.max(30000, this.retryDelay(response));
         throw error;
@@ -370,12 +375,13 @@ export class RadarAIProviders {
     if(ai.now()-Date.parse(this.tests[ai.provider]?.checkedAt || '')<30000)throw fail('Tunggu 30 detik sebelum menguji provider ini lagi.',429);
     this.generating=true;
     try {
-      const raw=await ai.complete('Reply with only OK.','Connection test.',model,ai.now()+60000,{maxTokens:2048});
+      const maxTokens=ai.provider==='openai'&&/^gpt-(?:4\.1|4o)(?:-|$)/.test(model)?64:2048;
+      const raw=await ai.complete('Reply with only OK.','Connection test.',model,ai.now()+60000,{maxTokens});
       if(raw.trim()!=='OK')throw fail('API merespons tetapi uji jawaban belum sesuai.',502);
       this.blocked.delete(ai.provider);
       this.tests[ai.provider]={state:'ready',model,checkedAt:new Date(ai.now()).toISOString(),message:'Uji jawaban berhasil. Model dapat menghasilkan teks.'};
     } catch(error) {
-      this.tests[ai.provider]={state:'error',model,httpStatus:error.providerStatus||null,checkedAt:new Date(ai.now()).toISOString(),message:error.message};
+      this.tests[ai.provider]={state:'error',model,httpStatus:error.providerStatus||null,providerCode:error.providerCode||null,providerErrorType:error.providerErrorType||null,quotaKind:error.quotaKind||null,rateLimits:error.rateLimits||{},checkedAt:new Date(ai.now()).toISOString(),message:error.message};
       if(error.providerQuota || error.providerUnavailable)this.blocked.set(ai.provider,{retryAt:new Date(ai.now()+error.retryDelayMs).toISOString(),reason:error.message});
     } finally {this.generating=false;}
     return this.status(ai.provider);
