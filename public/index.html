@@ -41,12 +41,12 @@
       <button data-view="updates"><span data-icon="clock"></span>Riwayat Update</button>
       <button data-view="settings"><span data-icon="layers"></span>Pilar Konten</button>
     </div>
-    <div class="sidebar-bottom"><div class="workspace-note"><span data-icon="spark"></span><strong>Mulai dari sebuah ide.</strong><p>Simpan naskah dan riset,<br>lalu wujudkan menjadi konten.</p></div><button id="logoutBtn" class="btn logout"><span data-icon="logout"></span>Keluar<span class="version">v4.19.0</span></button></div>
+    <div class="sidebar-bottom"><div class="workspace-note"><span data-icon="spark"></span><strong>Mulai dari sebuah ide.</strong><p>Simpan naskah dan riset,<br>lalu wujudkan menjadi konten.</p></div><button id="localDrafts" class="btn">Draft lokal</button><button id="logoutBtn" class="btn logout"><span data-icon="logout"></span>Keluar<span class="version">v4.19.1</span></button></div>
   </nav>
   <main class="workspace">
   <section id="contentHub">
     <div class="hub-heading"><div><span class="eyebrow">CONTENT WORKSPACE</span><h1 id="viewTitle">Dashboard</h1><p id="viewSubtitle">Dari ide pertama hingga video tayang.</p></div><button class="btn primary" id="newContent"><span data-icon="plus"></span> Konten Baru</button></div>
-    <div id="draftBanner" class="notice hide"><span>Ada draft lokal yang belum tersimpan.</span><button class="btn mini" id="recoverDraft">Pulihkan draft</button></div>
+    <div id="draftBanner" class="notice hide" role="status"><span id="draftBannerText">Ada draft lokal yang belum tersimpan.</span><div class="draft-banner-actions"><button class="btn mini" id="recoverDraft">Pulihkan draft</button><button class="btn mini" id="dismissDraft">Tutup pemberitahuan</button><button class="btn mini danger" id="discardDraft">Hapus draft lokal</button></div></div>
     <div id="hubError" class="notice hide" role="alert"></div>
     <div id="hubFilters" class="hub-filters hide"><input id="contentSearch" aria-label="Cari konten" placeholder="Cari judul atau penanggung jawab…"><select id="pillarFilter" aria-label="Filter pilar"></select><select id="stageFilter" aria-label="Filter tahap"></select><select id="formatFilter" aria-label="Filter kategori video"><option value="">Semua kategori video</option><option value="shorts">Short (Shorts)</option><option value="long">Long (video panjang)</option><option value="live">Live</option><option value="other">Lainnya</option></select><label><input id="archiveFilter" type="checkbox"> Arsip</label></div>
     <div id="hubBody" aria-live="polite"></div>
