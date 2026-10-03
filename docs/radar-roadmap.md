@@ -8,7 +8,7 @@ Pembaruan dirilis bertahap. Fokus awal: kualitas data Radar, pengelompokan, rang
 | 2 | 4.15.0 | Diimplementasikan | Variasi istilah dan identitas peristiwa, alasan penggabungan dan aturan koreksi manual. |
 | 3 | 4.16.0 | Diimplementasikan | Kronologi, aktor, angka penting, pernyataan berbeda dan bahan riset yang belum tersedia. |
 | 4 | 4.17.0 | Diimplementasikan | Arsip laporan harian/mingguan terjadwal dan perbandingan liputan. |
-| 5 | 4.18.0 | Direncanakan | Ruang riset, brief dan kerangka naskah dari template; impor teks/transkrip. |
+| 5 | 4.18.0 | Diimplementasikan | Ruang riset, brief dan kerangka naskah dari template; impor teks/transkrip. |
 | 6 | 4.19.0 | Direncanakan | Pustaka prompt, penggunaan ulang hasil AI, riwayat pemakaian dan hubungan dengan performa konten. |
 
 ## Tahap 1 — v4.14.1
@@ -48,6 +48,10 @@ Kronologi memakai tanggal publikasi tersimpan; tanggal peristiwa editorial tetap
 ## Tahap 4 — v4.17.0
 
 Arsip otomatis berjalan tiap jam sesudah periode WIB selesai. Snapshot idempoten, tersimpan bersama data aplikasi dan mempertahankan laporan awal saat sumber berubah. Arsip dapat dicari/disalin; perbandingan memakai data tersedia saat pembuatan. Jadwal dapat dinonaktifkan. Catch-up harian maksimal tujuh hari dan satu minggu terakhir. Retensi maksimal 60 snapshot atau 20 MB, menghapus arsip terlama saja; sumber dan konten tidak dihapus.
+
+## Tahap 5 — v4.18.0
+
+Catatan dan checklist mengikuti revisi isu. Impor teks maksimal 50.000 karakter terikat sumber asal; TXT/SRT/VTT dibersihkan dan tidak menimpa deskripsi. Penggantian transkrip eksplisit dan mengembalikan status belum diperiksa. Engine mengambil maksimal 18 kalimat per sumber. Template Long/Short/3 Short menghasilkan brief dan kerangka dengan ruang isian, klaim tersimpan serta URL rujukan. Draft belum tersimpan sampai editor menekan Simpan. Penggabungan menjaga kedua catatan dan menolak jika melebihi kapasitas.
 
 ## Syarat rilis
 

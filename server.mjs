@@ -8,6 +8,7 @@ import { ContentStore } from './content-store.mjs';
 import { RadarStore } from './radar-store.mjs';
 import { RADAR_METHOD } from './radar-methodology.mjs';
 import { RadarSync } from './radar-sync.mjs';
+import {RadarWorkspace} from './radar-workspace.mjs';
 import {RadarArchive} from './radar-archive.mjs';
 import {buildRadarDigest} from './radar-digest.mjs';
 import {buildIssueReport} from './radar-engine.mjs';
@@ -35,6 +36,7 @@ const DB_FILE = path.join(DATA_DIR, 'db.json');
 let storage=null;
 const contentStore = new ContentStore(path.join(DATA_DIR, 'contents.json'));
 const radarStore=new RadarStore(contentStore);
+const radarWorkspace=new RadarWorkspace(radarStore);
 const radarArchive=new RadarArchive(radarStore);
 const radarAI=new RadarAIProviders(radarStore);
 const radarSync=new RadarSync(radarStore,async url=>{const db=await readDb();if(Date.parse(db.youtubeWorker?.retryAt)>Date.now())throw Object.assign(new Error('Kuota YouTube sedang dibatasi.'),{code:'quota_exceeded'});if(process.env.YOUTUBE_API_KEY){const u=new URL(url);u.searchParams.set('key',process.env.YOUTUBE_API_KEY);return fetch(u,{signal:AbortSignal.timeout(15000)})}return youtubeFetch(url,{signal:AbortSignal.timeout(15000)});});
@@ -919,6 +921,8 @@ const server = http.createServer(async (req, res) => {
     if(pathname==='/api/radar/ai/test'&&req.method==='POST')return json(res,200,await radarAI.checkGeneration(await readJson(req)));
     if(pathname==='/api/radar/ai'&&req.method==='POST')return json(res,200,await radarAI.generate(await readJson(req)));
     if(pathname==='/api/radar/sources'&&req.method==='POST'){const body=await readJson(req);return json(res,201,await radarStore.addSources([body],[],body.issueId||null));}
+    const researchMatch=pathname.match(/^\/api\/radar\/issues\/([a-z0-9-]{1,60})\/(research|import|outline)$/);
+    if(researchMatch){const [,id,action]=researchMatch;if(action==='research'&&req.method==='GET')return json(res,200,await radarWorkspace.get(id));if(action==='research'&&req.method==='PATCH')return json(res,200,await radarWorkspace.save(id,await readJson(req)));if(action==='import'&&req.method==='POST')return json(res,200,await radarWorkspace.import(id,await readJson(req)));if(action==='outline'&&req.method==='POST')return json(res,200,await radarWorkspace.outline(id,(await readJson(req)).format));}
     const summaryMatch=pathname.match(/^\/api\/radar\/issues\/([a-z0-9-]{1,60})\/summary$/);
     if(summaryMatch&&req.method==='GET'){
       const issue=(await radarStore.read()).issues.find(i=>i.id===summaryMatch[1]);

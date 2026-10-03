@@ -3,7 +3,7 @@ import {enrichResearch} from './radar-research.mjs';
 import {Parser} from 'htmlparser2';
 import {publisherKey,displayHeadline} from './radar-methodology.mjs';
 
-export const ENGINE_VERSION=3;
+export const ENGINE_VERSION=4;
 const cache=new Map();
 const normalize=s=>String(s).normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase().replace(/[^\p{L}\p{N}%]+/gu,' ').trim();
 const numberPattern=/(?<![\p{L}\p{N}])(?:Rp\.?\s*)?\d+(?:[.,]\d+)*(?:\s*(?:%|persen|ribu|juta|miliar|triliun|orang|pekerja|sekolah|desa|hari|tahun))?/giu;
@@ -30,17 +30,17 @@ function sentenceParts(text){
  if(text.slice(start).trim())parts.push(text.slice(start).trim());return parts;
 }
 function sentences(source){
- const excerpt=plainSource(source.excerpt),title=displayHeadline(plainSource(source.title),source.publisher),key=normalize(excerpt);
+ const excerpt=plainSource(source.transcript?.text||source.excerpt),title=displayHeadline(plainSource(source.title),source.publisher),key=normalize(excerpt);
  const repeatedTitle=key===normalize(title)||key===normalize(title+' '+source.publisher);
  const headlineOnly=!excerpt||repeatedTitle,raw=headlineOnly?title:excerpt;
  let parts=raw.split('\n').flatMap(sentenceParts),truncated=false;
- if(!headlineOnly&&parts.length){const last=parts.at(-1);truncated=/\.{3}$|…$/.test(last)||String(source.excerpt||'').length>=3000&&!/[.!?][”"»]?$/.test(last);if(truncated)parts.pop();}
+ if(!headlineOnly&&parts.length){const last=parts.at(-1);truncated=/\.{3}$|…$/.test(last)||!source.transcript&&String(source.excerpt||'').length>=3000&&!/[.!?][”"»]?$/.test(last);if(truncated)parts.pop();}
  if(!headlineOnly&&parts.some(x=>/\.{3}$|…$/.test(x)))truncated=true;
  const selected=[...new Set(parts.filter(x=>x.length>=15&&x.length<=1200&&!boiler.test(x)&&(headlineOnly||!/\.{3}$|…$/.test(x))))].slice(0,18);
  if(selected.length)return {items:selected,headlineOnly,truncated};
  return {items:title.length>=15&&title.length<=1200&&!boiler.test(title)?[title]:[],headlineOnly:true,truncated};
 }
-function evidence(source,number){return {number,id:source.id,url:source.url,title:source.title,publisher:source.publisher,publisherUrl:source.publisherUrl||'',platform:source.platform,publishedAt:source.publishedAt||null,coverage:source.coverage||'headline',verification:source.verification||'unchecked',repost:!!source.repost};}
+function evidence(source,number){return {number,id:source.id,url:source.url,title:source.title,publisher:source.publisher,publisherUrl:source.publisherUrl||'',platform:source.platform,publishedAt:source.publishedAt||null,coverage:source.coverage||'headline',verification:source.verification||'unchecked',repost:!!source.repost,hasTranscript:!!source.transcript};}
 function collect(issue){
  const sources=[...new Map((issue.sources||[]).map(s=>[s.url,s])).values()].sort((a,b)=>String(a.url).localeCompare(String(b.url)));
  const references=sources.map((s,n)=>evidence(s,n+1)),buckets={data:[],facts:[],opinions:[]},exact=new Map();
@@ -78,14 +78,14 @@ function collect(issue){
  if(material.some(s=>s.headlineOnly))limitations.push('Sebagian sumber hanya memiliki judul yang dapat diekstrak, sehingga konteks klaim belum lengkap.');
  if(material.some(s=>s.truncated))limitations.push('Akhir cuplikan yang terpotong tidak dimasukkan sebagai klaim lengkap.');
  if(material.some(s=>!s.items.length))limitations.push('Ada sumber tanpa kalimat yang cukup untuk dirangkum.');
- if(sources.some(s=>s.platform==='YouTube'))limitations.push('Video dirangkum dari judul/deskripsi yang tersedia; bukan transkrip atau isi video.');
+ if(sources.some(s=>s.platform==='YouTube'&&!s.transcript))limitations.push('Video dirangkum dari judul/deskripsi yang tersedia; bukan transkrip atau isi video.');
  if(sources.some(s=>s.coverage==='snippet'))limitations.push('Cuplikan RSS/deskripsi tidak sama dengan artikel lengkap.');
  if(sources.some(s=>s.verification==='compare'))limitations.push('Ada sumber yang ditandai perlu pembanding.');
  if(sources.some(s=>!s.publishedAt))limitations.push('Ada sumber tanpa tanggal publikasi.');
  const shown=Object.fromEntries(Object.entries(buckets).map(([key,items])=>[key,items.slice(0,6)]));
  const report={engine:'extractive-rules',version:ENGINE_VERSION,usesAI:false,issueId:issue.id,title:issue.title,sourceCount:sources.length,
   summary:selected.map(x=>({...x})),...shown,totals:Object.fromEntries(Object.entries(buckets).map(([key,items])=>[key,items.length])),conflicts,sources:references,limitations,
-  quality:{extractedSources:material.filter(s=>s.items.length).length,headlineOnlySources:material.filter(s=>s.headlineOnly&&s.items.length).length,excerptSources:material.filter(s=>!s.headlineOnly&&s.items.length).length,truncatedSources:material.filter(s=>s.truncated).length,emptySources:material.filter(s=>!s.items.length).length},
+  quality:{transcriptSources:sources.filter(s=>s.transcript).length,extractedSources:material.filter(s=>s.items.length).length,headlineOnlySources:material.filter(s=>s.headlineOnly&&s.items.length).length,excerptSources:material.filter(s=>!s.headlineOnly&&s.items.length).length,truncatedSources:material.filter(s=>s.truncated).length,emptySources:material.filter(s=>!s.items.length).length},
   note:'Ekstraksi otomatis dari sumber tersimpan, tanpa permintaan AI. Data/fakta adalah klaim yang dilaporkan sumber, bukan verifikasi otomatis. Opini dan atribusi dipilah dengan pola bahasa; periksa sumber asli. Maksimal 18 kalimat per sumber dan 6 butir per kategori ditampilkan.'};
  Object.assign(report,enrichResearch(issue,references,Object.values(buckets).flat()));
  const cite=item=>item.text+' ['+item.sourceNumbers.join(', ')+']';
