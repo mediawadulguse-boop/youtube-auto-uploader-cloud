@@ -21,7 +21,7 @@ async function setup(revoked,fn){
   let ready=false;for(let i=0;i<100;i++){try{if((await fetch(base+'/api/health')).ok){ready=true;break;}}catch{}await new Promise(r=>setTimeout(r,30));}assert.ok(ready,logs);
   const login=await fetch(base+'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:'test-password'})});assert.equal(login.status,200);const cookie=login.headers.get('set-cookie').split(';')[0];
   const request=async(url,body)=>{const r=await fetch(base+url,{method:body?'POST':'GET',headers:{cookie,'content-type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:r.status,data:await r.json()};};
-  await fn({request,content,dir,calls,status,base});
+  await fn({request,content,dir,calls,status,base,cookie});
  }finally{server?.kill();if(server&&server.exitCode===null)await new Promise(r=>server.once('exit',r));await fs.rm(dir,{recursive:true,force:true});}
 }
 test('expired refresh token is recognized once and remains disconnected after reload; uploads require reconnection',()=>setup(true,async({request,calls,content,dir})=>{
@@ -44,4 +44,15 @@ test('manual publication API validates ownership, stale versions, actual visibil
  assert.equal((await request('/api/contents/'+other.id+'/publication',{revision:other.revision,video:'lmnopqrstuv'})).status,409);
  const preview=await request('/api/contents/engine-preview',{title:'Preview',script:content.script,description:'Manual description'});assert.equal(preview.status,200);assert.equal(preview.data.usesAI,false);assert.equal(preview.data.fields.description,undefined);assert.ok(preview.data.fields.tags);
  assert.equal((await request('/api/contents/engine-preview',{title:'Bad',sources:[{notes:42}]})).status,400);
+}));
+test('OAuth denial is explained; revoked refresh credentials are never reused, and a fresh consent restores real API access',()=>setup(true,async({request,base,cookie,dir})=>{
+ await request('/api/state');const before=await fs.readFile(path.join(dir,'youtube-token.enc.json'),'utf8');
+ const connect=async params=>{
+  const start=await fetch(base+'/auth/google',{headers:{cookie},redirect:'manual'});assert.equal(start.status,302);const url=new URL(start.headers.get('location'));assert.equal(url.searchParams.get('prompt'),'select_account consent');
+  return fetch(base+'/auth/google/callback?'+new URLSearchParams({state:url.searchParams.get('state'),...params}),{headers:{cookie:cookie+'; '+start.headers.get('set-cookie').split(';')[0]},redirect:'manual'});
+ };
+ const denied=await connect({error:'access_denied'});assert.equal(denied.headers.get('location'),'/?oauth=denied');assert.equal((await request('/api/state')).data.youtubeOAuth.state,'denied');assert.equal(await fs.readFile(path.join(dir,'youtube-token.enc.json'),'utf8'),before);
+ const missing=await connect({code:'no-refresh'});assert.equal(missing.status,400);assert.equal(await fs.readFile(path.join(dir,'youtube-token.enc.json'),'utf8'),before);
+ const good=await connect({code:'good'});assert.equal(good.status,302);assert.equal(good.headers.get('location'),'/?oauth=ok');const state=(await request('/api/state')).data;assert.equal(state.youtubeConnected,true);assert.equal(state.youtubeConnection.state,'ready');assert.equal(state.youtubeOAuth.state,'ready');assert.ok(!JSON.stringify(state).includes('new-test-refresh'));
+ assert.equal((await request('/api/youtube/check',{})).data.connection.state,'ready');assert.equal((await request('/api/youtube/sync-publications',{})).status,200);
 }));

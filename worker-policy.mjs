@@ -21,7 +21,7 @@ export async function runUploadWorker({readDb,writeDb,upload,schedule,sync,now=D
     const db=await readDb(),time=now();
     if(db.youtubeWorker?.code==='youtube_auth_required')return {state:'paused',code:'youtube_auth_required'};
     if(db.youtubeWorker?.retryAt&&Date.parse(db.youtubeWorker.retryAt)>time)return {state:'paused',retryAt:db.youtubeWorker.retryAt};
-    const available=j=>!j.nextWorkerAt||Date.parse(j.nextWorkerAt)<=time;
+    const available=j=>(!db.channel?.id||!j.channelId||j.channelId===db.channel.id)&&(!j.nextWorkerAt||Date.parse(j.nextWorkerAt)<=time);
     selected=db.jobs.filter(j=>j.status==='waiting_publish'&&j.youtubeVideoId&&available(j)).sort((a,b)=>Date.parse(a.scheduledAt)-Date.parse(b.scheduledAt))[0];
     if(selected){kind='schedule';await schedule(selected.id)}
     else{

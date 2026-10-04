@@ -4,3 +4,5 @@
 .content-editor label input:not([type=checkbox]),.content-editor label textarea,.content-editor label select{font-weight:400}
 
 #draftBanner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}#draftBanner.hide{display:none}.draft-banner-actions{display:flex;gap:8px;flex-wrap:wrap}#draftBannerText{overflow-wrap:anywhere;min-width:0;flex:1 1 220px}#localDrafts{margin-bottom:10px;width:100%}@media(max-width:600px){.draft-banner-actions{width:100%}.draft-banner-actions .btn{flex:1 1 auto}}
+.calendar-event.is-published{border-color:#8bd2ac;background:#f0faf4}
+#youtubeConnectionBanner{margin-bottom:16px;flex-wrap:wrap}

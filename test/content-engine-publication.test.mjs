@@ -54,6 +54,19 @@ test('batch publication sync checks ownership, skips stale concurrent edits, and
 test('batch sync refuses to mark a video from another channel as published',()=>withStore(async store=>{
  await store.create({...base,youtubeVideoId:a});const result=await syncLinkedPublications({store,channelId:channel,fetcher:async()=>new Response(JSON.stringify({items:[{...video(),snippet:{channelId:'UC-other'}}]}))});assert.equal(result.updated,0);
 }));
+test('application-uploaded video IDs are adopted into production and publication becomes visible without manual linking',()=>withStore(async store=>{
+ const c=await store.create(base);
+ const result=await syncLinkedPublications({store,channelId:channel,jobs:[{contentId:c.id,youtubeVideoId:a,channelId:channel,status:'scheduled_youtube'}],fetcher:async()=>new Response(JSON.stringify({items:[video()]}))});
+ assert.equal(result.updated,1);const saved=(await store.read()).contents[0];assert.equal(saved.youtubeVideoId,a);assert.equal(saved.youtubePublication.status,'published');assert.equal(saved.script,c.script);assert.equal(saved.checklist.video,false);
+}));
+test('calendar shows actual publication over an old failed queue and uses actual publication date without making the card draggable',async()=>{
+ const code=await fs.readFile('public/content.js','utf8'),context={state:{server:{jobs:[{contentId:'one',status:'failed'}]}},hub:{calendarField:'publish'},statusBadge:(kind,value)=>'badge:'+value,pillar:()=>null,formatBadge:()=>'',productionBadge:()=> 'production:ready',esc:v=>v,timeWib:()=> '10:00'};vm.createContext(context);
+ vm.runInContext(code.slice(code.indexOf('function linkedJob('),code.indexOf('function formatBadge(')),context);
+ vm.runInContext(code.slice(code.indexOf('function publicationBadge('),code.indexOf('function filtered(')),context);
+ context.calendarEvents=()=>[];vm.runInContext(code.slice(code.indexOf('function calendarEvent('),code.indexOf('function renderCalendar(')),context);
+ const c={id:'one',title:'Published',stage:'ready',youtubeVideoId:a,youtubePublication:{videoId:a,status:'published',publishedAt:'2026-10-04T12:00:00Z'},plannedPublishAt:'2026-10-03T12:00:00Z'};
+ assert.equal(context.eventDate(c),'2026-10-04T12:00:00Z');const card=context.calendarEvent({...c,eventAt:context.eventDate(c)});assert.match(card,/badge:published/);assert.ok(!card.includes('badge:failed'));assert.ok(!card.includes('production:ready'));assert.ok(!card.includes('draggable="true"'));
+});
 test('revoked refresh token pauses worker without failing queue or discarding resumable upload, including across restart',async()=>{
  const db={jobs:[{id:'queued',status:'uploading_youtube',receivedBytes:10,fileSize:10,youtubeUploadOffset:5,order:1}]};let calls=0;
  const deps={readDb:async()=>db,writeDb:async()=>{},upload:async()=>{calls++;throw authRequiredError();}};

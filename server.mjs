@@ -60,6 +60,7 @@ const youtubeManager=new YouTubeManager(youtubeFetch);
 let tokenGeneration = 0;
 let analyticsTokenGeneration = 0;
 const refreshPromises = new Map();
+let youtubeConnectionCheck=null;
 
 await fsp.mkdir(UPLOAD_DIR, { recursive: true });
 
@@ -385,10 +386,36 @@ async function fetchChannel(accessToken) {
   const url = 'https://www.googleapis.com/youtube/v3/channels?part=snippet&mine=true';
   const r = accessToken ? await fetch(url, { headers: { authorization: `Bearer ${accessToken}` }, signal: AbortSignal.timeout(20_000) }) : await youtubeFetch(url);
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(data.error?.message || `Gagal membaca channel (${r.status})`);
+  if (!r.ok) throw analyticsError(r.status,data,'YouTube Data API v3');
   const c = data.items?.[0];
-  if (!c) throw new Error('Akun Google ini tidak memiliki channel YouTube yang dapat diakses');
+  if (!c) throw Object.assign(Error('Akun Google ini tidak memiliki channel YouTube yang dapat diakses. Pilih akun atau Brand Account pemilik channel.'),{status:404,code:'channel_missing'});
   return { id: c.id, title: c.snippet?.title || 'YouTube Channel', thumbnail: c.snippet?.thumbnails?.default?.url || null };
+}
+async function verifyYouTubeConnection(){
+ if(youtubeConnectionCheck)return youtubeConnectionCheck;
+ const generation=tokenGeneration;
+ const work=(async()=>{
+  let result;
+  try{
+   const token=await loadToken(),db=await readDb();
+   if(!token||token.reconnectRequired)throw authRequiredError();
+   const channel=await fetchChannel();
+   if(db.channel?.id&&channel.id!==db.channel.id)throw Object.assign(Error('Token terhubung ke channel berbeda. Hubungkan ulang dan pilih pemilik channel yang sesuai.'),{code:'channel_mismatch',status:409});
+   result={state:'ready',checkedAt:nowIso(),channelId:channel.id,message:'YouTube Data API berhasil membaca channel.',code:null};
+   if(generation!==tokenGeneration)throw Object.assign(Error('Channel berubah selama pemeriksaan.'),{code:'channel_changed',status:409});
+   const fresh=await readDb();fresh.channel=channel;fresh.youtubeConnection=result;
+   if(fresh.youtubeWorker?.code==='youtube_auth_required')fresh.youtubeWorker=null;
+   await writeDb(fresh);
+  }catch(error){
+   if(generation!==tokenGeneration)return {state:'changed',code:'channel_changed',message:'Koneksi berubah. Jalankan cek kembali.'};
+   const auth=isYouTubeAuthError(error);
+   result={state:auth?'reconnect_required':'error',code:error.code||'upstream_error',checkedAt:nowIso(),message:auth?authRequiredError().message:error.message};
+   const db=await readDb();db.youtubeConnection=result;await writeDb(db);
+  }
+  console.log('YouTube connection check:',JSON.stringify({state:result.state,code:result.code}));
+  return result;
+ })();youtubeConnectionCheck=work;
+ try{return await work;}finally{if(youtubeConnectionCheck===work)youtubeConnectionCheck=null;}
 }
 
 function validSchedule(value) {
@@ -735,7 +762,12 @@ async function syncScheduledJob(jobId) {
   let db = await readDb();
   const job = db.jobs.find(x => x.id === jobId);
   if (!job?.youtubeVideoId) return;
-  const status = await fetchYouTubeStatus(job.youtubeVideoId);
+  const generation=tokenGeneration,video=await youtubeManager.ownVideo(db.channel?.id,job.youtubeVideoId),status=video.status||{};
+  if(generation!==tokenGeneration)throw Object.assign(Error('Channel berubah saat memeriksa publikasi.'),{status:503});
+  if(job.contentId){
+    const content=(await contentStore.read()).contents.find(c=>c.id===job.contentId);
+    if(content)try{await contentStore.recordPublication(content.id,content.revision,video,()=>{if(generation!==tokenGeneration)throw Object.assign(Error('Channel berubah.'),{status:409});});}catch(e){if(e.status!==409)throw e;}
+  }
 
   if (status.privacyStatus === 'public') {
     db = await readDb();
@@ -760,16 +792,16 @@ async function workerTick(){
 setInterval(workerTick, WORKER_INTERVAL_MS).unref();
 setTimeout(workerTick, 1000).unref();
 let publicationBusy=false;
-async function publicationTick(){
- if(publicationBusy)return;publicationBusy=true;
+async function publicationTick(force=false){
+ if(publicationBusy)return {busy:true};publicationBusy=true;
  try{
   const db=await readDb(),token=await loadToken(),channelId=db.channel?.id,generation=tokenGeneration;
   if(!channelId||!token||token.reconnectRequired||db.youtubeWorker?.code==='youtube_auth_required'||Date.parse(db.youtubeWorker?.retryAt)>Date.now())return;
-  await syncLinkedPublications({store:contentStore,fetcher:youtubeFetch,channelId,guard:async()=>{if(generation!==tokenGeneration||(await readDb()).channel?.id!==channelId)throw Object.assign(Error('Channel berubah.'),{status:409});}});
- }catch(e){console.warn('Publication sync:',e.code||e.status||'upstream_error');}finally{publicationBusy=false;}
+  return await withUploadLock(()=>syncLinkedPublications({store:contentStore,fetcher:youtubeFetch,channelId,jobs:db.jobs,force,guard:async()=>{if(generation!==tokenGeneration||(await readDb()).channel?.id!==channelId)throw Object.assign(Error('Channel berubah.'),{status:409});}}));
+ }catch(e){console.warn('Publication sync:',e.code||e.status||'upstream_error');if(force)throw e;return {error:true};}finally{publicationBusy=false;}
 }
-setInterval(publicationTick,15*60000).unref();
-setTimeout(publicationTick,5000).unref();
+setInterval(publicationTick,5*60000).unref();
+setTimeout(async()=>{try{if((await readDb()).channel?.id&&await loadToken()){const r=await verifyYouTubeConnection();if(r.state==='ready')await publicationTick(true);}}catch{}},1500).unref();
 
 async function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
@@ -878,14 +910,28 @@ const server = http.createServer(async (req, res) => {
       }
       return json(res, 200, {
         channel: db.channel,
-        youtubeConnected: !!token&&!token.reconnectRequired,
+        youtubeConnected: !!token&&!token.reconnectRequired&&db.youtubeConnection?.state!=='error'&&db.youtubeConnection?.state!=='reconnect_required',
         youtubeAuth:token?.reconnectRequired?'reconnect_required':token?'connected':'not_connected',
+        youtubeConnection:db.youtubeConnection||null,
+        youtubeOAuth:db.youtubeOAuth||null,
         analyticsAuthorized: hasAnalyticsAccess(await loadAnalyticsToken()),
         monetaryAuthorized: hasMonetaryAccess(await loadAnalyticsToken()),
         youtubeWorker:db.youtubeWorker||null,
         jobs: db.jobs.map(publicJob).sort((a, b) => b.createdAt.localeCompare(a.createdAt)),
         redirectUri: `${APP_URL}/auth/google/callback`
       });
+    }
+
+    if(req.method==='POST'&&pathname==='/api/youtube/check'){
+      const db=await readDb();
+      const recent=db.youtubeConnection&&Date.now()-Date.parse(db.youtubeConnection.checkedAt)<30000;
+      const connection=recent?db.youtubeConnection:await verifyYouTubeConnection();
+      return json(res,200,{connection});
+    }
+    if(req.method==='POST'&&pathname==='/api/youtube/sync-publications'){
+      const connection=await verifyYouTubeConnection();
+      if(connection.state!=='ready')return json(res,409,{error:connection.message,code:connection.code});
+      return json(res,200,await publicationTick(true)||{updated:0});
     }
 
     if (pathname === '/api/analytics/sync' && req.method === 'POST') {
@@ -1105,7 +1151,7 @@ const server = http.createServer(async (req, res) => {
         response_type: 'code',
         scope: (includeAnalytics ? [...ANALYTICS_SCOPES,...(monetary?[MONETARY_SCOPE]:[])] : [YOUTUBE_SCOPE]).join(' '),
         access_type: 'offline',
-        prompt: 'consent',
+        prompt: 'select_account consent',
         include_granted_scopes: 'true',
         state
       });
@@ -1121,7 +1167,11 @@ const server = http.createServer(async (req, res) => {
       if (!state || !safeEqual(state, expected))
         return text(res, 400, 'OAuth state tidak valid. Ulangi proses koneksi.');
       const returnTo = state.startsWith('analytics.') ? '&view=analytics' : '';
-      if (u.searchParams.get('error')) return redirect(res, '/?oauth=denied' + returnTo);
+      if (u.searchParams.get('error')) {
+        const db=await readDb();db.youtubeOAuth={state:'denied',at:nowIso(),message:'Izin Google belum diberikan. Pilih akun pemilik channel dan setujui izin YouTube yang diminta.'};await writeDb(db);
+        console.log('YouTube OAuth: denied');
+        return redirect(res, '/?oauth=denied' + returnTo);
+      }
       const code = u.searchParams.get('code');
       if (!code) return text(res, 400, 'Authorization code tidak ditemukan.');
       const isAnalytics = state.startsWith('analytics.');
@@ -1144,7 +1194,7 @@ const server = http.createServer(async (req, res) => {
         await validateAnalyticsChannel(tok.access_token, db.channel.id);
         const previous = await loadAnalyticsToken();
         const previousScopes = new Set(String(previous?.scope || '').split(/\s+/));
-        if (!tok.refresh_token && previous?.channel_id === db.channel.id && [...granted].every(s => previousScopes.has(s))) tok.refresh_token = previous?.refresh_token;
+        if (!tok.refresh_token && !previous?.reconnectRequired && previous?.channel_id === db.channel.id && [...granted].every(s => previousScopes.has(s))) tok.refresh_token = previous?.refresh_token;
         if (!tok.refresh_token) return redirect(res, '/?view=analytics&oauth=offline_required');
         tok.channel_id = db.channel.id;
         analyticsTokenGeneration++; refreshPromises.delete('analytics'); analytics.clear();
@@ -1157,17 +1207,22 @@ const server = http.createServer(async (req, res) => {
       const channel = await fetchChannel(tok.access_token);
       const previous = await loadToken();
       const previousScopes = new Set(String(previous?.scope || '').split(/\s+/));
-      if (!tok.refresh_token && db.channel?.id === channel.id && [...granted].every(s => previousScopes.has(s))) tok.refresh_token = previous?.refresh_token;
+      if (!tok.refresh_token && !previous?.reconnectRequired && db.channel?.id === channel.id && [...granted].every(s => previousScopes.has(s))) tok.refresh_token = previous?.refresh_token;
       if (!tok.refresh_token) return text(res, 400, 'Google belum memberikan izin akses offline. Koneksi sebelumnya dipertahankan. Ulangi proses Hubungkan YouTube / Analytics.');
       tokenGeneration++; analyticsTokenGeneration++; refreshPromises.clear(); analytics.clear();
       await saveToken(tok);
       if (db.channel?.id !== channel.id) await deleteToken('analytics');
       db.channel = channel;
+      db.youtubeConnection={state:'ready',checkedAt:nowIso(),channelId:channel.id,code:null,message:'YouTube Data API berhasil membaca channel.'};
+      db.youtubeOAuth={state:'ready',at:nowIso(),message:'Izin YouTube berhasil disimpan.'};
       if(db.youtubeWorker?.code==='youtube_auth_required')db.youtubeWorker=null;
       await writeDb(db);
+      console.log('YouTube OAuth: connected');
+      void publicationTick(true).catch(()=>{});
       return redirect(res, '/?oauth=ok' + returnTo, { 'set-cookie': 'yt_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' + (APP_URL.startsWith('https://') ? '; Secure' : '') });
       } catch (e) {
         if (isAnalytics) return redirect(res, '/?view=analytics&oauth=' + encodeURIComponent(e.code || 'connection_failed'));
+        console.log('YouTube OAuth: failed',e.code||'connection_failed');
         throw e;
       }
     }
@@ -1179,6 +1234,7 @@ const server = http.createServer(async (req, res) => {
       const db = await readDb();
       if(db.channel?.id)await analytics.store.remove(db.channel.id);
       db.channel = null;
+      db.youtubeConnection=null;db.youtubeOAuth=null;db.youtubeWorker=null;
       await writeDb(db);
       return json(res, 200, { ok: true });
     }
