@@ -256,6 +256,10 @@ Startup membuat backup PostgreSQL manual atau contents.radar-v<versi-asal>.backu
 
 Rujukan API YouTube: https://developers.google.com/youtube/v3/docs/search/list dan https://developers.google.com/youtube/v3/docs/videos/list.
 
+### Pemulihan tampilan konten (4.23.2)
+
+Konten lama, draft baru dan upload tanpa konten dapat dimuat tanpa snapshot publikasi. Snapshot hanya dipakai ketika ada ID video tertaut yang sesuai; data kosong tidak dianggap Tayang. Tes regresi mencakup Dashboard, Kalender bulan/minggu/agenda, Kanban dan Semua Konten dengan data campuran tanpa mengubah data tersimpan.
+
 ### Koneksi dan kalender publikasi (4.23.1)
 
 Banner koneksi YouTube tersedia di semua halaman, dengan Cek API YouTube dan Sinkronkan status tayang. Pemeriksaan memakai channels.list dengan OAuth tersimpan, membedakan kredensial tersimpan dari API yang sudah diuji, serta menjelaskan penolakan izin atau channel yang berbeda. Pemulihan menampilkan pemilih akun dan consent; refresh token yang sudah dicabut tidak dipakai ulang jika Google tidak mengirim pengganti. Diagnostik aman dijalankan saat startup tanpa mencatat kredensial.

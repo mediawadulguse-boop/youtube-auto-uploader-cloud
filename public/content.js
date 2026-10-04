@@ -17,15 +17,15 @@ function keyUTC(date){return date.toISOString().slice(0,10)}
 hub.date=calendarDate(dayKey());
 function pillar(c){return hub.data.pillars.find(p=>p.id===c.pillarId)}
 function pillarTag(c){const p=pillar(c);return `<span class="pillar-tag" style="--pillar:${p?.color||'#a9b2c1'}">${esc(p?.name||'Tanpa pilar')}</span>`}
-function linkedJob(c){return state.server?.jobs.find(j=>j.contentId===c.id&&j.status!=='cancelled')}
+function linkedJob(c){return state.server?.jobs?.find(j=>j.contentId===c.id&&j.status!=='cancelled')}
 function activeJob(c){const j=linkedJob(c);return j&&!['failed','cancelled'].includes(j.status)?j:null}
-function publicationState(c){const p=c.youtubePublication;if(p?.videoId===c.youtubeVideoId)return p.status;const j=linkedJob(c);return j?.status||(c.youtubeVideoId?'linked_youtube':'not_uploaded')}
+function publicationState(c){const p=c.youtubePublication;if(c.youtubeVideoId&&p?.videoId===c.youtubeVideoId&&p.status)return p.status;const j=linkedJob(c);return j?.status||(c.youtubeVideoId?'linked_youtube':'not_uploaded')}
 function publication(c){return PUBLICATION_STATUS[publicationState(c)]?.label||statusLabel(publicationState(c))}
 function formatBadge(format){const value=Object.hasOwn(FORMAT_NAMES,format)?format:'unset';return `<span class="video-format video-format-${value}" title="Kategori video: ${FORMAT_NAMES[value]||'Belum dipilih'}" aria-label="Kategori video: ${FORMAT_NAMES[value]||'Belum dipilih'}">${FORMAT_NAMES[value]||'Belum dipilih'}</span>`}
 function productionBadge(c){return statusBadge('production',c.stage)}
 function publicationBadge(c){return statusBadge('publication',publicationState(c))}
 function contentStatusRow(c){return `<div class="content-status-row">${productionBadge(c)}${publicationBadge(c)}</div>`}
-function eventDate(c){const p=c.youtubePublication?.videoId===c.youtubeVideoId?c.youtubePublication:null;return hub.calendarField==='deadline'?c.deadline:(p?.publishedAt||p?.scheduledAt||activeJob(c)?.scheduledAt||c.plannedPublishAt)}
+function eventDate(c){const p=c.youtubeVideoId&&c.youtubePublication?.videoId===c.youtubeVideoId?c.youtubePublication:null;return hub.calendarField==='deadline'?c.deadline:(p?.publishedAt||p?.scheduledAt||activeJob(c)?.scheduledAt||c.plannedPublishAt)}
 function filtered(){const q=$('#contentSearch').value.toLocaleLowerCase('id-ID').trim(),p=$('#pillarFilter').value,s=$('#stageFilter').value,f=$('#formatFilter').value,arch=$('#archiveFilter').checked;return hub.data.contents.filter(c=>c.archived===arch&&(!q||(c.title+' '+c.owner).toLocaleLowerCase('id-ID').includes(q))&&(!p||c.pillarId===p)&&(!s||c.stage===s)&&(!f||c.format===f))}
 function options(values,selected=''){return values.map(([v,label])=>`<option value="${esc(v)}"${v===selected?' selected':''}>${esc(label)}</option>`).join('')}
 function updateFilters(){const p=$('#pillarFilter'),s=$('#stageFilter');p.innerHTML=options([['','Semua pilar'],...hub.data.pillars.map(p=>[p.id,p.name])],p.value);s.innerHTML=options([['','Semua tahap'],...Object.entries(STAGE_NAMES)],s.value)}
@@ -228,7 +228,7 @@ hubForm.onclick=async e=>{const el=e.target.closest('[data-remove-material],[dat
 function renderEditorMeta(){
  if(!hub.editing)return;renderEditorProgress();
  for(const id of ['duplicateContent','archiveContent','deleteContent','reloadContent'])$('#'+id).disabled=!!hub.editing.isNew;
- const c=hub.editing.content,j=linkedJob(c),p=c.youtubePublication?.videoId===c.youtubeVideoId?c.youtubePublication:null;
+ const c=hub.editing.content,j=linkedJob(c),p=c.youtubeVideoId&&c.youtubePublication?.videoId===c.youtubeVideoId?c.youtubePublication:null;
  $('#editorStatusBadges').innerHTML=contentStatusRow(c);formValue('plannedPublishAt').disabled=!!activeJob(c)||!!c.youtubeVideoId;
  const reconnect=state.server?.youtubeAuth==='reconnect_required'||(!state.server?.youtubeConnected&&state.server?.youtubeWorker?.code==='youtube_auth_required')||(!state.server?.youtubeConnected&&/Token has been expired or revoked|invalid_grant/i.test(j?.error||''));
  $('#contentPublication').innerHTML=(reconnect?'<div class="notice"><span>Izin Google/YouTube kedaluwarsa atau dicabut. Hubungkan ulang sebelum upload atau cek status. File antrean dan naskah tetap tersimpan.</span><a class="btn mini" href="/auth/google">Hubungkan ulang YouTube</a></div>':'')+(p?`<div class="notice"><span>${publicationBadge(c)} · Diperiksa ${dateWib(p.checkedAt)}${p.scheduledAt?' · Tayang '+dateWib(p.scheduledAt):''}</span><a class="btn mini" target="_blank" rel="noopener" href="https://studio.youtube.com/video/${encodeURIComponent(c.youtubeVideoId)}/edit">YouTube Studio</a></div>`:j?`<div class="notice"><span>${statusBadge('publication',j.status)} · ${dateWib(j.scheduledAt)}${j.error?' · '+esc(j.error):''}</span>${j.youtubeVideoId?`<a class="btn mini" target="_blank" rel="noopener" href="https://studio.youtube.com/video/${encodeURIComponent(j.youtubeVideoId)}/edit">YouTube Studio</a>`:''}${j.status==='failed'&&!reconnect?'<button type="button" class="btn mini" data-content-retry>Ulangi antrean tersimpan</button>':''}</div>`:c.youtubeVideoId?`<div class="notice">Video sudah terhubung. Klik Cek status untuk membaca visibilitas dari YouTube.</div>`:'<div class="empty" style="margin-bottom:15px">Belum ada video terhubung. Upload manual dapat ditautkan di bawah.</div>');

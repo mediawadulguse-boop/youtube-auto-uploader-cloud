@@ -67,6 +67,24 @@ test('calendar shows actual publication over an old failed queue and uses actual
  const c={id:'one',title:'Published',stage:'ready',youtubeVideoId:a,youtubePublication:{videoId:a,status:'published',publishedAt:'2026-10-04T12:00:00Z'},plannedPublishAt:'2026-10-03T12:00:00Z'};
  assert.equal(context.eventDate(c),'2026-10-04T12:00:00Z');const card=context.calendarEvent({...c,eventAt:context.eventDate(c)});assert.match(card,/badge:published/);assert.ok(!card.includes('badge:failed'));assert.ok(!card.includes('production:ready'));assert.ok(!card.includes('draggable="true"'));
 });
+test('unpublished contents and standalone uploads render dashboard, calendar, Kanban and library without publication snapshots',async()=>{
+ const code=await fs.readFile('public/content.js','utf8'),elements=new Map(),$=selector=>{if(!elements.has(selector))elements.set(selector,{value:'',checked:false,innerHTML:''});return elements.get(selector);};
+ const contents=[{id:'legacy',title:'Legacy draft',stage:'idea',owner:'',archived:false,plannedPublishAt:'2026-10-06T00:00:00Z'},{id:'new',title:'New draft',stage:'idea',owner:'',archived:false,youtubeVideoId:null,youtubePublication:null,plannedPublishAt:'2026-10-06T01:00:00Z'}];
+ const context={$,state:{server:{jobs:[{id:'standalone',title:'Standalone upload',status:'scheduled_youtube',scheduledAt:'2026-10-06T02:00:00Z'}]}},hub:{data:{contents,pillars:[],columns:[{id:'idea'}]},date:new Date('2026-10-06T00:00:00Z'),mode:'month',calendarField:'publish'},STAGE_NAMES:{idea:'Ide'},FORMAT_NAMES:{long:'Long'},statusBadge:(kind,value)=>'badge:'+value,pillar:()=>null,pillarTag:()=>'',progressSummary:()=>'',hubIcon:()=>'',esc:v=>v,isDoneStage:()=>false,document:{activeElement:null}};vm.createContext(context);
+ vm.runInContext(code.slice(code.indexOf('const wibParts'),code.indexOf('hub.date=calendarDate')),context);
+ vm.runInContext(code.slice(code.indexOf('function linkedJob('),code.indexOf('async function loadHub(')),context);
+ vm.runInContext(code.slice(code.indexOf('function card('),code.indexOf('function showComposer(')),context);
+ vm.runInContext(code.slice(code.indexOf('function calendarEvents('),code.indexOf('function renderSettings(')),context);
+ for(const c of contents)assert.equal(context.publicationState(c),'not_uploaded');
+ assert.equal(context.publicationState({id:'linked',youtubeVideoId:a}),'linked_youtube');
+ assert.equal(context.publicationState({id:'broken',youtubePublication:{status:'published'}}),'not_uploaded');
+ const body={innerHTML:'',querySelector:()=>({scrollLeft:0}),querySelectorAll:()=>[]};
+ context.renderDashboard(body);assert.match(body.innerHTML,/Konten aktif/);
+ for(const mode of ['month','week','agenda']){context.hub.mode=mode;context.renderCalendar(body);assert.match($('#calendarContent').innerHTML,/Legacy draft/);assert.match($('#calendarContent').innerHTML,/badge:not_uploaded/);assert.match($('#calendarContent').innerHTML,/Standalone upload/);assert.match($('#calendarContent').innerHTML,/badge:scheduled_youtube/);}
+ context.renderKanban(body);assert.match(body.innerHTML,/Legacy draft/);assert.match(body.innerHTML,/badge:not_uploaded/);
+ context.renderLibrary(body);assert.match(body.innerHTML,/New draft/);assert.match(body.innerHTML,/badge:not_uploaded/);
+ context.state.server={};assert.equal(context.publicationState(contents[0]),'not_uploaded');
+});
 test('revoked refresh token pauses worker without failing queue or discarding resumable upload, including across restart',async()=>{
  const db={jobs:[{id:'queued',status:'uploading_youtube',receivedBytes:10,fileSize:10,youtubeUploadOffset:5,order:1}]};let calls=0;
  const deps={readDb:async()=>db,writeDb:async()=>{},upload:async()=>{calls++;throw authRequiredError();}};

@@ -1,6 +1,6 @@
 {
   "name": "youtube-auto-uploader-cloud",
-  "version": "4.23.1",
+  "version": "4.23.2",
   "private": true,
   "type": "module",
   "engines": {
