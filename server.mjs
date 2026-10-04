@@ -26,6 +26,8 @@ import { StudioAnalytics, MONETARY_SCOPE, hasMonetaryAccess } from './studio-ana
 import { PostgresStorage } from './postgres-store.mjs';
 import { gzipSync } from 'node:zlib';
 import { APP_VERSION, RELEASES } from './releases.mjs';
+import {fillContentWithEngine,CONTENT_ENGINE_VERSION} from './content-engine.mjs';
+import {videoIdFromInput,authRequiredError,isYouTubeAuthError,syncLinkedPublications} from './youtube-publication.mjs';
 
 const PORT = Number(process.env.PORT || 3000);
 const APP_URL = (process.env.APP_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -110,6 +112,13 @@ if(radarBefore.radar && radarBefore.radar.clusteringVersion!==RADAR_METHOD.versi
  console.log('Radar methodology:',JSON.stringify(await radarStore.recluster()));
 }
 console.log('Radar status:',JSON.stringify({methodology:RADAR_METHOD.version,...(await radarStore.read()).radarSummary}));
+if(radarBefore.contentEngineVersion!==CONTENT_ENGINE_VERSION){
+ if(radarBefore.contents.length){
+  if(storage)await storage.backup('manual');
+  else await fsp.copyFile(contentStore.file,path.join(DATA_DIR,'contents.before-engine-v1.backup.json'),fs.constants.COPYFILE_EXCL).catch(e=>{if(e.code!=='EEXIST')throw e;});
+ }
+ console.log('Content engine:',JSON.stringify(await contentStore.fillEmptyWithEngine()));
+}
 let backupBusy=false;
 async function backupTick(){if(!storage||backupBusy)return;backupBusy=true;try{await storage.backup('daily')}catch(e){console.error('Backup:',e.code||'backup_failed')}finally{backupBusy=false}}
 setInterval(backupTick,3600000).unref();
@@ -305,23 +314,32 @@ async function oauthToken(params) {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body, signal: AbortSignal.timeout(20_000)
   });
   const data = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(`OAuth token gagal (${r.status}): ${data.error_description || data.error || 'unknown error'}`);
+  if (!r.ok) {
+    if(data.error==='invalid_grant')throw authRequiredError();
+    throw Object.assign(Error(`OAuth token gagal (${r.status}). Periksa konfigurasi Google atau coba kembali.`),{status:502,code:'oauth_token_error'});
+  }
   return data;
 }
 async function getAccessToken(kind = 'upload') {
   const token = kind === 'analytics' ? await loadAnalyticsToken() : await loadToken();
-  if (!token?.refresh_token && !token?.access_token) throw new Error('Akun YouTube belum terhubung');
+  if(token?.reconnectRequired)throw authRequiredError();
+  if (!token?.refresh_token && !token?.access_token) throw authRequiredError();
   if (token.access_token && token.expires_at && token.expires_at > Date.now() + 60_000) return token.access_token;
   if (!token.refresh_token) return token.access_token;
   if (refreshPromises.has(kind)) return refreshPromises.get(kind);
   const generation = tokenVersion(kind);
   const work = (async () => {
-  const fresh = await oauthToken({
+  let fresh;
+  try { fresh = await oauthToken({
     client_id: GOOGLE_CLIENT_ID,
     client_secret: GOOGLE_CLIENT_SECRET,
     refresh_token: token.refresh_token,
     grant_type: 'refresh_token'
-  });
+  }); } catch(error) {
+    if(generation!==tokenVersion(kind))throw Object.assign(Error('Koneksi YouTube berubah. Ulangi permintaan.'),{status:503});
+    if(isYouTubeAuthError(error)&&generation===tokenVersion(kind))await saveToken({...token,reconnectRequired:true},generation,kind);
+    throw error;
+  }
   const merged = {
     ...token, ...fresh,
     refresh_token: fresh.refresh_token || token.refresh_token,
@@ -335,6 +353,7 @@ async function getAccessToken(kind = 'upload') {
   try { return await work; } finally { if (refreshPromises.get(kind) === work) refreshPromises.delete(kind); }
 }
 async function youtubeFetch(url, options = {}, retryAuth = true, kind = 'upload') {
+  const generation=tokenVersion(kind);
   const access = await getAccessToken(kind);
   const headers = new Headers(options.headers || {});
   headers.set('authorization', `Bearer ${access}`);
@@ -343,6 +362,12 @@ async function youtubeFetch(url, options = {}, retryAuth = true, kind = 'upload'
     const token = kind === 'analytics' ? await loadAnalyticsToken() : await loadToken();
     if (token?.access_token === access) { token.expires_at = 0; await saveToken(token, tokenVersion(kind), kind); }
     return youtubeFetch(url, options, false, kind);
+  }
+  if(r.status===401){
+    if(generation!==tokenVersion(kind))throw Object.assign(Error('Koneksi YouTube berubah. Ulangi permintaan.'),{status:503});
+    const token=kind==='analytics'?await loadAnalyticsToken():await loadToken();
+    if(token&&generation===tokenVersion(kind)&&token.access_token===access)await saveToken({...token,reconnectRequired:true},generation,kind);
+    throw authRequiredError();
   }
   return r;
 }
@@ -372,10 +397,11 @@ function validSchedule(value) {
 }
 
 let jobCreateChain = Promise.resolve();
+function withUploadLock(fn){
+  const work=jobCreateChain.catch(()=>{}).then(fn);jobCreateChain=work;return work;
+}
 function createJob(body) {
-  const work = jobCreateChain.catch(() => {}).then(() => createJobUnlocked(body));
-  jobCreateChain = work;
-  return work;
+  return withUploadLock(()=>createJobUnlocked(body));
 }
 async function createJobUnlocked(body) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw Object.assign(new Error('Data upload tidak valid'), { status: 400 });
@@ -733,6 +759,17 @@ async function workerTick(){
 }
 setInterval(workerTick, WORKER_INTERVAL_MS).unref();
 setTimeout(workerTick, 1000).unref();
+let publicationBusy=false;
+async function publicationTick(){
+ if(publicationBusy)return;publicationBusy=true;
+ try{
+  const db=await readDb(),token=await loadToken(),channelId=db.channel?.id,generation=tokenGeneration;
+  if(!channelId||!token||token.reconnectRequired||db.youtubeWorker?.code==='youtube_auth_required'||Date.parse(db.youtubeWorker?.retryAt)>Date.now())return;
+  await syncLinkedPublications({store:contentStore,fetcher:youtubeFetch,channelId,guard:async()=>{if(generation!==tokenGeneration||(await readDb()).channel?.id!==channelId)throw Object.assign(Error('Channel berubah.'),{status:409});}});
+ }catch(e){console.warn('Publication sync:',e.code||e.status||'upstream_error');}finally{publicationBusy=false;}
+}
+setInterval(publicationTick,15*60000).unref();
+setTimeout(publicationTick,5000).unref();
 
 async function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
@@ -834,10 +871,15 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'GET' && pathname === '/api/state') {
       const db = await readDb();
-      const token = await loadToken();
+      let token = await loadToken();
+      // Migrate known failed refreshes from older releases once; do not poll Google on every refresh.
+      if(token&&!token.reconnectRequired&&db.jobs.some(j=>isYouTubeAuthError({message:j.error}))&&!(token.expires_at>Date.now())){
+        try{await getAccessToken();}catch{}token=await loadToken();
+      }
       return json(res, 200, {
         channel: db.channel,
-        youtubeConnected: !!token,
+        youtubeConnected: !!token&&!token.reconnectRequired,
+        youtubeAuth:token?.reconnectRequired?'reconnect_required':token?'connected':'not_connected',
         analyticsAuthorized: hasAnalyticsAccess(await loadAnalyticsToken()),
         monetaryAuthorized: hasMonetaryAccess(await loadAnalyticsToken()),
         youtubeWorker:db.youtubeWorker||null,
@@ -890,12 +932,14 @@ const server = http.createServer(async (req, res) => {
       else if(action==='playlists'&&req.method==='GET')result=await youtubeManager.playlists(channelId,id);
       else if(action==='playlists'&&req.method==='POST')result=await youtubeManager.addPlaylist(channelId,id,await readJson(req));
       else if(action==='production'&&req.method==='POST'){
-        const body=await readJson(req),catalog=await analytics.store.read(channelId),video=catalog.videos[id];
-        if(video?.snippet?.channelId!==channelId)await youtubeManager.ownVideo(channelId,id);
-        const data=await contentStore.read();
-        if(body.contentId){const content=data.contents.find(c=>c.id===body.contentId);if(!content)throw Object.assign(Error('Konten tidak ditemukan.'),{status:404});if(content.youtubeVideoId&&content.youtubeVideoId!==id)throw Object.assign(Error('Konten sudah terhubung ke video lain.'),{status:409});result={content:await contentStore.update(content.id,{revision:body.revision,youtubeVideoId:id})};}
-        else{const old=data.contents.find(c=>c.youtubeVideoId===id);result={content:old||await contentStore.create({title:body.title,youtubeVideoId:id,format:body.format||'other',pillarId:body.pillarId||''})};}
-        analytics.cache.clear();
+        result=await withUploadLock(async()=>{
+        const body=await readJson(req),video=await youtubeManager.ownVideo(channelId,id);
+        const data=await contentStore.read(),currentDb=await readDb();
+        const guard=()=>{if(generation!==tokenGeneration)throw Object.assign(Error('Channel berubah. Ulangi.'),{status:409});};
+        if(body.contentId){const content=data.contents.find(c=>c.id===body.contentId);if(!content)throw Object.assign(Error('Konten tidak ditemukan.'),{status:404});if(content.youtubeVideoId&&content.youtubeVideoId!==id)throw Object.assign(Error('Konten sudah terhubung ke video lain.'),{status:409});if(currentDb.jobs.some(j=>j.contentId===content.id&&!['failed','cancelled','published'].includes(j.status)&&j.youtubeVideoId!==id))throw Object.assign(Error('Batalkan antrean upload aktif sebelum menautkan video manual.'),{status:409});result={content:await contentStore.recordPublication(content.id,body.revision,video,guard)};}
+        else{guard();const old=data.contents.find(c=>c.youtubeVideoId===id);const created=old||await contentStore.create({title:body.title,format:body.format||'other',pillarId:body.pillarId||'',description:video.snippet.description||'',tags:(video.snippet.tags||[]).join(', ')});result={content:await contentStore.recordPublication(created.id,created.revision,video,guard)};}
+        analytics.cache.clear();return result;
+        });
       } else return json(res,405,{error:'Metode tidak didukung.'});
       if(generation!==tokenGeneration)return json(res,409,{error:'Koneksi channel berubah. Muat ulang.'});
       return json(res,200,result,{'cache-control':'no-store'});
@@ -965,7 +1009,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && pathname === '/api/contents') {
       const data = await contentStore.read();
-      const fields = ['id','title','stage','pillarId','format','priority','owner','deadline','plannedPublishAt','checklist','archived','revision','createdAt','updatedAt','youtubeVideoId'];
+      const fields = ['id','title','stage','pillarId','format','priority','owner','deadline','plannedPublishAt','checklist','archived','revision','createdAt','updatedAt','youtubeVideoId','youtubePublication'];
       return json(res, 200, {
         pillars: data.pillars, stages: data.columns.map(c=>c.id), columns: data.columns, boardRevision: data.boardRevision,
         contents: data.contents.map(c => ({ ...Object.fromEntries(fields.map(k => [k,c[k]])), scriptLength: c.script.length }))
@@ -995,14 +1039,35 @@ const server = http.createServer(async (req, res) => {
       if(req.method==='DELETE'){const body=await readJson(req);return json(res,200,await notesStore.remove(id,body?.revision));}
     }
     if (req.method === 'POST' && pathname === '/api/contents')
-      return json(res, 201, { content: await contentStore.create(await readJson(req,WRITING_PAYLOAD_BYTES)) });
+      return json(res, 201, { content: await contentStore.create(await readJson(req,WRITING_PAYLOAD_BYTES),{fillEngine:true}) });
     if (req.method === 'POST' && pathname === '/api/pillars')
       return json(res, 200, { pillar: await contentStore.savePillar(await readJson(req)) });
-    const contentMatch = pathname.match(/^\/api\/contents\/([0-9a-f-]+)(?:\/(duplicate))?$/i);
+    if(pathname==='/api/contents/engine-preview'&&req.method==='POST'){
+      const body=await readJson(req,WRITING_PAYLOAD_BYTES);
+      if(!body||typeof body.title!=='string'||!body.title.trim()||['script','brief','hook','cta','description','tags','productionNotes','audience'].some(k=>body[k]!==undefined&&typeof body[k]!=='string')||body.sources!==undefined&&(!Array.isArray(body.sources)||body.sources.length>100||body.sources.some(s=>!s||['label','notes','url'].some(k=>s[k]!==undefined&&typeof s[k]!=='string'))))return json(res,400,{error:'Isi judul dan bahan konten yang valid.'});
+      return json(res,200,fillContentWithEngine(body));
+    }
+    const contentMatch = pathname.match(/^\/api\/contents\/([0-9a-f-]+)(?:\/(duplicate|publication))?$/i);
     if (contentMatch) {
       const contentId = contentMatch[1];
       if (contentMatch[2] === 'duplicate' && req.method === 'POST')
         return json(res, 201, { content: await contentStore.duplicate(contentId) });
+      if(contentMatch[2]==='publication'&&req.method==='POST'){
+        const body=await readJson(req),data=await contentStore.read(),content=data.contents.find(c=>c.id===contentId);
+        if(!content)return json(res,404,{error:'Konten tidak ditemukan.'});
+        if(!body||body.revision!==content.revision)return json(res,409,{error:'Konten berubah. Muat versi terbaru sebelum menghubungkan video.'});
+        const id=videoIdFromInput(body.video||content.youtubeVideoId),db=await readDb(),channelId=db.channel?.id,generation=tokenGeneration;
+        if(!channelId)throw authRequiredError();
+        if(content.youtubeVideoId&&content.youtubeVideoId!==id)return json(res,409,{error:'Konten sudah terhubung ke video lain.'});
+        if(db.jobs.some(j=>j.contentId===contentId&&!['failed','cancelled','published'].includes(j.status)&&j.youtubeVideoId!==id))return json(res,409,{error:'Konten masih memiliki antrean upload aktif. Batalkan antrean sebelum menautkan unggahan manual.'});
+        const video=await youtubeManager.ownVideo(channelId,id);
+        const result=await withUploadLock(async()=>{
+          const fresh=await readDb();
+          if(fresh.jobs.some(j=>j.contentId===contentId&&!['failed','cancelled','published'].includes(j.status)&&j.youtubeVideoId!==id))throw Object.assign(Error('Antrean upload berubah. Batalkan antrean sebelum menautkan video manual.'),{status:409});
+          return contentStore.recordPublication(contentId,body.revision,video,async()=>{if(generation!==tokenGeneration||(await readDb()).channel?.id!==channelId)throw Object.assign(Error('Channel berubah. Ulangi pengecekan.'),{status:409});});
+        });
+        return json(res,200,{content:result});
+      }
       if (!contentMatch[2] && req.method === 'GET') {
         const data = await contentStore.read();
         const content = data.contents.find(c => c.id === contentId);
@@ -1098,6 +1163,7 @@ const server = http.createServer(async (req, res) => {
       await saveToken(tok);
       if (db.channel?.id !== channel.id) await deleteToken('analytics');
       db.channel = channel;
+      if(db.youtubeWorker?.code==='youtube_auth_required')db.youtubeWorker=null;
       await writeDb(db);
       return redirect(res, '/?oauth=ok' + returnTo, { 'set-cookie': 'yt_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' + (APP_URL.startsWith('https://') ? '; Secure' : '') });
       } catch (e) {
@@ -1148,6 +1214,7 @@ const server = http.createServer(async (req, res) => {
 
     if (req.method === 'POST' && pathname === '/api/jobs') {
       const body = await readJson(req);
+      await getAccessToken();
       const job = await createJob(body);
       return json(res, 201, { job: publicJob(job) });
     }
@@ -1182,6 +1249,9 @@ const server = http.createServer(async (req, res) => {
       const job = db.jobs.find(x => x.id === retryMatch[1]);
       if (!job) return json(res, 404, { error: 'Job tidak ditemukan' });
       if (job.status === 'failed' && job.receivedBytes === job.fileSize) {
+        await getAccessToken();
+        const content=(await contentStore.read()).contents.find(c=>c.id===job.contentId);
+        if(content?.youtubeVideoId&&content.youtubeVideoId!==job.youtubeVideoId)return json(res,409,{error:'Konten sudah terhubung ke unggahan manual. Antrean lama tidak diulang agar video tidak terduplikasi.'});
         job.status = job.youtubeVideoId ? 'waiting_publish' : 'queued_upload';
         job.error = null;
         job.updatedAt = nowIso();

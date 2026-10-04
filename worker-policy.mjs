@@ -1,4 +1,6 @@
+import {isYouTubeAuthError,authRequiredError} from './youtube-publication.mjs';
 export function workerFailure(error,now=Date.now()){
+  if(isYouTubeAuthError(error))return {code:'youtube_auth_required',retryAt:null,message:authRequiredError().message};
   const message=String(error?.message||'Worker gagal'),code=String(error?.code||'');
   const quota=code==='quota_exceeded'||/quota|dailyLimitExceeded|RESOURCE_EXHAUSTED/i.test(message);
   const transient=quota||['network_error','ETIMEDOUT','ECONNRESET','ECONNREFUSED'].includes(code)||[429,502,503,504].includes(error?.status)||['TimeoutError','AbortError'].includes(error?.name)||/fetch failed|network|sementara|terlalu lama|rate.?limit/i.test(message);
@@ -17,6 +19,7 @@ export async function runUploadWorker({readDb,writeDb,upload,schedule,sync,now=D
   let selected=null,kind=null;
   try{
     const db=await readDb(),time=now();
+    if(db.youtubeWorker?.code==='youtube_auth_required')return {state:'paused',code:'youtube_auth_required'};
     if(db.youtubeWorker?.retryAt&&Date.parse(db.youtubeWorker.retryAt)>time)return {state:'paused',retryAt:db.youtubeWorker.retryAt};
     const available=j=>!j.nextWorkerAt||Date.parse(j.nextWorkerAt)<=time;
     selected=db.jobs.filter(j=>j.status==='waiting_publish'&&j.youtubeVideoId&&available(j)).sort((a,b)=>Date.parse(a.scheduledAt)-Date.parse(b.scheduledAt))[0];
@@ -34,8 +37,8 @@ export async function runUploadWorker({readDb,writeDb,upload,schedule,sync,now=D
     const failure=workerFailure(error,now());onError(failure);
     if(!selected)return {state:'error',...failure};
     const fresh=await readDb(),job=fresh.jobs.find(j=>j.id===selected.id);
-    if(job){job.error=failure.message;job.updatedAt=new Date(now()).toISOString();job.nextWorkerAt=failure.retryAt;if(!failure.retryAt)job.status='failed';}
-    if(failure.code==='quota_exceeded')fresh.youtubeWorker={retryAt:failure.retryAt,code:failure.code,message:failure.message};
+    if(job){job.error=failure.message;job.updatedAt=new Date(now()).toISOString();job.nextWorkerAt=failure.retryAt;if(!failure.retryAt&&failure.code!=='youtube_auth_required')job.status='failed';}
+    if(['quota_exceeded','youtube_auth_required'].includes(failure.code))fresh.youtubeWorker={retryAt:failure.retryAt,code:failure.code,message:failure.message};
     await writeDb(fresh);return {state:'error',jobId:selected.id,...failure};
   }
 }

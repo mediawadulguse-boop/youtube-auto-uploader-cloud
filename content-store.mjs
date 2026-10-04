@@ -2,6 +2,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { richField, RICH_FIELDS } from './rich-text.mjs';
+import {fillContentWithEngine,CONTENT_ENGINE_VERSION} from './content-engine.mjs';
+import {publicationFromVideo} from './youtube-publication.mjs';
 
 export const CONTENT_STAGES = ['idea', 'script', 'production', 'editing', 'review', 'ready'];
 export const COLUMN_ICONS = ['bulb','pen','camera','scissors','eye','check','cloud','clock','upload','calendar','play','alert'];
@@ -35,7 +37,7 @@ const defaults = () => ({
   ]
 });
 const blank = () => ({
-  youtubeVideoId:'', title: 'Konten baru', stage: 'idea', pillarId: '', format: 'shorts', priority: 'normal', owner: '',
+  youtubeVideoId:'', youtubePublication:null, title: 'Konten baru', stage: 'idea', pillarId: '', format: 'shorts', priority: 'normal', owner: '',
   deadline: null, plannedPublishAt: null, brief: '', audience: '', hook: '', script: '', cta: '',
   productionNotes: '', richText: {}, description: '', tags: '', sources: [], assets: [], archived: false,
   checklist: { script: false, video: false, thumbnail: false, review: false }
@@ -131,11 +133,12 @@ export class ContentStore {
     this.chain = work;
     return work;
   }
-  create(body) {
+  create(body,{fillEngine=false}={}) {
     return this.mutate(db => {
       if(typeof body?.title!=='string'||!body.title.trim())throw fail('Judul konten wajib diisi');
       const now = new Date().toISOString();
-      const content = { ...normalize(body, db, {...blank(),stage:db.columns[0].id}), id: crypto.randomUUID(), revision: 1, createdAt: now, updatedAt: now, history: [] };
+      let content = { ...normalize(body, db, {...blank(),stage:db.columns[0].id}), id: crypto.randomUUID(), revision: 1, createdAt: now, updatedAt: now, history: [] };
+      if(fillEngine)content=normalize(fillContentWithEngine(content).fields,db,content);
       if(content.youtubeVideoId&&db.contents.some(c=>c.youtubeVideoId===content.youtubeVideoId))throw fail('Video sudah terhubung ke konten produksi lain.',409);
       if(body.radarIssueId){const issue=db.radar?.issues.find(i=>i.id===body.radarIssueId);if(!issue)throw fail('Isu Radar berubah. Muat ulang sebelum membuat konten.',409);issue.contentIds=[...new Set([...issue.contentIds,content.id])];issue.revision++;}
       db.contents.unshift(content); return content;
@@ -153,6 +156,7 @@ export class ContentStore {
       // A historical snapshot can reference a deleted column; retain the current valid stage.
       const restore = body.restoreRevision!==undefined&&!db.columns.some(c=>c.id===fields.stage)?{...fields,stage:item.stage}:fields;
       const updated = normalize(body.restoreRevision!==undefined?{...restore,richText:restore.richText||{},youtubeVideoId:item.youtubeVideoId||''}:restore, db, body.restoreRevision!==undefined?{...item,richText:{}}:item);
+      if(updated.youtubeVideoId!==item.youtubeVideoId)updated.youtubePublication=null;
       if(updated.youtubeVideoId&&db.contents.some(c=>c.id!==id&&c.youtubeVideoId===updated.youtubeVideoId))throw fail('Video sudah terhubung ke konten produksi lain.',409);
       await guard(item, updated);
       const comparable = c => JSON.stringify(Object.fromEntries(Object.keys(blank()).map(k => [k, c[k]])));
@@ -161,12 +165,39 @@ export class ContentStore {
       db.contents[db.contents.indexOf(item)] = result; return result;
     });
   }
+  recordPublication(id,revision,video,guard=()=>{}) {
+    return this.mutate(async db=>{
+      const item=db.contents.find(c=>c.id===id);
+      if(!item)throw fail('Konten tidak ditemukan',404);
+      if(!Number.isInteger(revision)||revision!==item.revision)throw fail('Konten berubah. Muat versi terbaru.',409);
+      if(item.youtubeVideoId&&item.youtubeVideoId!==video.id)throw fail('Konten sudah terhubung ke video lain.',409);
+      if(db.contents.some(c=>c.id!==id&&c.youtubeVideoId===video.id))throw fail('Video sudah terhubung ke konten produksi lain.',409);
+      const next={...item,youtubeVideoId:video.id,youtubePublication:publicationFromVideo(video)};
+      await guard(item,next);
+      // Status polling must not consume writing history or conflict with editor saves.
+      if(item.youtubeVideoId!==video.id){next.revision++;next.updatedAt=new Date().toISOString();next.history=[snapshot(item),...item.history].slice(0,30);}
+      db.contents[db.contents.indexOf(item)]=next;return next;
+    });
+  }
+  fillEmptyWithEngine() {
+    return this.mutate(db=>{
+      if(db.contentEngineVersion===CONTENT_ENGINE_VERSION)return {updated:0};
+      let updated=0;const now=new Date().toISOString();
+      for(let i=0;i<db.contents.length;i++){
+        const item=db.contents[i];if(item.archived)continue;
+        const result=fillContentWithEngine(item);if(!Object.keys(result.fields).length)continue;
+        const next=normalize(result.fields,db,item);
+        db.contents[i]={...next,revision:item.revision+1,updatedAt:now,history:[snapshot(item),...item.history].slice(0,30)};updated++;
+      }
+      db.contentEngineVersion=CONTENT_ENGINE_VERSION;return {updated};
+    });
+  }
   duplicate(id) {
     return this.mutate(db => {
       const item = db.contents.find(c => c.id === id);
       if (!item) throw fail('Konten tidak ditemukan', 404);
       const now = new Date().toISOString();
-      const copy = { ...snapshot(item), youtubeVideoId:'', id: crypto.randomUUID(), title: (item.title + ' (salinan)'), stage: db.columns[0].id, archived: false, plannedPublishAt: null, deadline: null, checklist: blank().checklist, revision: 1, createdAt: now, updatedAt: now, history: [] };
+      const copy = { ...snapshot(item), youtubeVideoId:'', youtubePublication:null, id: crypto.randomUUID(), title: (item.title + ' (salinan)'), stage: db.columns[0].id, archived: false, plannedPublishAt: null, deadline: null, checklist: blank().checklist, revision: 1, createdAt: now, updatedAt: now, history: [] };
       db.contents.unshift(copy); return copy;
     });
   }

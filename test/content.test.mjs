@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import net from 'node:net';
+import crypto from 'node:crypto';
 import { ContentStore } from '../content-store.mjs';
 let server, dir, base, cookie, logs='';
 const wait=ms=>new Promise(r=>setTimeout(r,ms));
@@ -13,6 +14,8 @@ before(async()=>{
   dir=await fs.mkdtemp(path.join(os.tmpdir(),'yt-content-test-'));
   const reservation=net.createServer();await new Promise(r=>reservation.listen(0,'127.0.0.1',r));const port=reservation.address().port;await new Promise(r=>reservation.close(r));base=`http://127.0.0.1:${port}`;
   await fs.writeFile(path.join(dir,'db.json'),JSON.stringify({version:1,jobs:[{id:'11111111-1111-4111-8111-111111111111',title:'Legacy upload',status:'cancelled',createdAt:new Date().toISOString()}],channel:null}));
+  const iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',crypto.createHash('sha256').update('test-only-secret-with-at-least-32-characters').digest(),iv),bytes=Buffer.concat([cipher.update(JSON.stringify({access_token:'test-access-only',expires_at:Date.now()+3600000})),cipher.final()]);
+  await fs.writeFile(path.join(dir,'youtube-token.enc.json'),JSON.stringify({iv:iv.toString('base64'),tag:cipher.getAuthTag().toString('base64'),data:bytes.toString('base64')}));
   server=spawn(process.execPath,['server.mjs'],{cwd:process.cwd(),env:{...process.env,PORT:String(port),APP_URL:base,APP_SECRET:'test-only-secret-with-at-least-32-characters',ADMIN_PASSWORD:'test-only-password',DATA_DIR:dir,GOOGLE_CLIENT_ID:'',GOOGLE_CLIENT_SECRET:'',WORKER_INTERVAL_MS:'600000'},stdio:['ignore','pipe','pipe']});
   server.stdout.on('data',b=>logs+=b);server.stderr.on('data',b=>logs+=b);
   for(let i=0;i<100;i++){try{if((await fetch(base+'/api/health')).ok)break;}catch{}await wait(50)}
