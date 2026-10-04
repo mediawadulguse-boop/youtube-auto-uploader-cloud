@@ -14,7 +14,7 @@ function candidates(issue,report){
  for(const ref of report.sources){const source=issue.sources.find(s=>s.id===ref.id),material=sentences(source,300);if(material.headlineOnly)continue;
   for(const [index,text] of material.items.entries()){
    const normalized=key(text);if(seen.has(normalized)){const previous=seen.get(normalized);if(!previous.refs.includes(ref.number))previous.refs.push(ref.number);continue;}
-   const item={text,refs:[ref.number],publisher:plainSource(source.publisher||'sumber tersimpan').replace(/\s+/g,' ').slice(0,160),index,kind:opinion.test(text)?'opinion':/\d/.test(text)?'data':'fact',full:!!(source.transcript||source.article)};
+   const item={text,refs:[ref.number],publisher:plainSource(source.publisher||'sumber tersimpan').replace(/\s+/g,' '),index,kind:opinion.test(text)?'opinion':/\d/.test(text)?'data':'fact',full:!!(source.transcript||source.article)};
    item.theme=themes.human.test(text)?'human':themes.system.test(text)?'system':'data';item.relevance=normalized.split(' ').filter(w=>topicWords.has(w)).length;items.push(item);seen.set(normalized,item);
   }
  }
@@ -24,7 +24,7 @@ function candidates(issue,report){
 export function writeEngineScript(issue,body={}){
  if(!body||typeof body!=='object'||Array.isArray(body))throw fail('Aturan engine tidak valid.');
  const format=body.format||'long',minutes=body.minutes??(format==='long'?5:1),style=body.style||'conversational',rules=body.rules||'';
- if(!['long','shorts','threeShorts'].includes(format)||!Number.isFinite(minutes)||minutes<0.5||minutes>(format==='long'?20:3)||!['conversational','report','reflective'].includes(style)||typeof rules!=='string'||rules.length>4000)throw fail('Pilih format, durasi, gaya dan catatan maksimal 4.000 karakter.');
+ if(!['long','shorts','threeShorts'].includes(format)||!Number.isFinite(minutes)||minutes<0.5||minutes>(format==='long'?20:3)||!['conversational','report','reflective'].includes(style)||typeof rules!=='string')throw fail('Pilih format, durasi, gaya dan catatan yang valid.');
  if(body.revision!==undefined&&body.revision!==issue.revision)throw fail('Bahan berubah. Muat riset terbaru.',409);
  const hash=crypto.createHash('sha256').update(JSON.stringify({version:WRITER_VERSION,issue,format,minutes,style,rules})).digest('hex');
  if(cache.has(hash))return {...structuredClone(cache.get(hash)),cached:true};
@@ -45,9 +45,9 @@ export function writeEngineScript(issue,body={}){
   const warnings=[...report.researchGaps,...report.conflicts.map(c=>c.note),...report.differences.map(c=>c.note)];
   if(count<budget*0.7)warnings.unshift('Bahan tidak cukup untuk durasi target. Engine tidak mengulang atau menambah fakta demi panjang naskah.');
   if(theme&&!items.some(x=>x.theme===theme))warnings.unshift('Belum ada bukti khusus untuk angle '+angle+'; draft memakai konteks yang tersedia.');
-  const brief=['Angle: '+angle,'Target '+minutes+' menit; estimasi bahan '+(count/140).toFixed(1)+' menit.','Catatan editor (tidak otomatis menjadi fakta): '+(rules||issue.research?.notes||'—')].join('\n').slice(0,4000);
+  const brief=['Angle: '+angle,'Target '+minutes+' menit; estimasi bahan '+(count/140).toFixed(1)+' menit.','Catatan editor (tidak otomatis menjadi fakta): '+(rules||issue.research?.notes||'—')].join('\n');
   const refs=report.sources.filter(s=>usedRefs.has(s.number)).map(s=>'['+s.number+'] '+s.publisher+' — '+s.title+'\n'+s.url).join('\n');
-  return {title:(title+(format==='threeShorts'?' · '+angle:'')).slice(0,200),format:format==='long'?'long':'shorts',angle,brief,sourceOrder:report.sources.map(s=>s.id),script:['HOOK',hook,...(comparison?[comparison]:[]),...blocks,'PENUTUP',close,'RUJUKAN',refs].join('\n\n'),productionNotes:['CEK SEBELUM PRODUKSI',...new Set(warnings),'Aturan editor: '+(rules||'—'),'Catatan riset: '+(issue.research?.notes||'—'),'Penulis engine bersifat ekstraktif: mempertahankan kalimat sumber, bukan verifikasi otomatis atau parafrasa bebas.'].join('\n\n').slice(0,20000),wordCount:count,estimatedMinutes:Number((count/140).toFixed(1)),evidenceCount:selected.length,warnings:[...new Set(warnings)]};
+  return {title:(title+(format==='threeShorts'?' · '+angle:'')),format:format==='long'?'long':'shorts',angle,brief,sourceOrder:report.sources.map(s=>s.id),script:['HOOK',hook,...(comparison?[comparison]:[]),...blocks,'PENUTUP',close,'RUJUKAN',refs].join('\n\n'),productionNotes:['CEK SEBELUM PRODUKSI',...new Set(warnings),'Aturan editor: '+(rules||'—'),'Catatan riset: '+(issue.research?.notes||'—'),'Penulis engine bersifat ekstraktif: mempertahankan kalimat sumber, bukan verifikasi otomatis atau parafrasa bebas.'].join('\n\n'),wordCount:count,estimatedMinutes:Number((count/140).toFixed(1)),evidenceCount:selected.length,warnings:[...new Set(warnings)]};
  });
  const result={usesAI:false,engine:'layered-extractive-writer',version:WRITER_VERSION,issueId:issue.id,revision:issue.revision,cached:false,note:'Draft bersumber tanpa kuota AI. Algoritma memilih bahan, memilah opini, menggabungkan pengulangan, mengatur alur dan memeriksa durasi. Catatan bebas disimpan untuk editor/AI, bukan ditebak sebagai fakta.',drafts};
  cache.set(hash,result);if(cache.size>100)cache.delete(cache.keys().next().value);return structuredClone(result);

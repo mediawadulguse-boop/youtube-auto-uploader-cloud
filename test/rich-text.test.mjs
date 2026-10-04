@@ -23,7 +23,7 @@ test('Note formatting survives restart, duplicate fields, format-only revisions 
  note=await store.update(note.id,{revision:note.revision,bodyHtml:'<i>Isi</i> link'});assert.equal(note.revision,2);assert.equal(note.body,'Isi link');
  await assert.rejects(store.update(note.id,{revision:1,bodyHtml:'<b>Stale</b>'}),e=>e.status===409);
  note=await store.update(note.id,{revision:note.revision,body:'Teks biasa\n'});assert.equal(note.bodyHtml,'');assert.equal(note.body,'Teks biasa\n');
- await assert.rejects(store.update(note.id,{revision:note.revision,bodyHtml:'x'.repeat(160001)}),e=>e.status===400);
+ note=await store.update(note.id,{revision:note.revision,bodyHtml:'x'.repeat(160001)});assert.equal(note.body,'x'.repeat(160001));
  await assert.rejects(store.create({title:' ',bodyHtml:'<b></b>'}),e=>e.status===400);
 });
 test('content rich fields preserve history, restore legacy text, duplicate and reject invalid maps',async t=>{
@@ -36,5 +36,5 @@ test('content rich fields preserve history, restore legacy text, duplicate and r
  c=await store.update(c.id,{revision:4,script:'Plain'});assert.equal(c.richText.script,undefined);assert.equal(c.richText.hook,'<font size="5">HOOK</font>');
  await assert.rejects(store.update(c.id,{revision:5,richText:{title:'<b>No</b>'}}),e=>e.status===400);
  await assert.rejects(store.update(c.id,{revision:5,richText:{script:false}}),e=>e.status===400);
- await assert.rejects(store.update(c.id,{revision:5,richText:{hook:'x'.repeat(5001)}}),e=>e.status===400);
+ c=await store.update(c.id,{revision:5,richText:{hook:'x'.repeat(5001)}});assert.equal(c.hook,'x'.repeat(5001));
 });

@@ -8,7 +8,7 @@ export function safeLink(value) {
   try { const u = new URL(value); return ['https:','http:','mailto:'].includes(u.protocol) ? u.href : ''; } catch { return ''; }
 }
 export function cleanRichHtml(value) {
-  if (typeof value !== 'string' || value.length > 1500000) throw fail('Format teks tidak valid atau terlalu panjang');
+  if (typeof value !== 'string') throw fail('Format teks tidak valid');
   return sanitizeHtml(value, {
     allowedTags:['p','div','br','b','strong','i','em','u','s','strike','ul','ol','li','blockquote','h2','h3','font','span','a','table','thead','tbody','tr','th','td'],
     allowedAttributes:{a:['href','target','rel'],font:['size']},
@@ -34,12 +34,11 @@ export function richPlainText(html) {
 }
 // The HTML is authoritative only when explicitly supplied. Plain text updates
 // from older clients clear obsolete formatting instead of reviving stale text.
-export function richField(input, base, key, htmlKey, limit) {
+export function richField(input, base, key, htmlKey) {
   if(Object.hasOwn(input,htmlKey)) {
     const html=cleanRichHtml(input[htmlKey]);
     if(!html)return {text:input[key]??base[key]??'',html:''};
     const text=richPlainText(html);
-    if(text.length>limit)throw fail(`Teks melebihi ${limit} karakter`);
     return {text,html:text.trim()?html:''};
   }
   return {text:input[key]??base[key]??'',html:Object.hasOwn(input,key)&&input[key]!==base[key]?'':base[htmlKey]||''};

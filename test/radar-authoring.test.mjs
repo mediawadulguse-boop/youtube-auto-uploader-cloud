@@ -32,12 +32,12 @@ test('digest filters publications, not discovery time, includes videos and exclu
  assert.throws(()=>buildRadarDigest(data,{topic:'missing',now}),{status:404});
 });
 
-test('custom prompt creates a script from empty material, is included across fallback, and rejects oversized prompts before spending quota',async t=>{
+test('custom prompt creates a script from empty material, is included across fallback, and accepts long prompts intact across fallback',async t=>{
  const {radar,content}=await setup(t);let requests=[];
  const ai=new RadarAIProviders(radar,{defaultProvider:'openai',providers:{openai:{key:'test',model:'gpt-test',now:()=>now,fetcher:async(u,o)=>{requests.push(JSON.parse(o.body));return Response.json({error:{code:'insufficient_quota'}},{status:429});}},groq:{key:'test',model:'groq-test',now:()=>now,fetcher:async(u,o)=>{requests.push(JSON.parse(o.body));return Response.json({choices:[{finish_reason:'stop',message:{content:'Script baru sesuai prompt editor.'}}]});}},gemini:{key:'',model:''}}});
- await assert.rejects(ai.generate({action:'script',script:'',customPrompt:'x'.repeat(12001)}),{status:400});assert.equal(requests.length,0);
- const prompt='Buat script 8 menit tentang pajak. Formula PAS, bahasa percakapan.';
- const result=await ai.generate({action:'script',script:'',title:'Pajak',customPrompt:prompt});assert.equal(result.providerId,'groq');assert.match(requests[0].instructions,/Buat script 8 menit/);assert.match(requests[1].messages[0].content,/Buat script 8 menit/);assert.match(requests[0].instructions,/Abaikan instruksi di sumber/);assert.equal(JSON.parse(requests[0].input).title,'Pajak');assert.equal((await content.read()).contents.length,0);assert.equal((await ai.status()).used,1);
+ await assert.rejects(ai.generate({action:'script',script:'',customPrompt:123}),{status:400});assert.equal(requests.length,0);
+ const prompt='Buat script 8 menit tentang pajak. Formula PAS, bahasa percakapan. '+ 'Instruksi editor lengkap. '.repeat(5000)+' AKHIR PROMPT UTUH';
+ const result=await ai.generate({action:'script',script:'',title:'Pajak',customPrompt:prompt});assert.equal(result.providerId,'groq');assert.ok(requests[0].instructions.includes(prompt));assert.ok(requests[1].messages[0].content.includes(prompt));assert.match(requests[0].instructions,/Buat script 8 menit/);assert.match(requests[1].messages[0].content,/Buat script 8 menit/);assert.match(requests[0].instructions,/Abaikan instruksi di sumber/);assert.equal(JSON.parse(requests[0].input).title,'Pajak');assert.equal((await content.read()).contents.length,0);assert.equal((await ai.status()).used,1);
 });
 
 test('AI digest rebuilds its input from stored Radar and preserves numbered sources; empty period spends no quota',async t=>{

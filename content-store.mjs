@@ -11,8 +11,8 @@ export const defaultColumns = () => [
   ['review','Review','#9e3565','eye'], ['ready','Siap Upload','#216e4e','check']
 ].map(([id,name,color,icon]) => ({ id,name,color,icon,isDone:id==='ready' }));
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
-const text = (value, limit) => {
-  if (typeof value !== 'string' || value.length > limit) throw fail(`Teks tidak valid atau melebihi ${limit} karakter`);
+const text = value => {
+  if (typeof value !== 'string') throw fail('Teks tidak valid');
   return value;
 };
 const date = value => {
@@ -22,7 +22,7 @@ const date = value => {
 };
 const url = value => {
   if (!value) return '';
-  try { const u = new URL(text(value, 2048)); if (!['http:', 'https:'].includes(u.protocol)) throw 0; return u.href; }
+  try { const u = new URL(text(value)); if (!['http:', 'https:'].includes(u.protocol)) throw 0; return u.href; }
   catch { throw fail('Tautan harus berupa URL http atau https yang valid'); }
 };
 const defaults = () => ({
@@ -43,13 +43,13 @@ const blank = () => ({
 function normalize(input, db, base = blank()) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw fail('Data konten tidak valid');
   const out = { ...base };
-  for (const [key, limit] of Object.entries({title: 200, owner: 100, brief: 20000, audience: 2000, hook: 5000, script: 160000, cta: 5000, productionNotes: 20000, description: 5000, tags: 2000})) {
-    if (key in input) out[key] = text(input[key], limit);
+  for (const key of ['title','owner','brief','audience','hook','script','cta','productionNotes','description','tags']) {
+    if (key in input) out[key] = text(input[key]);
   }
   if('richText' in input&&(!input.richText||typeof input.richText!=='object'||Array.isArray(input.richText)||Object.keys(input.richText).some(k=>!RICH_FIELDS.includes(k))))throw fail('Format naskah tidak valid');
   out.richText={};
   for(const key of RICH_FIELDS){
-    const rich=richField({...(Object.hasOwn(input,key)?{[key]:input[key]}:{}),...('richText' in input?{html:input.richText[key]??''}:{})},{...base,html:base.richText?.[key]},key,'html',({script:160000,hook:5000,cta:5000})[key]||20000);
+    const rich=richField({...(Object.hasOwn(input,key)?{[key]:input[key]}:{}),...('richText' in input?{html:input.richText[key]??''}:{})},{...base,html:base.richText?.[key]},key,'html');
     out[key]=rich.text;if(rich.html)out.richText[key]=rich.html;
   }
   if('youtubeVideoId' in input){if(typeof input.youtubeVideoId!=='string'||(input.youtubeVideoId&&!/^[A-Za-z0-9_-]{11}$/.test(input.youtubeVideoId)))throw fail('ID video tidak valid');out.youtubeVideoId=input.youtubeVideoId;}
@@ -72,7 +72,7 @@ function normalize(input, db, base = blank()) {
     if (!Array.isArray(input[key]) || input[key].length > 100) throw fail('Maksimal 100 bahan per konten');
     out[key] = input[key].map(item => {
       if (!item || typeof item !== 'object') throw fail('Bahan tidak valid');
-      return { id: typeof item.id === 'string' && /^[0-9a-f-]{36}$/i.test(item.id) ? item.id : crypto.randomUUID(), label: text(item.label || '', 300), url: url(item.url || ''), notes: text(item.notes || '', 10000), verified: item.verified === true };
+      return { id: typeof item.id === 'string' && /^[0-9a-f-]{36}$/i.test(item.id) ? item.id : crypto.randomUUID(), label: text(item.label || ''), url: url(item.url || ''), notes: text(item.notes || ''), verified: item.verified === true };
     }).filter(item=>[item.label,item.url,item.notes].some(value=>value.trim()));
   }
   return out;
@@ -80,7 +80,7 @@ function normalize(input, db, base = blank()) {
 function columnFields(input, base = {name:'Kolom baru',color:'#3263e7',icon:'bulb',isDone:false}) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw fail('Data kolom tidak valid');
   const out = {...base};
-  if ('name' in input) { out.name=text(input.name,60).trim(); if(!out.name)throw fail('Nama kolom wajib diisi'); }
+  if ('name' in input) { out.name=text(input.name).trim(); if(!out.name)throw fail('Nama kolom wajib diisi'); }
   if ('color' in input) { if(!/^#[0-9a-f]{6}$/i.test(input.color))throw fail('Warna kolom tidak valid'); out.color=input.color; }
   if ('icon' in input) { if(!COLUMN_ICONS.includes(input.icon))throw fail('Ikon kolom tidak valid');out.icon=input.icon; }
   if ('isDone' in input) { if(typeof input.isDone!=='boolean')throw fail('Status selesai tidak valid');out.isDone=input.isDone; }
@@ -166,7 +166,7 @@ export class ContentStore {
       const item = db.contents.find(c => c.id === id);
       if (!item) throw fail('Konten tidak ditemukan', 404);
       const now = new Date().toISOString();
-      const copy = { ...snapshot(item), youtubeVideoId:'', id: crypto.randomUUID(), title: (item.title + ' (salinan)').slice(0,200), stage: db.columns[0].id, archived: false, plannedPublishAt: null, deadline: null, checklist: blank().checklist, revision: 1, createdAt: now, updatedAt: now, history: [] };
+      const copy = { ...snapshot(item), youtubeVideoId:'', id: crypto.randomUUID(), title: (item.title + ' (salinan)'), stage: db.columns[0].id, archived: false, plannedPublishAt: null, deadline: null, checklist: blank().checklist, revision: 1, createdAt: now, updatedAt: now, history: [] };
       db.contents.unshift(copy); return copy;
     });
   }
@@ -181,7 +181,7 @@ export class ContentStore {
   savePillar(body) {
     return this.mutate(db => {
       if (!body || typeof body !== 'object' || Array.isArray(body)) throw fail('Data pilar tidak valid');
-      const name = text(body.name, 80).trim();
+      const name = text(body.name).trim();
       if (!name || !/^#[0-9a-f]{6}$/i.test(body.color)) throw fail('Nama atau warna pilar tidak valid');
       const previous = body.id ? db.pillars.find(p => p.id === body.id) : null;
       if (body.id && !previous) throw fail('Pilar tidak ditemukan', 404);

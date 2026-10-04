@@ -9,7 +9,7 @@ import {RadarWorkspace,transcriptText} from '../radar-workspace.mjs';
 test('subtitle import strips cue timing and metadata without inventing content',()=>{
  assert.equal(transcriptText('1\n00:00:01,000 --> 00:00:02,000\nAnggaran bantuan mencapai Rp200 juta.\n','srt'),'Anggaran bantuan mencapai Rp200 juta.');
  assert.equal(transcriptText('WEBVTT\n\nNOTE private metadata\nnot speech\n\n00:01.000 --> 00:02.000\n<b>Budi mengatakan</b> bantuan tersedia.','vtt'),'Budi mengatakan bantuan tersedia.');
- assert.throws(()=>transcriptText('WEBVTT','vtt'),/tidak memiliki/);assert.throws(()=>transcriptText('a'.repeat(50001)),/50.000/);
+ assert.throws(()=>transcriptText('WEBVTT','vtt'),/tidak memiliki/);assert.equal(transcriptText('a'.repeat(50001)),'a'.repeat(50001));
 });
 test('research is revision-safe, imports remain unverified, restart and templates preserve source references',async t=>{
  const dir=await fs.mkdtemp(path.join(os.tmpdir(),'radar-workspace-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));const content=new ContentStore(path.join(dir,'contents.json')),store=new RadarStore(content),research=new RadarWorkspace(store);

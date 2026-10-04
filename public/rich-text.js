@@ -58,14 +58,14 @@ window.HubRichText=(()=>{
     function refresh(){for(const b of toolbar.querySelectorAll('[data-command]'))if(['bold','italic','underline','strikeThrough','insertOrderedList','insertUnorderedList'].includes(b.dataset.command))b.setAttribute('aria-pressed',String(document.queryCommandState(b.dataset.command)))}
     function links(){const area=wrapper.querySelector('.rich-links');area.replaceChildren();const found=linkify(clean(input.innerHTML)),urls=[...new Set([...found.querySelectorAll('a[href]')].map(a=>a.href))];for(const url of urls){const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener noreferrer';a.textContent=url.replace(/^mailto:/,'');a.title='Buka '+url;area.append(a)}}
     function changed(){
-      const value=plain(input);if(value.length>textarea.maxLength||input.innerHTML.length>1500000){error.textContent='Batas panjang teks tercapai.';input.innerHTML=lastHtml;return}
+      const value=plain(input);
       error.textContent='';lastHtml=input.innerHTML;textarea.value=value;remember();links();refresh();textarea.dispatchEvent(new Event('input',{bubbles:true}));
     }
     function command(name,value){restore();document.execCommand('styleWithCSS',false,false);document.execCommand(name,false,value);changed()}
     input.addEventListener('input',e=>{e.stopPropagation();if(!composing)changed()});input.addEventListener('compositionstart',()=>composing=true);input.addEventListener('compositionend',()=>{composing=false;changed()});
     input.addEventListener('keyup',()=>{remember();refresh()});input.addEventListener('mouseup',()=>{remember();refresh()});
     input.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.ctrlKey){e.preventDefault();return}if((e.ctrlKey||e.metaKey)&&['b','i','u'].includes(e.key.toLowerCase())){e.preventDefault();command({b:'bold',i:'italic',u:'underline'}[e.key.toLowerCase()])}});
-    input.addEventListener('paste',e=>{e.preventDefault();const html=e.clipboardData.getData('text/html'),text=e.clipboardData.getData('text/plain');const fragment=html?clean(html):document.createElement('div');if(!html)fragment.textContent=text;linkify(fragment);const selected=getSelection()?.toString().length||0;if(plain(input).length-selected+plain(fragment).length>textarea.maxLength){error.textContent='Teks yang ditempel melebihi batas karakter.';return}remember();command('insertHTML',fragment.innerHTML)});
+    input.addEventListener('paste',e=>{e.preventDefault();const html=e.clipboardData.getData('text/html'),text=e.clipboardData.getData('text/plain');const fragment=html?clean(html):document.createElement('div');if(!html)fragment.textContent=text;linkify(fragment);remember();command('insertHTML',fragment.innerHTML)});
     input.addEventListener('drop',e=>e.preventDefault());
     input.addEventListener('click',e=>{const a=e.target.closest('a[href]');if(a){e.preventDefault();const url=safeUrl(a.getAttribute('href'));if(url)window.open(url,'_blank','noopener,noreferrer')}});
     toolbar.addEventListener('mousedown',e=>{if(e.target.closest('button')){remember();e.preventDefault()}else remember()});

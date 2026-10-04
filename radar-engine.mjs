@@ -3,7 +3,7 @@ import {enrichResearch} from './radar-research.mjs';
 import {Parser} from 'htmlparser2';
 import {publisherKey,displayHeadline} from './radar-methodology.mjs';
 
-export const ENGINE_VERSION=5;
+export const ENGINE_VERSION=6;
 const cache=new Map();
 const normalize=s=>String(s).normalize('NFKD').replace(/\p{M}/gu,'').toLowerCase().replace(/[^\p{L}\p{N}%]+/gu,' ').trim();
 const numberPattern=/(?<![\p{L}\p{N}])(?:Rp\.?\s*)?\d+(?:[.,]\d+)*(?:\s*(?:%|persen|ribu|juta|miliar|triliun|orang|pekerja|sekolah|desa|hari|tahun))?/giu;
@@ -47,10 +47,10 @@ export function sentences(source,limit=18){
  let parts=raw.split('\n').flatMap(sentenceParts),truncated=false;
  if(!headlineOnly&&parts.length){const last=parts.at(-1);truncated=/\.{3}$|…$/.test(last)||!source.transcript&&!source.article&&String(source.excerpt||'').length>=3000&&!/[.!?][”"»]?$/.test(last);if(truncated)parts.pop();}
  if(!headlineOnly&&parts.some(x=>/\.{3}$|…$/.test(x)))truncated=true;
- const eligible=[...new Set(parts.filter(x=>x.length>=15&&x.length<=1200&&!boiler.test(x)&&(headlineOnly||!/\.{3}$|…$/.test(x))))];
+ const eligible=[...new Set(parts.filter(x=>x.length>=15&&!boiler.test(x)&&(headlineOnly||!/\.{3}$|…$/.test(x))))];
  const selected=eligible.length<=limit?eligible:Array.from({length:limit},(_,n)=>eligible[limit===1?0:Math.floor(n*(eligible.length-1)/(limit-1))]);
  if(selected.length)return {items:selected,headlineOnly,truncated};
- return {items:title.length>=15&&title.length<=1200&&!boiler.test(title)?[title]:[],headlineOnly:true,truncated};
+ return {items:title.length>=15&&!boiler.test(title)?[title]:[],headlineOnly:true,truncated};
 }
 function evidence(source,number){return {number,id:source.id,url:source.url,title:source.title,publisher:source.publisher,publisherUrl:source.publisherUrl||'',platform:source.platform,publishedAt:source.publishedAt||null,coverage:source.coverage||'headline',verification:source.verification||'unchecked',repost:!!source.repost,hasTranscript:!!source.transcript,hasArticle:!!source.article};}
 function collect(issue){

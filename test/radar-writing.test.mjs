@@ -26,7 +26,7 @@ test('article extraction selects readable content, removes navigation and execut
  const result=extractArticle(html);assert.match(result.text,/Rp200 juta/);assert.ok(!/Navigation|Injected|Hidden|Footer|Baca juga/.test(result.text));assert.equal(result.truncated,false);
  assert.throws(()=>extractArticle('<html>Sign in</html>'),/belum cukup/);
 });
-test('article size truncation ends on a complete sentence',()=>{const out=extractArticle((text+'\n').repeat(400),'text/plain');assert.ok(out.text.length<=50000);assert.equal(out.truncated,true);assert.match(out.text,/[.!?]$/);});
+test('article extraction retains long material without character truncation',()=>{const value=(text+'\n').repeat(400).trim(),out=extractArticle(value,'text/plain');assert.equal(out.text,value);assert.equal(out.truncated,false);});
 test('safe acquisition rejects private, mixed DNS and unsafe ports before opening a socket',async()=>{
  let calls=0;const requestFor=()=>{calls++;throw Error('must not connect');};
  for(const url of ['http://127.0.0.1/a','http://[::1]/a','http://10.0.0.1/a','https://media.example:8080/a'])await assert.rejects(safeArticle(url,{lookup:publicDNS,requestFor}));
@@ -53,7 +53,7 @@ test('foreign videos, unavailable captions and permission errors never use alter
  await assert.rejects(acquireCaptions(video,{youtube:()=>{throw Error('must not fetch');}}),/Hubungkan channel/);
 });
 test('caption limits reject oversized content instead of silently losing source data',async()=>{
- await assert.rejects(acquireCaptions(video,{channelId:'owner',youtube:async url=>url.includes('/videos?')?Response.json({items:[{snippet:{channelId:'owner'}}]}):url.includes('/captions?')?Response.json({items:[{id:'c',snippet:{status:'serving',language:'id'}}]}):new Response('WEBVTT\n\n'+text.repeat(1000))}),/terlalu besar/);
+ await assert.rejects(acquireCaptions(video,{channelId:'owner',youtube:async url=>url.includes('/videos?')?Response.json({items:[{snippet:{channelId:'owner'}}]}):url.includes('/captions?')?Response.json({items:[{id:'c',snippet:{status:'serving',language:'id'}}]}):new Response(new Uint8Array(32*1024*1024+1))}),/32 MB/);
 });
 test('acquisition persists article material with references, leaves AI usage untouched and reuses cache',async t=>{
  const {dir,store,content,issue}=await setup(t);let calls=0;const acquire=new RadarAcquire(store,{article:async()=>{calls++;return {body:'<article><p>'+text+'</p></article>',type:'text/html',url:source.url};}});
@@ -81,7 +81,7 @@ test('layered writer preserves claims, attribution, opinions, citations and edit
  assert.equal(writeEngineScript(issue,{format:'long',minutes:5,rules:'Pertahankan angka dan hindari klaim baru.'}).cached,true);
 });
 test('writer rejects title-only sources, invalid rules and stale source revision',()=>{
- assert.throws(()=>writeEngineScript({...issue,sources:[{...source,excerpt:''}]}),{status:422});assert.throws(()=>writeEngineScript(issue,{minutes:0}));assert.throws(()=>writeEngineScript(issue,{rules:'x'.repeat(4001)}));assert.throws(()=>writeEngineScript(issue,{revision:0}),{status:409});
+ assert.throws(()=>writeEngineScript({...issue,sources:[{...source,excerpt:''}]}),{status:422});assert.throws(()=>writeEngineScript(issue,{minutes:0}));assert.match(writeEngineScript(issue,{rules:'x'.repeat(4001)}).drafts[0].productionNotes,/x{4001}/);assert.throws(()=>writeEngineScript(issue,{revision:0}),{status:409});
 });
 test('writer deduplicates literal claims only, keeps conflicting numbers and reports comparison needs',()=>{
  const sources=[source,{...source,id:'s2',url:'https://other.example/a',publisher:'Media B'},{...source,id:'s3',url:'https://third.example/a',publisher:'Media C',excerpt:'Anggaran bantuan warga Jember mencapai Rp300 juta tahun ini.'}];
@@ -91,22 +91,22 @@ test('three Short angles respect word budgets and cannot invent missing system/h
  const out=writeEngineScript(issue,{format:'threeShorts',minutes:1});assert.equal(out.drafts.length,3);assert.equal(new Set(out.drafts.map(d=>d.script)).size,3);for(const d of out.drafts)assert.ok(d.wordCount<=140);
  const noThemes={...issue,sources:[{...source,excerpt:'Observatorium mencatat 200 titik cahaya pada malam pengamatan.'}]};assert.ok(writeEngineScript(noThemes,{format:'threeShorts'}).drafts[1].warnings.some(w=>w.includes('Belum ada bukti khusus')));
 });
-test('AI editing selects entire-material evidence with bounded input, caches and never changes saved scripts',async t=>{
+test('AI editing sends entire material, caches and never changes saved scripts',async t=>{
  const {store,content,issue}=await setup(t);const workspace=new RadarWorkspace(store),full=text+' '+Array.from({length:120},(_,n)=>'Rincian konteks urutan '+n+' tetap tercantum dalam laporan sumber.').join(' ')+' Anggaran final bantuan Jember mencapai Rp777 juta.';
  await workspace.import(issue.id,{revision:issue.revision,sourceId:issue.sources[0].id,text:full,format:'txt'});
  let input,calls=0;const ai=new RadarAI(store,{provider:'groq',key:'test-only',model:'openai/gpt-oss-120b',fetcher:async(url,options)=>{calls++;const body=JSON.parse(options.body);assert.match(body.messages[0].content,/Sunting hanya draft/);input=JSON.parse(body.messages[1].content);return Response.json({choices:[{finish_reason:'stop',message:{content:'Anggaran final bantuan Jember mencapai Rp777 juta. [1]'}}]});}});
- const body={action:'polish',issueId:issue.id,script:'Anggaran final bantuan Jember mencapai Rp777 juta. [1]'},out=await ai.generate(body);assert.match(input.sources[0].excerpt,/Rp777 juta/);assert.ok(out.efficiency.selectedCharacters<=18000);assert.equal(out.efficiency.mode,'edit-only');assert.equal((await content.read()).contents.length,0);assert.equal((await ai.generate(body)).cached,true);assert.equal(calls,1);
- assert.equal((await ai.status()).limit,50);assert.equal((await ai.status()).used,1);await assert.rejects(ai.generate({action:'polish',script:'x'.repeat(12001)}),/12.000/);
+ const body={action:'polish',issueId:issue.id,script:'Anggaran final bantuan Jember mencapai Rp777 juta. [1]'},out=await ai.generate(body);assert.match(input.sources[0].excerpt,/Rp777 juta/);assert.equal(input.sources[0].excerpt,full);assert.equal(out.efficiency.selectedCharacters,full.length);assert.equal(out.efficiency.mode,'edit-only');assert.equal((await content.read()).contents.length,0);assert.equal((await ai.generate(body)).cached,true);assert.equal(calls,1);
+ assert.equal((await ai.status()).limit,50);assert.equal((await ai.status()).used,1);
 });
-test('AI evidence budget applies across 30 sources and refuses missing edit citations before quota',async t=>{
+test('AI sends complete text across 30 sources and refuses missing edit citations before quota',async t=>{
  const {store}=await setup(t);let captured;const ai=new RadarAI(store,{provider:'groq',key:'test-only',model:'openai/gpt-oss-120b',fetcher:async(url,options)=>{captured=JSON.parse(JSON.parse(options.body).messages[1].content);return Response.json({choices:[{finish_reason:'stop',message:{content:'Pratinjau bersumber [1]'}}]});}});
- const sources=Array.from({length:30},(_,n)=>({label:'Sumber '+n,url:'https://media.example/'+n,notes:text.repeat(20),verified:false}));const out=await ai.generate({action:'script',script:'Naskah',sources});assert.ok(captured.sources.reduce((n,s)=>n+s.excerpt.length,0)<=18000);assert.ok(out.efficiency.availableCharacters>18000);
+ const sources=Array.from({length:30},(_,n)=>({label:'Sumber '+n,url:'https://media.example/'+n,notes:text.repeat(20),verified:false}));const out=await ai.generate({action:'script',script:'Naskah',sources});assert.deepEqual(captured.sources.map(s=>s.excerpt),sources.map(s=>s.notes));assert.ok(out.efficiency.availableCharacters>18000);
  await assert.rejects(ai.generate({action:'polish',script:'Klaim dengan sumber tidak ada [31]',sources}),{status:422});assert.equal((await ai.status()).used,1);
 });
 test('browser polishing applies only the selected unique section and rejects changed or repeated originals',async()=>{
  const code=await fs.readFile(new URL('../public/radar.js',import.meta.url),'utf8'),context={};vm.createContext(context);vm.runInContext(code.slice(code.indexOf('function radarMaterialNotes('),code.indexOf('function radarPolish(')),context);
  assert.equal(context.radarApplyPolish('HOOK\nBagian asli\nPENUTUP','Bagian asli','Bagian disunting'),'HOOK\nBagian disunting\nPENUTUP');assert.throws(()=>context.radarApplyPolish('Berubah','Bagian asli','Baru'));assert.throws(()=>context.radarApplyPolish('asli asli','asli','baru'));
- const notes=context.radarMaterialNotes({...source,article:{text:(text+'\n').repeat(80)+'Informasi akhir bersumber tetap tersedia.'}});assert.ok(notes.length<=10000);assert.match(notes,/Informasi akhir/);
+ const notes=context.radarMaterialNotes({...source,article:{text:(text+'\n').repeat(80)+'Informasi akhir bersumber tetap tersedia.'}});assert.equal(notes,(text+'\n').repeat(80)+'Informasi akhir bersumber tetap tersedia.');assert.match(notes,/Informasi akhir/);
 });
 test('polishing may improve wording but cannot change numeric values or citation identities',()=>{
  validatePolish('Menurut Budi, bantuan mungkin mencapai Rp200 juta. [1]','Budi menyebut bantuan itu mungkin mencapai Rp200 juta. [1]');
@@ -116,7 +116,7 @@ test('polishing a later reference preserves its original number and reserves evi
  const {store}=await setup(t);const long='Menurut Budi, '+('rincian bantuan untuk pekerja '.repeat(30))+'anggaran mencapai Rp200 juta.',original=long+' [75]';let captured;
  const ai=new RadarAI(store,{provider:'groq',key:'test-only',model:'openai/gpt-oss-120b',fetcher:async(url,options)=>{captured=JSON.parse(JSON.parse(options.body).messages[1].content);return Response.json({choices:[{finish_reason:'stop',message:{content:original}}]});}});
  const sources=Array.from({length:100},(_,n)=>({label:'Sumber '+(n+1),url:'https://media.example/'+n,notes:n===74?long:text}));
- const out=await ai.generate({action:'polish',script:original,sources});assert.equal(out.sources.length,30);assert.ok(captured.sources.find(s=>s.number===75).excerpt.includes(long));assert.deepEqual(out.citations,[75]);assert.ok(out.efficiency.selectedCharacters<=18000);
+ const out=await ai.generate({action:'polish',script:original,sources});assert.equal(out.sources.length,30);assert.ok(captured.sources.find(s=>s.number===75).excerpt.includes(long));assert.deepEqual(out.citations,[75]);assert.equal(out.efficiency.selectedCharacters,out.efficiency.availableCharacters);
 });
 test('research controls expose acquisition and writer actions, escape material status and guard stale dialogs',async()=>{
  const code=await fs.readFile(new URL('../public/radar.js',import.meta.url),'utf8'),nodes=new Map(),node=id=>{if(!nodes.has(id))nodes.set(id,{value:id==='#radarAcquireSource'?'s1':id==='#radarWriteFormat'?'long':id==='#radarWriteMinutes'?'5':id==='#radarWriteStyle'?'conversational':'',isConnected:true});return nodes.get(id);};let html='',posts=[],reload=0;

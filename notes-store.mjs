@@ -3,21 +3,21 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { richField } from './rich-text.mjs';
 const fail=(message,status=400)=>Object.assign(new Error(message),{status});
-function categoryName(value){if(typeof value!=='string'||value.length>60)throw fail('Kategori maksimal 60 karakter');return value.trim()}
+function categoryName(value){if(typeof value!=='string')throw fail('Kategori tidak valid');return value.trim()}
 function addCategory(db,value){const name=categoryName(value);if(!name)return '';const existing=db.categories.find(c=>c.toLocaleLowerCase('id-ID')===name.toLocaleLowerCase('id-ID'));if(existing)return existing;if(db.categories.length>=100)throw fail('Maksimal 100 kategori');db.categories.push(name);return name}
 function resolveCategory(db,value){const name=categoryName(value);if(!name)return '';const existing=db.categories.find(c=>c.toLocaleLowerCase('id-ID')===name.toLocaleLowerCase('id-ID'));if(!existing)throw fail('Pilih kategori yang tersedia atau buat melalui Tambah kategori');return existing}
 function checkCategoryRevision(db,revision){if(!Number.isInteger(revision)||revision!==db.categoriesRevision)throw fail('Kategori berubah di tab lain. Tutup lalu buka pengaturan kategori.',409)}
 function normalize(input,base={title:'',body:'',bodyHtml:'',kind:'note',category:'',format:'',tags:[],pinned:false,archived:false}){
   if(!input||typeof input!=='object'||Array.isArray(input))throw fail('Data catatan tidak valid');
   const out={...base};
-  for(const [key,max] of [['title',200],['body',160000]])if(key in input){if(typeof input[key]!=='string'||input[key].length>max)throw fail(`${key} melebihi batas atau tidak valid`);out[key]=input[key];}
-  const rich=richField(input,base,'body','bodyHtml',160000);out.body=rich.text;out.bodyHtml=rich.html;
+  for(const key of ['title','body'])if(key in input){if(typeof input[key]!=='string')throw fail(`${key} tidak valid`);out[key]=input[key];}
+  const rich=richField(input,base,'body','bodyHtml');out.body=rich.text;out.bodyHtml=rich.html;
   out.title=out.title.trim();if(!out.title)throw fail('Judul catatan wajib diisi');
   if('kind' in input){if(!['note','prompt'].includes(input.kind))throw fail('Jenis catatan tidak valid');out.kind=input.kind;}
   if('category' in input)out.category=categoryName(input.category);
   if('format' in input){if(!['','long','shorts'].includes(input.format))throw fail('Pilih kategori video Long atau Short');out.format=input.format;}else out.format=base.format||'';
   for(const key of ['pinned','archived'])if(key in input){if(typeof input[key]!=='boolean')throw fail('Status catatan tidak valid');out[key]=input[key];}
-  if('tags' in input){if(!Array.isArray(input.tags)||input.tags.length>12||input.tags.some(t=>typeof t!=='string'||t.length>40))throw fail('Maksimal 12 tag, masing-masing 40 karakter');out.tags=[...new Set(input.tags.map(t=>t.trim()).filter(Boolean))];}
+  if('tags' in input){if(!Array.isArray(input.tags)||input.tags.length>12||input.tags.some(t=>typeof t!=='string'))throw fail('Maksimal 12 tag berupa teks');out.tags=[...new Set(input.tags.map(t=>t.trim()).filter(Boolean))];}
   return out;
 }
 export class NotesStore{

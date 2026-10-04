@@ -54,6 +54,12 @@ test('Notes and columns APIs require login and support full-body search and cust
  assert.equal((await request('/api/columns/'+col.id,'DELETE',{boardRevision:added.data.boardRevision,moveTo:'idea'})).status,200);assert.equal((await request('/api/contents/'+c.id)).data.content.script,'Data aman');
  for(const asset of ['notes.js','board-settings.js','video-analytics.js','features.css'])assert.equal((await fetch(base+'/'+asset)).status,200);
 });
+test('authenticated writing APIs accept full large payloads beyond old character caps',async()=>{
+ const script='Naskah lengkap '.repeat(16000)+'AKHIR NASKAH',source='Sumber lengkap '.repeat(5000)+'AKHIR SUMBER',prompt='P'.repeat(1024*1024+1)+'AKHIR PROMPT';
+ const saved=await request('/api/contents','POST',{title:'Judul '.repeat(50),script,brief:script,sources:[{label:'Sumber',url:'https://media.example/full',notes:source}]});assert.equal(saved.status,201);assert.equal(saved.data.content.script,script);assert.equal(saved.data.content.sources[0].notes,source);assert.equal((await request('/api/contents/'+saved.data.content.id)).data.content.brief,script);
+ const note=await request('/api/notes','POST',{title:'Catatan panjang',body:script});assert.equal(note.status,201);assert.equal((await request('/api/notes/'+note.data.note.id)).data.note.body,script);
+ const stored=await request('/api/radar/prompts','POST',{name:'Prompt lengkap',prompt,action:'script'});assert.equal(stored.status,201);assert.equal(stored.data.prompt,prompt);assert.equal((await request('/api/radar/prompts')).data.prompts.find(p=>p.id===stored.data.id).prompt,prompt);
+});
 test('category API is private and custom filters distinguish category names from uncategorized Notes',async()=>{
  assert.equal((await request('/api/note-categories','POST',{name:'Private'},false)).status,401);
  const category=await request('/api/note-categories','POST',{name:'Riset'});assert.equal(category.status,201);assert.ok(category.data.categories.includes('Riset'));
@@ -61,7 +67,7 @@ test('category API is private and custom filters distinguish category names from
  const selected=await request('/api/notes?category=Riset');assert.equal(selected.data.notes.length,1);assert.equal(selected.data.notes[0].id,note.id);assert.ok(selected.data.categories.includes('Riset'));
  await request('/api/note-categories','POST',{name:'uncategorized'});const reserved=(await request('/api/notes','POST',{title:'Valid name',category:'uncategorized'})).data.note;assert.equal((await request('/api/notes?category=uncategorized')).data.notes[0].id,reserved.id);
  assert.ok((await request('/api/notes?category=')).data.notes.every(n=>n.category===''));assert.equal((await request('/api/notes?q=Riset')).data.notes[0].id,note.id);
- assert.equal((await request('/api/note-categories','POST',{name:'x'.repeat(61)})).status,400);
+ assert.equal((await request('/api/note-categories','POST',{name:123})).status,400);
 });
 test('API rejects blank Notes and implicit categories; explicit rename/delete updates existing Note revisions',async()=>{
  const before=(await request('/api/notes')).data;assert.equal((await request('/api/notes','POST',{})).status,400);assert.equal((await request('/api/notes','POST',{title:'No automatic category',category:'BLU'})).status,400);assert.deepEqual((await request('/api/notes')).data,before);

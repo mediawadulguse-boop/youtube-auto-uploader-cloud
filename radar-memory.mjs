@@ -6,7 +6,7 @@ export class RadarMemory{
  constructor(store){this.store=store;}
  async list(){const r=radarData(await this.store.contentStore.read());return {prompts:r.promptLibrary||[],starters:STARTER_PROMPTS};}
  save(body,id){return this.store.mutate(r=>{
-  if(!body||typeof body!=='object'||Array.isArray(body)||typeof body.name!=='string'||!body.name.trim()||body.name.length>100||typeof body.prompt!=='string'||!body.prompt.trim()||body.prompt.length>12000||!PROMPT_ACTIONS.includes(body.action))throw fail('Nama, aksi dan prompt tidak valid.');
+  if(!body||typeof body!=='object'||Array.isArray(body)||typeof body.name!=='string'||!body.name.trim()||typeof body.prompt!=='string'||!body.prompt.trim()||!PROMPT_ACTIONS.includes(body.action))throw fail('Nama, aksi dan prompt tidak valid.');
   const prompts=r.promptLibrary||=[],old=id?prompts.find(p=>p.id===id):null;if(id&&!old)throw fail('Prompt tidak ditemukan.',404);if(old&&body.revision!==old.revision)throw fail('Prompt berubah. Muat terbaru.',409);if(!old&&prompts.length>=50)throw fail('Maksimal 50 prompt.');
   const item={id:old?.id||crypto.randomUUID(),name:body.name.trim(),prompt:body.prompt.trim(),action:body.action,revision:(old?.revision||0)+1,updatedAt:new Date(this.store.now()).toISOString(),history:old?[...(old.history||[]),{name:old.name,prompt:old.prompt,action:old.action,revision:old.revision,at:old.updatedAt}].slice(-5):[]};
   if(old)prompts[prompts.indexOf(old)]=item;else prompts.push(item);return item;

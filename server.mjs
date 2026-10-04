@@ -155,7 +155,9 @@ function sessionCookie(value, maxAge = 60 * 60 * 24 * 30) {
   const secure = APP_URL.startsWith('https://') ? '; Secure' : '';
   return `yt_admin=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`;
 }
-async function readJson(req, max = 1024 * 1024) {
+// Bound request bytes to server capacity; writing fields themselves have no character cap.
+const WRITING_PAYLOAD_BYTES=64*1024*1024;
+async function readJson(req, max = isAuthed(req)?WRITING_PAYLOAD_BYTES:1024*1024) {
   const chunks = []; let size = 0;
   for await (const chunk of req) {
     size += chunk.length;
@@ -977,23 +979,23 @@ const server = http.createServer(async (req, res) => {
     if(columnMatch&&req.method==='PATCH')return json(res,200,await contentStore.saveColumn(await readJson(req),columnMatch[1]));
     if(columnMatch&&req.method==='DELETE')return json(res,200,await contentStore.removeColumn(columnMatch[1],await readJson(req)));
     if(pathname==='/api/notes'&&req.method==='GET'){
-      const db=await notesStore.read(),q=(u.searchParams.get('q')||'').slice(0,300).toLocaleLowerCase('id-ID'),kind=u.searchParams.get('kind'),category=u.searchParams.get('category'),format=u.searchParams.get('format'),archived=u.searchParams.get('archived')==='1';
+      const db=await notesStore.read(),q=(u.searchParams.get('q')||'').toLocaleLowerCase('id-ID'),kind=u.searchParams.get('kind'),category=u.searchParams.get('category'),format=u.searchParams.get('format'),archived=u.searchParams.get('archived')==='1';
       if(format!==null&&!['','long','shorts'].includes(format))return json(res,400,{error:'Pilih kategori video Long atau Short'});
       const notes=db.notes.filter(n=>n.archived===archived&&(format===null||(n.format||'')===format)&&(!kind||n.kind===kind)&&(category===null||n.category.toLocaleLowerCase('id-ID')===category.toLocaleLowerCase('id-ID'))&&(!q||[n.title,n.body,n.category,...n.tags].join(' ').toLocaleLowerCase('id-ID').includes(q))).sort((a,b)=>Number(b.pinned)-Number(a.pinned)||b.updatedAt.localeCompare(a.updatedAt));
       return json(res,200,{categories:db.categories,categoriesRevision:db.categoriesRevision,notes:notes.map(n=>{const {body,bodyHtml,...rest}=n;return {...rest,format:n.format||'',preview:body.slice(0,280),bodyLength:body.length}})},{'cache-control':'no-store'});
     }
     if(pathname==='/api/note-categories'&&req.method==='POST')return json(res,201,await notesStore.createCategory(await readJson(req)));
     if(pathname==='/api/note-categories'&&['PATCH','DELETE'].includes(req.method))return json(res,200,await notesStore.changeCategory(await readJson(req),req.method==='DELETE'));
-    if(pathname==='/api/notes'&&req.method==='POST')return json(res,201,{note:await notesStore.create(await readJson(req,4*1024*1024))});
+    if(pathname==='/api/notes'&&req.method==='POST')return json(res,201,{note:await notesStore.create(await readJson(req,WRITING_PAYLOAD_BYTES))});
     const noteMatch=pathname.match(/^\/api\/notes\/([0-9a-f-]{36})$/i);
     if(noteMatch){
       const id=noteMatch[1];
       if(req.method==='GET'){const db=await notesStore.read(),note=db.notes.find(n=>n.id===id);if(!note)return json(res,404,{error:'Catatan tidak ditemukan'});return json(res,200,{note},{'cache-control':'no-store'});}
-      if(req.method==='PATCH')return json(res,200,{note:await notesStore.update(id,await readJson(req,4*1024*1024))});
+      if(req.method==='PATCH')return json(res,200,{note:await notesStore.update(id,await readJson(req,WRITING_PAYLOAD_BYTES))});
       if(req.method==='DELETE'){const body=await readJson(req);return json(res,200,await notesStore.remove(id,body?.revision));}
     }
     if (req.method === 'POST' && pathname === '/api/contents')
-      return json(res, 201, { content: await contentStore.create(await readJson(req,12*1024*1024)) });
+      return json(res, 201, { content: await contentStore.create(await readJson(req,WRITING_PAYLOAD_BYTES)) });
     if (req.method === 'POST' && pathname === '/api/pillars')
       return json(res, 200, { pillar: await contentStore.savePillar(await readJson(req)) });
     const contentMatch = pathname.match(/^\/api\/contents\/([0-9a-f-]+)(?:\/(duplicate))?$/i);
@@ -1009,7 +1011,7 @@ const server = http.createServer(async (req, res) => {
       }
       const linkedJobs = () => readDb().then(db => db.jobs.filter(j => j.contentId === contentId && !['cancelled','failed'].includes(j.status)));
       if (!contentMatch[2] && req.method === 'PATCH') {
-        const body = await readJson(req,12*1024*1024);
+        const body = await readJson(req,WRITING_PAYLOAD_BYTES);
         const content = await contentStore.update(contentId, body, async (old, next) => {
           if (old.plannedPublishAt !== next.plannedPublishAt && (await linkedJobs()).length)
             throw Object.assign(new Error('Jadwal sudah terhubung ke upload YouTube. Kelola jadwal di YouTube Studio.'), { status: 409 });

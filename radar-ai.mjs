@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import {rememberActivity,rememberResult} from './radar-memory.mjs';
 import { fail, radarData, LENSES, canonicalUrl } from './radar-store.mjs';
 import {buildRadarDigest} from './radar-digest.mjs';
-import {selectSourceText,materialText} from './radar-engine.mjs';
+import {materialText} from './radar-engine.mjs';
 
 const ACTIONS = {
   summary: 'Ringkas isu, bedakan fakta, klaim, dan hal yang belum diketahui. Berikan angle dengan urutan bukti sejarah/data → struktur sistem → dampak manusia. Cantumkan [n] pada setiap klaim bersumber.',
@@ -33,14 +33,14 @@ function validateResult(raw, action, sources) {
   let out;
   try { out = JSON.parse(raw); } catch { throw fail('Format hasil AI tidak valid.', 502); }
   const knownCitations=new Set(sources.map((s,i)=>s.number??i+1));
-  if (!out || typeof out.text !== 'string' || out.text.length > 60000 ||
+  if (!out || typeof out.text !== 'string'  ||
       !Array.isArray(out.drafts) || !Array.isArray(out.citations) || out.citations.length > 100 ||
       (action !== 'shorts' && !out.text.trim()) ||
       out.citations.some(n => !Number.isInteger(n) || !knownCitations.has(n)) ||
       (action === 'shorts' ? out.drafts.length !== 3 : out.drafts.length !== 0) ||
-      out.drafts.some(d => !d || typeof d.title !== 'string' || !d.title.trim() || d.title.length > 200 ||
-        typeof d.script !== 'string' || !d.script.trim() || d.script.length > 20000 ||
-        typeof d.angle !== 'string' || d.angle.length > 2000)) {
+      out.drafts.some(d => !d || typeof d.title !== 'string' || !d.title.trim() ||
+        typeof d.script !== 'string' || !d.script.trim() ||
+        typeof d.angle !== 'string')) {
     throw fail('Hasil AI atau rujukannya tidak valid.', 502);
   }
   const allText = [out.text, ...out.drafts.flatMap(d => [d.title, d.script, d.angle])].join('\n');
@@ -55,7 +55,7 @@ function validateResult(raw, action, sources) {
 }
 
 export function decodeAIResult(raw, action, sources) {
-  if (typeof raw !== 'string' || !raw.trim() || raw.length > 125000) throw fail('AI mengembalikan jawaban kosong atau terlalu panjang.',502);
+  if (typeof raw !== 'string' || !raw.trim()) throw fail('AI mengembalikan jawaban kosong.',502);
   const text=raw.trim(), json=text.replace(/^```(?:json)?\s*\n?([\s\S]*?)\n?```$/i,'$1').trim();
   let parsed;try{parsed=JSON.parse(json);}catch{}
   if (parsed && typeof parsed==='object' && !Array.isArray(parsed)) return validateResult(JSON.stringify(parsed),action,sources);
@@ -204,6 +204,10 @@ export class RadarAI {
       const remoteFail=(message,status=502)=>Object.assign(fail(message,status),{providerStatus:response.status});
       let detail;
       try { detail = (await response.json())?.error; } catch { /* never expose raw provider output */ }
+      const contextMessage=typeof detail==='string'?detail:typeof detail?.message==='string'?detail.message:'';
+      if(response.status===413||response.status===400&&/context[_ ]length|maximum context|context window|input.{0,40}tokens?.{0,40}(?:exceed|too (?:long|large))|token count.{0,40}exceed|prompt.{0,30}too long/i.test(contextMessage)){
+        const error=remoteFail(`Bahan lengkap melebihi kapasitas input model ${name}. Teks asli tetap utuh; pilih bagian yang ingin diproses atau gunakan model dengan kapasitas lebih besar.`,413);error.providerContext=true;throw error;
+      }
       if (response.status === 400) {
         const raw = typeof detail?.message === 'string' ? detail.message : '';
         const reasons = Array.isArray(detail?.details) ? detail.details.map(d => d?.reason) : [];
@@ -309,13 +313,13 @@ export class RadarAI {
     if (!ACTIONS[body?.action]) throw fail('Aksi AI tidak valid.');
     if(body.forceNew!==undefined&&typeof body.forceNew!=='boolean')throw fail('Pilihan hasil baru tidak valid.');
     const customPrompt=body.customPrompt ?? '';
-    if(typeof customPrompt!=='string'||customPrompt.length>12000)throw fail('Prompt khusus maksimal 12.000 karakter.');
-    if (typeof body.script !== 'string' || body.script.length > 60000) throw fail('Script maksimal 60.000 karakter.');
-    if(body.action==='polish'&&(!body.script.trim()||body.script.length>12000))throw fail('Perbaikan hemat memakai draft atau satu bagian maksimal 12.000 karakter.');
+    if(typeof customPrompt!=='string')throw fail('Prompt khusus harus berupa teks.');
+    if (typeof body.script !== 'string') throw fail('Script harus berupa teks.');
+    if(body.action==='polish'&&!body.script.trim())throw fail('Isi draft atau bagian naskah yang ingin diperbaiki.');
     const db = await this.store.contentStore.read(), r = radarData(db);
     const content = body.contentId ? db.contents.find(c => c.id === body.contentId) : null;
     const title=body.title ?? content?.title ?? '',brief=body.brief ?? content?.brief ?? '';
-    if(typeof title!=='string'||title.length>300||typeof brief!=='string'||brief.length>4000)throw fail('Judul atau brief AI terlalu panjang.');
+    if(typeof title!=='string'||typeof brief!=='string')throw fail('Judul dan brief AI harus berupa teks.');
     const issue = body.issueId ? r.issues.find(i => i.id === body.issueId) : null;
     const digest=body.action==='digest'?buildRadarDigest(await this.store.read(),{period:body.digestPeriod,date:body.digestDate,topic:body.digestTopic||'',now:this.now()}):null;
     if(digest&&!digest.items.length)throw fail('Belum ada sumber pada periode ringkasan ini.',422);
@@ -323,24 +327,21 @@ export class RadarAI {
     if (!issue && !body.script.trim() && !digest && body.action !== 'analysis' && !(body.action==='script'&&(customPrompt.trim()||title.trim()))) throw fail('Isi script, prompt khusus, judul, atau pilih isu.');
     if (body.sources !== undefined && (!Array.isArray(body.sources) || body.sources.length > 100)) throw fail('Sumber AI tidak valid.');
     const material = digest?.items.flatMap(i=>i.sources.slice(0,3)) || issue?.sources || (body.sources || content?.sources || []).map(s => {
-      if (!s || typeof s.label !== 'string' || s.label.length > 300 || typeof s.notes !== 'string' || s.notes.length > 10000) throw fail('Sumber riset tidak valid.');
+      if (!s || typeof s.label !== 'string' || typeof s.notes !== 'string') throw fail('Sumber riset tidak valid.');
       return { title: s.label, url: s.url ? canonicalUrl(s.url) : '', publisher: 'Riset produksi', excerpt: s.notes, coverage: 'manual', verification: s.verified ? 'verified' : 'unchecked' };
     });
     const numberedMaterial=(issue?[...material].sort((a,b)=>String(a.url).localeCompare(String(b.url))):material).map((s,i)=>({...s,number:i+1}));
     const cited=new Set([...body.script.matchAll(/\[(\d+)\]/g)].map(m=>Number(m[1])));
     if(body.action==='polish'&&(cited.size>30||[...cited].some(n=>!numberedMaterial.some(s=>s.number===n))))throw fail('Perbaiki satu bagian dengan maksimal 30 sumber yang tersedia agar nomor rujukan tetap utuh.',422);
     const selectedMaterial=[...numberedMaterial.filter(s=>cited.has(s.number)),...numberedMaterial.filter(s=>!cited.has(s.number))].slice(0,30).sort((a,b)=>a.number-b.number);
-    let remaining=18000;
-    const priorityCount=selectedMaterial.filter(s=>cited.has(s.number)).length,otherCount=selectedMaterial.length-priorityCount;
-    const priorityBudget=priorityCount?Math.min(3000,Math.floor((18000-otherCount*200)/priorityCount)):0,otherBudget=otherCount?Math.min(3000,Math.floor((18000-priorityBudget*priorityCount)/otherCount)):0;
-    const sources=selectedMaterial.map(s=>{const budget=Math.min(remaining,cited.has(s.number)?priorityBudget:otherBudget),excerpt=selectSourceText(s,budget,title+'\n'+body.script+'\n'+brief);remaining-=excerpt.length;return {number:s.number,title:s.title,url:s.url,publisher:s.publisher,excerpt,coverage:s.coverage,verification:s.verification,materialKind:s.transcript?'transcript':s.article?'article':s.coverage||'snippet',selection:'Kalimat terpilih dari bahan tersimpan; bukan seluruh teks.'};});
+    const sources=selectedMaterial.map(s=>({number:s.number,title:s.title,url:s.url,publisher:s.publisher,excerpt:materialText(s),coverage:s.coverage,verification:s.verification,materialKind:s.transcript?'transcript':s.article?'article':s.coverage||'snippet',selection:'Teks bahan tersimpan dikirim lengkap, tanpa pemotongan karakter.'}));
     if(body.action==='polish'&&[...cited].some(n=>!sources.find(s=>s.number===n)?.excerpt))throw fail('Bahan untuk rujukan draft belum tersedia. Lengkapi sumber sebelum memakai AI.',422);
-    const efficiency={selectedCharacters:18000-remaining,availableCharacters:selectedMaterial.reduce((n,s)=>n+materialText(s).length,0),sourceLimit:30,materialBudget:18000,mode:body.action==='polish'?'edit-only':'selected-evidence'};
+    const availableCharacters=sources.reduce((n,s)=>n+s.excerpt.length,0),efficiency={selectedCharacters:availableCharacters,availableCharacters,sourceLimit:30,materialBudget:null,mode:body.action==='polish'?'edit-only':'full-material'};
     const channel = body.channelId ? r.channels.find(c => c.id === body.channelId) : null;
     if (body.action === 'analysis' && !channel) throw fail('Pilih channel yang sudah dipantau.');
     const instructions = aiInstructions(body.action,customPrompt.trim());
     const input = JSON.stringify({ title,brief,digest:digest?{...digest,generatedAt:undefined,throughAt:undefined,items:digest.items.map(({sources,report,...item})=>item)}:null,issue: issue ? { title: issue.title, eventDate: issue.eventDate } : null, script: body.script, sources, channel: channel ? { name: channel.name, videos: channel.videos } : null });
-    const cacheKey=crypto.createHash('sha256').update(JSON.stringify({version:2,instructions,input,provider:this.provider,model:selectedModel,scope:options.cacheScope||null,material:crypto.createHash('sha256').update(JSON.stringify(selectedMaterial)).digest('hex')})).digest('hex');
+    const cacheKey=crypto.createHash('sha256').update(JSON.stringify({version:3,instructions,input,provider:this.provider,model:selectedModel,scope:options.cacheScope||null,material:crypto.createHash('sha256').update(JSON.stringify(selectedMaterial)).digest('hex')})).digest('hex');
     const cached=!body.forceNew&&(r.aiCache||[]).find(c=>c.key===cacheKey&&this.now()-c.at<30*86400000);
     const activity={at:new Date(this.now()).toISOString(),action:body.action,issueId:body.issueId||null,contentId:body.contentId||null,provider:this.provider,model:selectedModel};
     if(cached){await this.store.mutate(r=>rememberActivity(r,{...activity,status:'cached',provider:cached.result.providerId,model:cached.result.model}));return {...structuredClone(cached.result),cached:true,reusedAt:new Date(cached.at).toISOString()};}

@@ -37,7 +37,7 @@ export function extractArticle(body,type='text/html'){
  }
  text=text.replace(/\r/g,'').split('\n').map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean).join('\n');
  if(text.length<150||/^(?:just a moment|access denied|verify you are human|checking your browser)/i.test(text))throw fail('Teks artikel belum cukup atau akses dibatasi. Impor bahan yang Anda berhak gunakan.',422);
- const truncated=text.length>50000;if(truncated){text=text.slice(0,50000);const end=text.search(/[^.!?]*$/);text=text.slice(0,end).trim();}
+ const truncated=false;
  if(!text)throw fail('Artikel tidak memiliki kalimat lengkap.',422);return {text,truncated};
 }
 export async function acquireCaptions(source,{youtube,channelId}){
@@ -51,7 +51,7 @@ export async function acquireCaptions(source,{youtube,channelId}){
  const available=(tracks.items||[]).filter(t=>t.snippet?.status==='serving'&&!t.snippet?.isDraft),track=available.find(t=>t.snippet.language==='id')||available.find(t=>t.snippet.language==='en')||available[0];
  if(!track)throw fail('Belum ada caption yang dapat diunduh. Impor transkrip manual.',422);
  const response=await read('https://www.googleapis.com/youtube/v3/captions/'+encodeURIComponent(track.id)+'?tfmt=vtt'),reader=response.body.getReader();let size=0;const chunks=[];
- try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>200000)throw fail('Transkrip terlalu besar. Impor bagian relevan secara manual.',422);chunks.push(Buffer.from(value));}}finally{await reader.cancel().catch(()=>{});}
+ try{while(true){const {done,value}=await reader.read();if(done)break;size+=value.length;if(size>32*1024*1024)throw fail('Respons caption melebihi kapasitas unduhan 32 MB. Gunakan impor teks.',422);chunks.push(Buffer.from(value));}}finally{await reader.cancel().catch(()=>{});}
  const raw=Buffer.concat(chunks).toString('utf8');return {text:transcriptText(raw,'vtt'),format:'txt',language:track.snippet.language,origin:'youtube-captions'};
 }
 export class RadarAcquire{
@@ -72,7 +72,7 @@ export class RadarAcquire{
     const current=r.issues.find(i=>i.id===id),target=current?.sources.find(s=>s.id===source.id);
     if(!target||current.revision!==issue.revision||JSON.stringify(target)!==snapshot)throw fail('Sumber berubah selama pengambilan. Bahan baru tidak menimpa perubahan Anda.',409);
     const at=new Date(this.now()).toISOString();target.acquisition={status:error?'unavailable':'ready',attemptedAt:at,message:error?'Bahan tidak dapat diambil. Gunakan impor manual; '+error.message.slice(0,300):'Bahan tersimpan; belum otomatis terverifikasi.'};
-    if(!error){const bytes=r.issues.flatMap(i=>i.sources).reduce((n,s)=>n+Buffer.byteLength(s.transcript?.text||'')+Buffer.byteLength(s.article?.text||''),0)-Buffer.byteLength(target[field]?.text||'')+Buffer.byteLength(material.text);if(bytes>10*1024*1024)throw fail('Kapasitas bahan sumber 10 MB tercapai.');target[field]={...material,importedAt:at};target.verification='unchecked';current.groupingLocked=true;}
+    if(!error){target[field]={...material,importedAt:at};target.verification='unchecked';current.groupingLocked=true;}
     current.revision++;return current;
    });
    return {issue:changed,cached:false,status:error?'unavailable':'ready',note:error?'Akses bahan belum tersedia; tidak ada pembatasan akses yang dilewati. Impor teks manual.':'Bahan sumber diambil tanpa permintaan AI.'};
