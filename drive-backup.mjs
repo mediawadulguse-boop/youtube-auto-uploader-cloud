@@ -5,19 +5,21 @@ export const DRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
 const API='https://www.googleapis.com/drive/v3';
 const FIELDS='id,name,size,md5Checksum,webViewLink,parents,trashed';
 export class DriveBackup {
- constructor({snapshot,loadToken,getAccessToken,readState,saveState,fetch:request=fetch,now=Date.now}){Object.assign(this,{snapshot,loadToken,getAccessToken,readState,saveState,request,now});this.busy=false;this.error=null;}
+ constructor({snapshot,loadToken,getAccessToken,readState,saveState,fetch:request=fetch,now=Date.now,getConnectionVersion=()=>0}){Object.assign(this,{snapshot,loadToken,getAccessToken,readState,saveState,request,now,getConnectionVersion});this.busy=false;this.error=null;}
  async status(){const token=await this.loadToken(),state=await this.readState();return {...state,connected:!!token&&!token.reconnectRequired,busy:this.busy,error:this.error||state.error||null};}
- async call(url,options={}){const access=await this.getAccessToken();const response=await this.request(url,{...options,redirect:'error',signal:AbortSignal.timeout(60000),headers:{...options.headers,authorization:'Bearer '+access}});if(!response.ok)throw Object.assign(Error(response.status===401||response.status===403?'Izin Google Drive belum tersedia. Hubungkan ulang Drive dan pastikan API Drive aktif.':'Backup Drive belum berhasil (HTTP '+response.status+').'),{status:503,code:'drive_unavailable'});return response;}
+ async call(url,options={}){this.assertConnection();const access=await this.getAccessToken();this.assertConnection();const response=await this.request(url,{...options,redirect:'error',signal:AbortSignal.timeout(60000),headers:{...options.headers,authorization:'Bearer '+access}});this.assertConnection();if(!response.ok)throw Object.assign(Error(response.status===401||response.status===403?'Izin Google Drive belum tersedia. Hubungkan ulang Drive dan pastikan API Drive aktif.':'Backup Drive belum berhasil (HTTP '+response.status+').'),{status:503,code:'drive_unavailable'});return response;}
+ assertConnection(){if(this.runVersion!==undefined&&this.runVersion!==this.getConnectionVersion())throw Object.assign(Error('Koneksi Drive berubah. Ulangi backup untuk akun yang aktif.'),{status:409,code:'drive_connection_changed'});}
+ async persist(patch){this.assertConnection();return this.saveState(patch,()=>this.assertConnection());}
  async folder(state){if(state.folderId){const item=await this.call(API+'/files/'+encodeURIComponent(state.folderId)+'?fields=id,mimeType,trashed').then(r=>r.json());if(item.trashed||item.mimeType!=='application/vnd.google-apps.folder')throw Error('Folder backup Drive tidak tersedia.');return state.folderId;}
   const q="trashed = false and mimeType = 'application/vnd.google-apps.folder' and appProperties has { key='contentHubBackup' and value='folder' }";
-  const found=await this.call(API+'/files?'+new URLSearchParams({q,fields:'files(id)',pageSize:'1'})).then(r=>r.json());const folder=found.files?.[0]||await this.call(API+'/files?fields=id',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:'Reframe Content Hub Backups — Otomatis',mimeType:'application/vnd.google-apps.folder',appProperties:{contentHubBackup:'folder'}})}).then(r=>r.json());if(!folder.id)throw Error('Folder Drive belum berhasil dibuat.');await this.saveState({folderId:folder.id});return folder.id;
+  const found=await this.call(API+'/files?'+new URLSearchParams({q,fields:'files(id)',pageSize:'1'})).then(r=>r.json());const folder=found.files?.[0]||await this.call(API+'/files?fields=id',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:'Reframe Content Hub Backups — Otomatis',mimeType:'application/vnd.google-apps.folder',appProperties:{contentHubBackup:'folder'}})}).then(r=>r.json());if(!folder.id)throw Error('Folder Drive belum berhasil dibuat.');await this.persist({folderId:folder.id});return folder.id;
  }
  async run({force=false}={}) {
-  if(this.busy)throw Object.assign(Error('Backup Drive sedang berjalan.'),{status:409});this.busy=true;
+  if(this.busy)throw Object.assign(Error('Backup Drive sedang berjalan.'),{status:409});this.busy=true;this.runVersion=this.getConnectionVersion();
   try {const token=await this.loadToken();if(!token||token.reconnectRequired)throw Object.assign(Error('Hubungkan Google Drive di Data & Backup. Pembersihan Radar ditunda sampai backup Drive terverifikasi.'),{status:409});
    const state=await this.readState();if(force&&this.now()-Date.parse(state.lastAttemptAt||'')<60000)throw Object.assign(Error('Tunggu satu menit sebelum backup Drive berikutnya.'),{status:429});
    if(!force&&state.lastVerifiedAt&&new Date(this.now()).toISOString().slice(0,10)===state.lastVerifiedAt.slice(0,10))return {...state,skipped:true};
-   await this.saveState({lastAttemptAt:new Date(this.now()).toISOString()});
+   await this.persist({lastAttemptAt:new Date(this.now()).toISOString()});
    const {bundle,digest}=await this.snapshot();if(checksum(bundle)!==digest)throw Error('Checksum snapshot tidak cocok.');
    const body=gzipSync(JSON.stringify({...bundle,digest})),md5=crypto.createHash('md5').update(body).digest('hex'),folderId=await this.folder(state);
    const q="trashed = false and '"+folderId+"' in parents and appProperties has { key='snapshotDigest' and value='"+digest+"' }";
@@ -30,7 +32,7 @@ export class DriveBackup {
    if(!file?.id)throw Error('File backup Drive belum tersedia.');
    const verified=await this.call(API+'/files/'+encodeURIComponent(file.id)+'?'+new URLSearchParams({fields:FIELDS})).then(r=>r.json());
    if(verified.trashed||Number(verified.size)!==body.length||verified.md5Checksum!==md5||!verified.parents?.includes(folderId))throw Error('Verifikasi ukuran/checksum backup Drive gagal. Pembersihan Radar ditunda.');
-   const receipt={folderId,fileId:verified.id,fileName:verified.name,fileUrl:'https://drive.google.com/file/d/'+encodeURIComponent(verified.id)+'/view',digest,bytes:body.length,lastVerifiedAt:new Date(this.now()).toISOString(),error:null};await this.saveState(receipt);this.error=null;return receipt;
-  } catch(error){this.error=error.status===429||error.status===409?error.message:error.code==='drive_unavailable'?error.message:'Backup Drive belum terverifikasi. Periksa koneksi dan coba lagi; data Radar dipertahankan.';if(error.status!==429)await this.saveState({error:this.error}).catch(()=>{});throw Object.assign(Error(this.error),{status:error.status||503});}finally{this.busy=false;}
+   const receipt={folderId,fileId:verified.id,fileName:verified.name,fileUrl:'https://drive.google.com/file/d/'+encodeURIComponent(verified.id)+'/view',digest,bytes:body.length,lastVerifiedAt:new Date(this.now()).toISOString(),error:null};await this.persist(receipt);this.error=null;return receipt;
+  } catch(error){if(error.code==='drive_connection_changed'){this.error=null;throw error;}this.error=error.status===429||error.status===409?error.message:error.code==='drive_unavailable'?error.message:'Backup Drive belum terverifikasi. Periksa koneksi dan coba lagi; data Radar dipertahankan.';if(error.status!==429)await this.persist({error:this.error}).catch(()=>{});throw Object.assign(Error(this.error),{status:error.status||503});}finally{this.busy=false;this.runVersion=undefined;}
  }
 }

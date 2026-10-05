@@ -2,7 +2,7 @@ import {checksum} from './postgres-store.mjs';
 const DAY=86400000;
 export function retentionPolicy(r={}) { return {...{enabled:true,days:14,revision:1},...r.retention}; }
 export function protectedIssue(issue,db) {
- return ['saved','discussed'].includes(issue.status)||!!(issue.contentIds?.length||issue.groupingLocked||issue.groupPartition||issue.groupingReview||issue.groupingHistory?.length||issue.editorialFeedback||issue.feedbackHistory?.length||issue.research?.notes||issue.research?.checklist?.length)||db.contents?.some(c=>c.radarIssueId===issue.id)||issue.sources?.some(s=>s.coverage==='manual'||s.article||s.transcript||(s.verification&&s.verification!=='unchecked')||(s.sourceRole&&s.sourceRole!=='unknown')||s.repost===true);
+ return ['saved','discussed'].includes(issue.status)||!!(issue.contentIds?.length||issue.eventDate||issue.groupingLocked||issue.groupPartition||issue.groupingReview||issue.groupingHistory?.length||issue.editorialFeedback||issue.feedbackHistory?.length||issue.research?.notes||issue.research?.checklist?.length)||db.contents?.some(c=>c.radarIssueId===issue.id)||issue.sources?.some(s=>s.coverage==='manual'||s.article||s.transcript||(s.verification&&s.verification!=='unchecked')||(s.sourceRole&&s.sourceRole!=='unknown')||s.repost===true);
 }
 const older=(value,cutoff)=>{const at=typeof value==='number'?value:Date.parse(value||'');return Number.isFinite(at)&&at<cutoff;};
 export function planRetention(db,now=Date.now()) {

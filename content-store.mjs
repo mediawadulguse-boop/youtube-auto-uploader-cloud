@@ -165,18 +165,34 @@ export class ContentStore {
       db.contents[db.contents.indexOf(item)] = result; return result;
     });
   }
+  publicationUpdate(db,id,revision,video) {
+    const item=db.contents.find(c=>c.id===id);
+    if(!item)throw fail('Konten tidak ditemukan',404);
+    if(!Number.isInteger(revision)||revision!==item.revision)throw fail('Konten berubah. Muat versi terbaru.',409);
+    if(item.youtubeVideoId&&item.youtubeVideoId!==video.id)throw fail('Konten sudah terhubung ke video lain.',409);
+    if(db.contents.some(c=>c.id!==id&&c.youtubeVideoId===video.id))throw fail('Video sudah terhubung ke konten produksi lain.',409);
+    const next={...item,youtubeVideoId:video.id,youtubePublication:publicationFromVideo(video)};
+    // Status polling must not consume writing history or conflict with editor saves.
+    if(item.youtubeVideoId!==video.id){next.revision++;next.updatedAt=new Date().toISOString();next.history=[snapshot(item),...item.history].slice(0,30);}
+    return {item,next};
+  }
   recordPublication(id,revision,video,guard=()=>{}) {
     return this.mutate(async db=>{
-      const item=db.contents.find(c=>c.id===id);
-      if(!item)throw fail('Konten tidak ditemukan',404);
-      if(!Number.isInteger(revision)||revision!==item.revision)throw fail('Konten berubah. Muat versi terbaru.',409);
-      if(item.youtubeVideoId&&item.youtubeVideoId!==video.id)throw fail('Konten sudah terhubung ke video lain.',409);
-      if(db.contents.some(c=>c.id!==id&&c.youtubeVideoId===video.id))throw fail('Video sudah terhubung ke konten produksi lain.',409);
-      const next={...item,youtubeVideoId:video.id,youtubePublication:publicationFromVideo(video)};
+      const {item,next}=this.publicationUpdate(db,id,revision,video);
       await guard(item,next);
-      // Status polling must not consume writing history or conflict with editor saves.
-      if(item.youtubeVideoId!==video.id){next.revision++;next.updatedAt=new Date().toISOString();next.history=[snapshot(item),...item.history].slice(0,30);}
       db.contents[db.contents.indexOf(item)]=next;return next;
+    });
+  }
+  recordPublications(entries,guard=()=>{}) {
+    return this.mutate(async db=>{
+      await guard();let updated=0;
+      for(const {id,revision,video} of entries){
+        let change;
+        try{change=this.publicationUpdate(db,id,revision,video);}catch(error){if([404,409].includes(error.status))continue;throw error;}
+        db.contents[db.contents.indexOf(change.item)]=change.next;updated++;
+      }
+      // A channel switch invalidates the entire response, including earlier items.
+      await guard();return {updated};
     });
   }
   fillEmptyWithEngine() {

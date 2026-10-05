@@ -1,5 +1,6 @@
 import {analyzeChannel} from './radar-channels.mjs';
 import crypto from 'node:crypto';
+import {checksum} from './postgres-store.mjs';
 import {createIssueMatcher,rateIssue,RADAR_METHOD,displayHeadline} from './radar-methodology.mjs';
 import {selectIssue,groupingProvenance} from './radar-grouping.mjs';
 import {analyzeEditorial,compareEditorial,relateIssues,EDITORIAL_METHOD} from './radar-editorial.mjs';
@@ -74,18 +75,18 @@ export class RadarStore{
  saveFeed(body,id){return this.mutate(r=>{const old=id?find(r.feeds,id):null;revision(old,body);const url=canonicalUrl(body.url);if(!old&&r.feeds.length>=15)throw fail('Maksimal 15 RSS.');const item={id:old?.id||crypto.randomUUID(),name:txt(body.name,true),url,enabled:body.enabled!==false,revision:(old?.revision||0)+1};if(old)r.feeds[r.feeds.indexOf(old)]=item;else r.feeds.push(item);return item;});}
  setVideoFeedback(id,body){if(!body||typeof body!=='object'||Array.isArray(body))throw fail('Pilihan video tidak valid.');return this.mutate(r=>{const channel=find(r.channels,id);revision(channel,body);if(!['relevant','less','discussed',''].includes(body.choice))throw fail('Pilihan video tidak valid.');if(![...(channel.videos||[]),...(channel.historyVideos||[])].some(v=>v.id===body.videoId))throw fail('Video tidak ditemukan.',404);channel.videoFeedback||={};if(body.choice)channel.videoFeedback[body.videoId]={choice:body.choice,at:new Date(this.now()).toISOString()};else delete channel.videoFeedback[body.videoId];channel.revision++;return {revision:channel.revision};});}
  saveChannel(body){return this.mutate(r=>{const url=canonicalUrl(body.url),u=new URL(url);if(!/(^|\.)youtube\.com$/.test(u.hostname)||!/^\/(channel\/UC[\w-]{22}|@[\w.%-]+)\/?$/.test(u.pathname))throw fail('Gunakan URL YouTube /@handle atau /channel/UC…');if(!['inspiration','competitor','reference'].includes(body.role))throw fail('Peran channel tidak valid.');if(r.channels.some(c=>c.url===url))throw fail('Channel sudah dipantau.',409);if(r.channels.length>=20)throw fail('Maksimal 20 channel.');const item={id:crypto.randomUUID(),url,role:body.role,enabled:true,revision:1,videos:[],snapshots:[]};r.channels.push(item);return item;});}
- async addSources(inputs,topicIds=[],issueId=null){
+ async addSources(inputs,topicIds=[],issueId=null,{topicIdsByUrl}={}){
  if(!Array.isArray(inputs)||!inputs.length||inputs.length>100||inputs.some(x=>!x||typeof x!=='object'||Array.isArray(x)))throw fail('Daftar sumber Radar tidak valid.');
  return this.mutate(r=>{
   const added=[],match=createIssueMatcher();let addedCount=0;
   for(const input of inputs){
    if(r.retention?.enabled&&input.coverage!=='manual'&&!issueId&&[7,14].includes(r.retention.days)&&Number.isFinite(Date.parse(input.publishedAt))&&Date.parse(input.publishedAt)<this.now()-r.retention.days*86400000)continue;
    const url=canonicalUrl(input.url),existing=r.issues.find(i=>i.sources.some(s=>s.url===url));
-   const topicMatches=topicIds.length?topicIds:r.topics.filter(t=>matchesTopic(input,t)).map(t=>t.id);
+   const topicMatches=topicIdsByUrl?.get(url)||(topicIds.length?topicIds:r.topics.filter(t=>matchesTopic(input,t)).map(t=>t.id));
    if(existing){
     if(issueId&&issueId!==existing.id)throw fail('Link ini sudah ada di isu lain. Gunakan Gabungkan isu.',409);
     const old=existing.sources.find(s=>s.url===url);
-    if(platform(url)==='YouTube'&&input.video){old.video=videoMetadata(input.video);existing.revision++;}
+    if(platform(url)==='YouTube'&&input.video){const metadata=videoMetadata(input.video);if(checksum(metadata)!==checksum(old.video||null)){old.video=metadata;existing.revision++;}}
     if(old.coverage!=='manual'&&input.excerpt&&!old.excerpt){old.excerpt=txt(input.excerpt);old.coverage='snippet';existing.revision++;}
     if(old.coverage!=='manual' && !old.publisherUrl && input.publisherUrl){old.publisherUrl=canonicalUrl(input.publisherUrl);existing.revision++;}
     const ids=[...new Set([...existing.topicIds,...topicMatches])];

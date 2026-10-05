@@ -54,7 +54,9 @@ export class RadarSync{
   });
   const persisted=await this.store.mutate(r=>{const current=r.channels.find(x=>x.id===c.id);if(!current)return false;retainChannelHistory(current,mapped,snapshot,at);Object.assign(current,{channelId,uploads,name,thumbnail,videos:mapped.filter(v=>latestIds.includes(v.id)),lastSyncAt:now,historyCursor:cursor+tracked.length});return true;});
   if(!persisted)return 0;
-  for(const v of mapped.filter(v=>latestIds.includes(v.id))){const original=videos.find(item=>item.id===v.id),source={...this.videoSource(original),publisher:name,publisherUrl:'https://www.youtube.com/channel/'+channelId},matches=topics.filter(t=>t.sources.includes('youtube')&&matchesTopic(source,t)).map(t=>t.id);if(matches.length)await this.store.addSources([source],matches);}
+  const sources=[],topicIdsByUrl=new Map();
+  for(const v of mapped.filter(v=>latestIds.includes(v.id))){const original=videos.find(item=>item.id===v.id),source={...this.videoSource(original),publisher:name,publisherUrl:'https://www.youtube.com/channel/'+channelId},matches=topics.filter(t=>t.sources.includes('youtube')&&matchesTopic(source,t)).map(t=>t.id);if(matches.length){sources.push(source);topicIdsByUrl.set(source.url,matches);}}
+  if(sources.length)await this.store.addSources(sources,[],null,{topicIdsByUrl});
   return mapped.length;
  }
 }

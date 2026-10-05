@@ -21,7 +21,7 @@ import { RadarAIProviders } from './radar-ai.mjs';
 import { runAISmoke } from './ai-smoke.mjs';
 import { NotesStore } from './notes-store.mjs';
 import { ANALYTICS_SCOPES, hasAnalyticsAccess, analyticsRange, analyticsError, reportRows, validateVideoId } from './analytics.mjs';
-import { runUploadWorker,legacyJobAction } from './worker-policy.mjs';
+import { runUploadWorker,legacyJobAction,claimUploadJob } from './worker-policy.mjs';
 import { YouTubeManager } from './youtube-manager.mjs';
 import { StudioAnalytics, MONETARY_SCOPE, hasMonetaryAccess } from './studio-analytics.mjs';
 import { PostgresStorage } from './postgres-store.mjs';
@@ -66,7 +66,7 @@ const youtubeManager=new YouTubeManager(youtubeFetch);
 let tokenGeneration = 0;
 let analyticsTokenGeneration = 0;
 let driveTokenGeneration=0;
-const driveBackup=new DriveBackup({snapshot:async()=>{if(!storage)throw Error('Backup memerlukan PostgreSQL.');return storage.snapshot();},loadToken:()=>loadToken('drive'),getAccessToken:()=>getAccessToken('drive'),readState:async()=>((await contentStore.read()).storageBackup||{}),saveState:patch=>contentStore.mutate(db=>{db.storageBackup={...(db.storageBackup||{}),...patch};return db.storageBackup;})});
+const driveBackup=new DriveBackup({snapshot:async()=>{if(!storage)throw Error('Backup memerlukan PostgreSQL.');return storage.snapshot();},loadToken:()=>loadToken('drive'),getAccessToken:()=>getAccessToken('drive'),getConnectionVersion:()=>driveTokenGeneration,readState:async()=>((await contentStore.read()).storageBackup||{}),saveState:(patch,guard)=>contentStore.mutate(db=>{guard();db.storageBackup={...(db.storageBackup||{}),...patch};return db.storageBackup;})});
 const radarRetention=new RadarRetention(radarStore,{backup:async()=>{if(!storage)throw Error('Backup PostgreSQL belum tersedia. Pembersihan ditunda.');if(!(await driveBackup.status()).connected)throw Error('Hubungkan Google Drive di Data & Backup. Pembersihan ditunda.');await storage.backup('manual');await driveBackup.run({force:true});}});
 const refreshPromises = new Map();
 let youtubeConnectionCheck=null;
@@ -614,16 +614,11 @@ async function queryYouTubeOffset(job) {
 }
 
 async function uploadJobToYouTube(jobId) {
-  let db = await readDb();
-  let job = db.jobs.find(x => x.id === jobId);
-  if (!job) return;
+  const generation=tokenGeneration;
   if (!(await loadToken())) throw new Error('YouTube belum terhubung');
-
-  job.status = 'uploading_youtube';
-  job.error = null;
-  job.attempts = (job.attempts || 0) + 1;
-  job.updatedAt = nowIso();
-  await writeDb(db);
+  let job=await claimUploadJob({readDb,writeDb,withLock:withUploadLock,jobId,guard:()=>{if(generation!==tokenGeneration)throw Object.assign(Error('Channel berubah sebelum upload.'),{status:503});}});
+  if(!job)return;
+  let db;
 
   if (!job.uploadSessionUrl) {
     const session = await startYouTubeSession(job);
@@ -803,8 +798,7 @@ async function workerTick(){
   try{await runUploadWorker({readDb,writeDb,upload:uploadJobToYouTube,schedule:scheduleExistingPrivateJob,sync:syncScheduledJob,onError:failure=>console.error('Worker:',failure.code,failure.message)})}
   catch(e){console.error('Worker storage error:',e.message)}finally{workerBusy=false}
 }
-setInterval(workerTick, WORKER_INTERVAL_MS).unref();
-setTimeout(workerTick, 1000).unref();
+if(process.env.WORKER_ENABLED!=='false'){setInterval(workerTick, WORKER_INTERVAL_MS).unref();setTimeout(workerTick, 1000).unref();}
 let publicationBusy=false;
 async function publicationTick(force=false){
  if(publicationBusy)return {busy:true};publicationBusy=true;
@@ -1352,15 +1346,13 @@ const server = http.createServer(async (req, res) => {
 
     const cancelMatch = pathname.match(/^\/api\/jobs\/([0-9a-f-]+)\/cancel$/i);
     if (req.method === 'POST' && cancelMatch) {
-      const db = await readDb();
-      const job = db.jobs.find(x => x.id === cancelMatch[1]);
-      if (!job) return json(res, 404, { error: 'Job tidak ditemukan' });
-      if (['published', 'scheduled_youtube', 'uploading_youtube'].includes(job.status))
-        return json(res, 409, { error: 'Job sedang/selesai diproses dan tidak dapat dibatalkan' });
-      job.status = 'cancelled';
-      job.updatedAt = nowIso();
-      await writeDb(db);
-      await safeDelete(job.filePath);
+      const filePath=await withUploadLock(async()=>{
+        const db=await readDb(),job=db.jobs.find(x=>x.id===cancelMatch[1]);
+        if(!job)throw Object.assign(Error('Job tidak ditemukan'),{status:404});
+        if(['published','scheduled_youtube','uploading_youtube'].includes(job.status))throw Object.assign(Error('Job sedang/selesai diproses dan tidak dapat dibatalkan'),{status:409});
+        job.status='cancelled';job.updatedAt=nowIso();await writeDb(db);return job.filePath;
+      });
+      await safeDelete(filePath);
       return json(res, 200, { ok: true });
     }
 

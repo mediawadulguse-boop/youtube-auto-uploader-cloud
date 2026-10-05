@@ -22,10 +22,10 @@ export async function syncLinkedPublications({store,fetcher,channelId,guard=()=>
  if(!items.length)return {updated:0};
  const response=await fetcher('https://www.googleapis.com/youtube/v3/videos?'+new URLSearchParams({part:'snippet,status',id:[...new Set(items.map(c=>c.publicationVideoId))].join(',')}),{signal:AbortSignal.timeout(20000)});
  const payload=await response.json();if(!response.ok)throw Object.assign(Error('Gagal memeriksa status video YouTube.'),{status:response.status});
- let updated=0;
- for(const item of items){
-  const video=payload.items?.find(v=>v.id===item.publicationVideoId&&v.snippet?.channelId===channelId);if(!video)continue;
-  try{await store.recordPublication(item.id,item.revision,video,guard);updated++;}catch(error){if(error.status!==409)throw error;}
- }
- return {updated};
+ const entries=items.flatMap(item=>{
+  const video=payload.items?.find(v=>v.id===item.publicationVideoId&&v.snippet?.channelId===channelId);
+  return video?[{id:item.id,revision:item.revision,video}]:[];
+ });
+ if(!entries.length)return {updated:0};
+ return store.recordPublications(entries,guard);
 }

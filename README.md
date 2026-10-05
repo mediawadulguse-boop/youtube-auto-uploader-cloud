@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.25.1
+# YouTube Content Hub v4.27.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -9,6 +9,10 @@ Sidebar pada desktop dan menu drawer pada ponsel; dashboard, kalender, library, 
 Status memakai badge ikon + warna + teks pada judul kolom Kanban, dashboard, kalender, daftar, editor, dan antrean. Tahap produksi memakai badge berisi warna: Ide abu-abu, Naskah biru, Produksi amber, Editing ungu, Review pink, Siap Upload hijau. Publikasi memakai badge berbingkai: Belum upload, Masuk Cloud, Antre YouTube, Upload YouTube, Menyiapkan Jadwal, Terjadwal YouTube, Tayang, Gagal, dan Dibatalkan. Warna status tetap konsisten dan terpisah dari warna pilar.
 
 ## Data & Backup dan riwayat update
+
+Worker mengklaim antrean upload dengan kunci yang sama dengan pembatalan. Antrean yang sudah dibatalkan tidak diaktifkan kembali. Operator dapat menjeda eksekusi worker otomatis dengan `WORKER_ENABLED=false`; default tetap aktif.
+
+Sinkronisasi publikasi menyimpan hingga 50 status video dalam satu transaksi, dengan pemeriksaan revisi naskah serta penjaga pergantian channel. Impor sumber dari satu channel Radar memakai satu batch dan mempertahankan topik tiap video; metrik yang sama tidak menaikkan revisi isu. Backup Drive memeriksa versi koneksi sebelum permintaan dan saat menyimpan status di bawah kunci database. Pergantian akun membatalkan hasil lama dan menunda retensi. Isu dengan tanggal peristiwa editorial dilindungi dari pembersihan, termasuk data lama tanpa penanda penguncian.
 
 Halaman Data & Backup tidak dibuat ulang oleh sinkronisasi empat detik. Status dimuat saat halaman dibuka atau melalui **Muat ulang**; proses backup, pesan hasil, dan scroll tetap tersedia. Pemeriksaan Analytics mempunyai status/error sendiri. Backup manual memakai cooldown satu menit di dalam transaksi untuk menolak permintaan bersamaan. Unduhan memeriksa status HTTP dan format gzip; kegagalan ditampilkan pada halaman. Jika salinan volume gagal dibuat, backup PostgreSQL tetap tersedia untuk unduhan dan peringatan salinan volume ditampilkan.
 

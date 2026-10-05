@@ -80,3 +80,16 @@ test('UI prioritizes 10 across channels, groups known issues, searches videos an
  let html=ctx.radarChannelList(data);assert.equal((html.match(/class="hub-panel radar-opportunity"/g)||[]).length,10);assert.match(html,/&lt;b>reason/);assert.match(html,/&lt;unsafe>/);assert.match(html,/data-r-channel-view/);assert.match(html,/data-r-video-feedback/);assert.doesNotMatch(html,/<b>reason/);
  data.channels[0].enabled=false;assert.equal(ctx.radarChannelPage(data).items.length,0);
 });
+
+test('channel source import uses one batch, preserves each video topic, and unchanged metrics are a no-op',async t=>{
+ const {radar}=await setup(t),c=await radar.saveChannel({url:'https://youtube.com/@example',role:'reference'});
+ const monitored=[{id:'tax',name:'Pajak',enabled:true,sources:['youtube'],keywords:['pajak'],exclusions:[],lenses:['system']},{id:'labor',name:'Pekerja',enabled:true,sources:['youtube'],keywords:['pekerja'],exclusions:[],lenses:['human']}];
+ await radar.mutate(r=>{r.topics=monitored;Object.assign(r.channels[0],{channelId:'UCa',uploads:'UUa'});});
+ const videos=['newvideo001','newvideo002','newvideo003'].map((id,n)=>({id,snippet:{title:n===1?'Kehidupan pekerja desa':'Kebijakan pajak pendapatan '+n,description:'Bahan sumber lengkap.',publishedAt:new Date(now-H).toISOString()},contentDetails:{duration:'PT10M'},statistics:{viewCount:'500'}}));
+ const yt=async url=>Response.json({items:url.includes('/playlistItems?')?videos.map(v=>({contentDetails:{videoId:v.id}})):videos});
+ const mutate=radar.mutate.bind(radar);let writes=0;radar.mutate=fn=>{writes++;return mutate(fn);};
+ await new RadarSync(radar,yt,{now:()=>now}).channel((await radar.contentStore.read()).radar.channels[0],monitored);assert.equal(writes,2);
+ const raw=await radar.contentStore.read();for(const v of videos){const item=raw.radar.issues.find(i=>i.sources.some(s=>s.url.endsWith(v.id)));assert.deepEqual(item.topicIds,[v.id==='newvideo002'?'labor':'tax']);}
+ const inputs=videos.map(v=>new RadarSync(radar,yt).videoSource(v));for(const input of inputs){input.publisher='YouTube';input.publisherUrl='https://www.youtube.com/channel/UCa';}
+ const before=await radar.contentStore.read();await radar.addSources(inputs,[],null,{topicIdsByUrl:new Map(inputs.map((s,n)=>[s.url,[n===1?'labor':'tax']]))});assert.deepEqual(await radar.contentStore.read(),before);
+});

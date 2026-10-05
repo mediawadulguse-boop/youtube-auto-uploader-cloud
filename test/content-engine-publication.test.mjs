@@ -98,3 +98,14 @@ test('UI uses verified publication over a failed historical queue and guards eng
  assert.equal(context.publicationState({id:'one',youtubeVideoId:a,youtubePublication:{videoId:b,status:'published'}}),'failed');
  assert.match(code,/hub\.editing!==edit\|\|edit\.epoch!==epoch/);assert.match(code,/HubRichText\.set\(field,value\)/);assert.match(app,/Hubungkan ulang YouTube/);
 });
+
+test('publication refresh persists many videos in one mutation and rejects a switched channel atomically',()=>withStore(async store=>{
+ const first=await store.create({...base,youtubeVideoId:a}),second=await store.create({...base,youtubeVideoId:b});
+ const mutate=store.mutate.bind(store);let writes=0;store.mutate=fn=>{writes++;return mutate(fn);};
+ const fetcher=async()=>Response.json({items:[video(),video(b)]});
+ assert.equal((await syncLinkedPublications({store,fetcher,channelId:channel})).updated,2);assert.equal(writes,1);
+ const before=await store.read();let guards=0;
+ await assert.rejects(syncLinkedPublications({store,fetcher,channelId:channel,force:true,guard:()=>{if(++guards===2)throw Object.assign(Error('Channel berubah'),{status:409});}}),{status:409});
+ assert.deepEqual(await store.read(),before);
+ for(const c of before.contents){assert.equal(c.revision,1);assert.equal(c.history.length,0);assert.equal(c.script,base.script);}
+}));

@@ -7,6 +7,7 @@ import {gunzipSync} from 'node:zlib';
 import {PGlite} from '@electric-sql/pglite';
 import {PostgresStorage,checksum} from '../postgres-store.mjs';
 import {ContentStore} from '../content-store.mjs';
+import {syncLinkedPublications} from '../youtube-publication.mjs';
 import {NotesStore} from '../notes-store.mjs';
 import {AnalyticsStore} from '../analytics-store.mjs';
 import {EventEmitter} from 'node:events';
@@ -85,3 +86,14 @@ test('capacity warning labels a database + WAL estimate and caches reads; unknow
 test('legacy compaction stops before any write when capacity is critical or unknown',async()=>{
  const storage=new PostgresStorage({connect:async()=>{throw Error('must not write')}});for(const capacity of [{budgetBytes:500,level:'critical'},{budgetBytes:500,level:'warning'},{level:'unknown'}]){storage.capacity=async()=>capacity;assert.equal((await storage.compactBackup()).skipped,'insufficient_headroom');}
 });
+
+test('publication batch increments the PostgreSQL document once for multiple videos and rolls back a channel conflict',()=>setup(async({dir,storage,pool})=>{
+ await storage.initialize(()=>seed(dir));const store=new ContentStore(path.join(dir,'contents.json'));store.persistence=storage;
+ const ids=['abcdefghijk','lmnopqrstuv'];for(const id of ids)await store.create({title:'Publikasi '+id,youtubeVideoId:id,script:'Naskah '+id});
+ const before=Number((await pool.query("SELECT revision FROM app_documents WHERE key='contents'")).rows[0].revision);
+ const fetcher=async()=>Response.json({items:ids.map(id=>({id,snippet:{channelId:'owned',publishedAt:'2026-10-05T12:00:00Z'},status:{privacyStatus:'public'}}))});
+ assert.equal((await syncLinkedPublications({store,fetcher,channelId:'owned'})).updated,2);
+ const revision=Number((await pool.query("SELECT revision FROM app_documents WHERE key='contents'")).rows[0].revision);assert.equal(revision,before+1);
+ const saved=await store.read();let guards=0;await assert.rejects(syncLinkedPublications({store,fetcher,channelId:'owned',force:true,guard:()=>{if(++guards===2)throw Object.assign(Error('Channel berubah'),{status:409});}}),{status:409});
+ assert.deepEqual(await store.read(),saved);assert.equal(Number((await pool.query("SELECT revision FROM app_documents WHERE key='contents'")).rows[0].revision),revision);
+}));

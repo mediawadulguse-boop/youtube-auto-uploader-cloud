@@ -14,6 +14,15 @@ export function legacyJobAction(status,scheduledAt,now=Date.now()){
   throw Error('Status atau jadwal lama membutuhkan pemeriksaan. Atur ulang melalui YouTube Studio.');
 }
 
+// Claim only the current eligible job while sharing the cancellation/create lock.
+export async function claimUploadJob({readDb,writeDb,withLock,jobId,guard=()=>{},now=Date.now}) {
+ return withLock(async()=>{
+  await guard();const db=await readDb(),job=db.jobs.find(j=>j.id===jobId);
+  if(!job||!['queued_upload','uploading_youtube'].includes(job.status)||job.receivedBytes!==job.fileSize||(job.channelId&&db.channel?.id&&job.channelId!==db.channel.id))return null;
+  job.status='uploading_youtube';job.error=null;job.attempts=(job.attempts||0)+1;job.updatedAt=new Date(now()).toISOString();await writeDb(db);return job;
+ });
+}
+
 // Preserve the selected job and native publishAt; never modify an unrelated queue item.
 export async function runUploadWorker({readDb,writeDb,upload,schedule,sync,now=Date.now,onError=()=>{}}){
   let selected=null,kind=null;
@@ -37,7 +46,7 @@ export async function runUploadWorker({readDb,writeDb,upload,schedule,sync,now=D
     const failure=workerFailure(error,now());onError(failure);
     if(!selected)return {state:'error',...failure};
     const fresh=await readDb(),job=fresh.jobs.find(j=>j.id===selected.id);
-    if(job){job.error=failure.message;job.updatedAt=new Date(now()).toISOString();job.nextWorkerAt=failure.retryAt;if(!failure.retryAt&&failure.code!=='youtube_auth_required')job.status='failed';}
+    if(job&&job.status!=='cancelled'){job.error=failure.message;job.updatedAt=new Date(now()).toISOString();job.nextWorkerAt=failure.retryAt;if(!failure.retryAt&&failure.code!=='youtube_auth_required')job.status='failed';}
     if(['quota_exceeded','youtube_auth_required'].includes(failure.code))fresh.youtubeWorker={retryAt:failure.retryAt,code:failure.code,message:failure.message};
     await writeDb(fresh);return {state:'error',jobId:selected.id,...failure};
   }

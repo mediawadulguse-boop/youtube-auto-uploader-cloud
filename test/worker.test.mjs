@@ -1,4 +1,4 @@
-import {test} from 'node:test';import assert from 'node:assert/strict';import {runUploadWorker,legacyJobAction} from '../worker-policy.mjs';
+import {test} from 'node:test';import assert from 'node:assert/strict';import {runUploadWorker,legacyJobAction,claimUploadJob} from '../worker-policy.mjs';
 const start=Date.parse('2026-10-01T16:00:00Z');
 function fixture(jobs){let now=start,calls=0;const db={jobs},deps={readDb:async()=>db,writeDb:async()=>{},now:()=>now,upload:async()=>{calls++},schedule:async()=>{calls++},sync:async()=>{calls++}};return {db,deps,get calls(){return calls},advance(ms){now+=ms}}}
 test('quota backoff persists across worker instances and preserves the selected job and native schedule',async()=>{const f=fixture([{id:'other',status:'waiting_publish',youtubeVideoId:'other',scheduledAt:'2026-10-04T00:00:00Z',nextWorkerAt:'2026-10-05T00:00:00Z'},{id:'selected',status:'scheduled_youtube',youtubeVideoId:'video',scheduledAt:'2026-10-01T15:00:00Z'}]);let tries=0;f.deps.sync=async()=>{tries++;throw Error('You have exceeded your quota')};const before=structuredClone(f.db.jobs[0]);const failed=await runUploadWorker(f.deps);assert.equal(failed.code,'quota_exceeded');assert.equal(f.db.jobs[1].status,'scheduled_youtube');assert.equal(f.db.jobs[1].scheduledAt,'2026-10-01T15:00:00Z');assert.deepEqual(f.db.jobs[0],before);for(let i=0;i<10;i++)assert.equal((await runUploadWorker({...f.deps})).state,'paused');assert.equal(tries,1);f.advance(3600001);f.deps.sync=async()=>{tries++;f.db.jobs[1].status='published'};assert.equal((await runUploadWorker(f.deps)).state,'success');assert.equal(tries,2);assert.equal(f.db.youtubeWorker,null)});
@@ -7,3 +7,15 @@ test('upload quota failure keeps its resumable offset and permanent errors only 
 
 test('legacy migration respects public/unlisted and native scheduled videos; expired private jobs require manual review',()=>{assert.equal(legacyJobAction({privacyStatus:'public'},'2026-09-01T00:00:00Z',start),'published');assert.equal(legacyJobAction({privacyStatus:'unlisted'},'2026-09-01T00:00:00Z',start),'published');assert.equal(legacyJobAction({privacyStatus:'private',publishAt:'2026-10-04T00:00:00Z'},'2026-09-01T00:00:00Z',start),'scheduled_youtube');assert.equal(legacyJobAction({privacyStatus:'private'},'2026-10-04T00:00:00Z',start),'schedule');assert.throws(()=>legacyJobAction({privacyStatus:'private'},'2026-09-01T00:00:00Z',start),/YouTube Studio/)});
 test('switching channel cannot upload or reschedule jobs bound to another channel',async()=>{const f=fixture([{id:'old',channelId:'UC-old',status:'queued_upload',receivedBytes:10,fileSize:10,order:1}]);f.db.channel={id:'UC-current'};assert.equal((await runUploadWorker(f.deps)).state,'idle');assert.equal(f.calls,0);assert.equal(f.db.jobs[0].status,'queued_upload');});
+
+test('a cancellation completed while worker waits for the queue lock cannot be resurrected',async()=>{
+ const f=fixture([{id:'one',status:'queued_upload',receivedBytes:10,fileSize:10,order:1}]);let entered,release,writes=0;
+ const started=new Promise(r=>entered=r),waiting=new Promise(r=>release=r);
+ const claim=claimUploadJob({...f.deps,jobId:'one',writeDb:async()=>writes++,withLock:async fn=>{entered();await waiting;return fn();}});
+ await started;f.db.jobs[0].status='cancelled';release();assert.equal(await claim,null);assert.equal(writes,0);assert.equal(f.db.jobs[0].status,'cancelled');
+ f.db.jobs[0].status='queued_upload';const active=await claimUploadJob({...f.deps,jobId:'one',withLock:fn=>fn()});assert.equal(active.status,'uploading_youtube');assert.equal(active.attempts,1);
+});
+test('worker failure after cancellation keeps the cancellation and unrelated queue items intact',async()=>{
+ const f=fixture([{id:'one',status:'queued_upload',receivedBytes:10,fileSize:10,order:1},{id:'two',status:'queued_upload',receivedBytes:10,fileSize:10,order:2}]);const other=structuredClone(f.db.jobs[1]);
+ f.deps.upload=async()=>{f.db.jobs[0].status='cancelled';throw Error('Connection read failed');};assert.equal((await runUploadWorker(f.deps)).state,'error');assert.equal(f.db.jobs[0].status,'cancelled');assert.equal(f.db.jobs[0].error,undefined);assert.deepEqual(f.db.jobs[1],other);
+});
