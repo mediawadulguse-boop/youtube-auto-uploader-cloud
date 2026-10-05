@@ -30,3 +30,7 @@ test('configured retention rejects reimport of expired auto videos but allows de
  await radar.addSources([{url:'https://example.org/expired',title:'Materi lama',publisher:'Publisher',publishedAt:old,coverage:'snippet'}]);assert.equal(db.radar.issues.length,0);
  await radar.addSources([{url:'https://example.org/expired',title:'Referensi manual',publisher:'Publisher',publishedAt:old,coverage:'manual'}]);assert.equal(db.radar.issues[0].status,'saved');assert.equal(planRetention(db,now).counts.protected,1);
 });
+
+test('concurrent cleanup reports busy instead of claiming successful deletion',async()=>{
+ const db=seed(),store={contentStore:{read:async()=>structuredClone(db),mutate:async fn=>fn(db)},mutate:async fn=>fn(db.radar,db)};let release,entered;const started=new Promise(r=>entered=r),waiting=new Promise(r=>release=r);const engine=new RadarRetention(store,{now:()=>now,backup:async()=>{entered();await waiting;}}),first=engine.tick();await started;await assert.rejects(engine.tick(),e=>e.status===409);release();assert.equal((await first).issues,1);
+});

@@ -68,7 +68,7 @@ async function downloadStorageBackup(id){
 }
 function storageValidation(v){const labels={ready:'Tersedia',empty:'Belum ada data',error:'Perlu perhatian',not_checked:'Belum diperiksa',not_authorized:'Izin belum diberikan',waiting:'Menunggu laporan',not_started:'Belum diaktifkan'};return `<dl class="storage-checks">${[['Analytics channel',v.channel],['Analytics video',v.video],['Katalog video',v.catalog],['Reach / CTR',v.reach],['Pendapatan',v.revenue]].map(([label,status])=>`<div><dt>${label}</dt><dd>${esc(labels[status]||status||'Belum diperiksa')}</dd></div>`).join('')}</dl>${v.checkedAt?`<p>Diperiksa ${storageDate(v.checkedAt)}${v.lastReportedDay?' · laporan sampai '+anDate(v.lastReportedDay):''}.</p>`:''}${v.errors?.length?`<div class="notice">${v.errors.map(e=>esc(e.message)).join('<br>')}</div>`:''}`}
 // Update only cooldown text while this view is open; never remount or refetch.
-setInterval(()=>{if(storagePanel()&&storageUi.data?.manualAvailableAt)paintStorage()},1000);
+setInterval(()=>{if(storagePanel()&&(storageUi.data?.manualAvailableAt||storageUi.data?.drive?.lastAttemptAt))paintStorage()},1000);
 
 function paintStoragePolicy(panel,data){
  const q=s=>panel.querySelector(s),drive=data.drive||{},r=data.retention||{},capacity=data.capacity||{},mb=n=>(n/1024/1024).toFixed(1)+' MB';
@@ -76,15 +76,18 @@ function paintStoragePolicy(panel,data){
  q('#storageCapacity').className='notice '+(capacity.level==='critical'?'error':capacity.level==='warning'?'warning':'');
  q('#storageDrive').textContent=(drive.connected?'Drive terhubung. Backup harian aktif. ':'Drive belum terhubung untuk backup otomatis. ')+(drive.lastVerifiedAt?'Backup terakhir terverifikasi '+storageDate(drive.lastVerifiedAt)+'. ':'')+(drive.error||'');
  q('#storageDriveConnect').textContent=drive.connected?'Hubungkan ulang Drive':'Hubungkan Google Drive';
- q('#storageDriveBackup').disabled=storageUi.policyBusy||!drive.connected||data.mode!=='postgresql';
+ const driveWait=Math.max(0,Math.ceil(((Date.parse(drive.lastAttemptAt||'')||0)+60000-Date.now())/1000)),manualWait=Math.max(0,Math.ceil(((Date.parse(data.manualAvailableAt||'')||0)-Date.now())/1000)),backupWait=Math.max(driveWait,manualWait);
+ q('#storageDriveBackup').disabled=storageUi.policyBusy||!drive.connected||data.mode!=='postgresql'||backupWait>0;
+ q('#storageDriveBackup').textContent=backupWait?`Backup Drive tersedia dalam ${backupWait} detik`:'Backup ke Drive sekarang';
  const folder=q('#storageDriveFolder');folder.classList.toggle('hide',!drive.folderId);if(drive.folderId)folder.href='https://drive.google.com/drive/folders/'+encodeURIComponent(drive.folderId);
  const form=q('#storageRetentionForm'),signature=JSON.stringify([r.revision,r.enabled,r.days]);if(form.dataset.signature!==signature){form.dataset.signature=signature;q('#storageRetentionEnabled').checked=r.enabled!==false;q('#storageRetentionDays').value=String(r.days||14);}
- q('#storageRetentionSave').disabled=storageUi.policyBusy;q('#storageCleanup').disabled=storageUi.policyBusy||!drive.connected||!r.enabled||data.mode!=='postgresql';
+ q('#storageRetentionSave').disabled=storageUi.policyBusy;q('#storageCleanup').disabled=storageUi.policyBusy||!drive.connected||!r.enabled||data.mode!=='postgresql'||driveWait>0;
+ q('#storageCleanup').textContent=driveWait?`Pembersihan tersedia dalam ${driveWait} detik`:'Bersihkan sekarang';
  const p=r.preview||{};q('#storageRetention').textContent=`Kandidat: ${p.sources||0} sumber lama, ${p.issues||0} isu kosong, ${p.reports||0} arsip, ${p.cache||0} cache AI, ${p.channelEntries||0} entri riwayat channel. ${p.protected||0} isu dilindungi. `+(r.lastRunAt?'Pembersihan terakhir '+storageDate(r.lastRunAt)+'. ':'')+(r.error||(!drive.connected?'Pembersihan menunggu koneksi Drive.':''));
 }
 async function storagePolicyAction(action){
  if(storageUi.policyBusy)return;const panel=storagePanel();if(!panel)return;
  const r=storageUi.data?.retention,body=action==='retention'?{enabled:panel.querySelector('#storageRetentionEnabled').checked,days:Number(panel.querySelector('#storageRetentionDays').value),revision:r?.revision}:{};
  storageUi.policyBusy=true;panel.querySelector('#storagePolicyMessage').textContent=action==='cleanup'?'Memverifikasi backup sebelum pembersihan…':action==='drive'?'Mengunggah dan memverifikasi backup Drive…':'Menyimpan pengaturan…';paintStorage();
- try{const result=await storageRequest('/api/storage/'+action,{method:action==='retention'?'PATCH':'POST',body:JSON.stringify(body)},180000);const target=storagePanel()?.querySelector('#storagePolicyMessage');if(target)target.textContent=action==='retention'?'Retensi berhasil disimpan.':action==='drive'?'Backup Drive berhasil diverifikasi.':result.skipped?'Tidak ada data yang perlu dibersihkan.':`Pembersihan selesai: ${result.sources||0} sumber dan ${result.issues||0} isu lama dihapus.`;await loadStorage(true)}catch(e){const target=storagePanel()?.querySelector('#storagePolicyMessage');if(target)target.textContent=e.message;}finally{storageUi.policyBusy=false;paintStorage()}
+ try{const result=await storageRequest('/api/storage/'+action,{method:action==='retention'?'PATCH':'POST',body:JSON.stringify(body)},180000);const target=storagePanel()?.querySelector('#storagePolicyMessage');if(target)target.textContent=action==='retention'?'Retensi berhasil disimpan.':action==='drive'?'Backup Drive berhasil diverifikasi.':result.busy?'Pembersihan sedang berjalan. Muat ulang status setelah selesai.':result.skipped?'Tidak ada data yang perlu dibersihkan.':`Pembersihan selesai: ${result.sources||0} sumber dan ${result.issues||0} isu lama dihapus.`;await loadStorage(true)}catch(e){const target=storagePanel()?.querySelector('#storagePolicyMessage');if(target)target.textContent=e.message;await loadStorage(true);}finally{storageUi.policyBusy=false;paintStorage()}
 }

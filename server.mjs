@@ -122,6 +122,7 @@ if(radarBefore.radar && radarBefore.radar.clusteringVersion!==RADAR_METHOD.versi
  console.log('Radar methodology:',JSON.stringify(await radarStore.recluster()));
 }
 console.log('Radar status:',JSON.stringify({methodology:RADAR_METHOD.version,...(await radarStore.read()).radarSummary}));
+const policyStatus=await radarRetention.status(),driveStatus=await driveBackup.status();console.log('Storage policy:',JSON.stringify({retentionDays:policyStatus.days,retentionEnabled:policyStatus.enabled,lastCleanupAt:policyStatus.lastRunAt||null,lastCleanupResult:policyStatus.lastResult||null,driveConnected:driveStatus.connected,lastBackupVerifiedAt:driveStatus.lastVerifiedAt||null}));
 if(radarBefore.contentEngineVersion!==CONTENT_ENGINE_VERSION){
  if(radarBefore.contents.length){
   if(storage)await storage.backup('manual');
