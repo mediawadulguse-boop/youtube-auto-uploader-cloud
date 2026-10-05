@@ -25,6 +25,9 @@ import { runUploadWorker,legacyJobAction } from './worker-policy.mjs';
 import { YouTubeManager } from './youtube-manager.mjs';
 import { StudioAnalytics, MONETARY_SCOPE, hasMonetaryAccess } from './studio-analytics.mjs';
 import { PostgresStorage } from './postgres-store.mjs';
+import {DriveBackup,DRIVE_SCOPE} from './drive-backup.mjs';
+import {RadarRetention} from './radar-retention.mjs';
+import {transferAuthorized} from './storage-transfer.mjs';
 import { gzipSync } from 'node:zlib';
 import { APP_VERSION, RELEASES } from './releases.mjs';
 import {fillContentWithEngine,CONTENT_ENGINE_VERSION} from './content-engine.mjs';
@@ -51,6 +54,7 @@ const radarSync=new RadarSync(radarStore,async url=>{const db=await readDb();if(
 const notesStore = new NotesStore(path.join(DATA_DIR, 'notes.json'));
 const TOKEN_FILE = path.join(DATA_DIR, 'youtube-token.enc.json');
 const ANALYTICS_TOKEN_FILE = path.join(DATA_DIR, 'youtube-analytics-token.enc.json');
+const DRIVE_TOKEN_FILE=path.join(DATA_DIR,'google-drive-token.enc.json');
 const PUBLIC_DIR = path.resolve('public');
 const WORKER_INTERVAL_MS = Math.max(2000, Number(process.env.WORKER_INTERVAL_MS || 5000));
 const YT_CHUNK = Math.max(1, Number(process.env.YOUTUBE_CHUNK_MB || 8)) * 1024 * 1024;
@@ -61,6 +65,9 @@ radarStore.performance=async content=>{const db=await readDb(),channelId=db.chan
 const youtubeManager=new YouTubeManager(youtubeFetch);
 let tokenGeneration = 0;
 let analyticsTokenGeneration = 0;
+let driveTokenGeneration=0;
+const driveBackup=new DriveBackup({snapshot:async()=>{if(!storage)throw Error('Backup memerlukan PostgreSQL.');return storage.snapshot();},loadToken:()=>loadToken('drive'),getAccessToken:()=>getAccessToken('drive'),readState:async()=>((await contentStore.read()).storageBackup||{}),saveState:patch=>contentStore.mutate(db=>{db.storageBackup={...(db.storageBackup||{}),...patch};return db.storageBackup;})});
+const radarRetention=new RadarRetention(radarStore,{backup:async()=>{if(!storage)throw Error('Backup PostgreSQL belum tersedia. Pembersihan ditunda.');if(!(await driveBackup.status()).connected)throw Error('Hubungkan Google Drive di Data & Backup. Pembersihan ditunda.');await storage.backup('manual');await driveBackup.run({force:true});}});
 const refreshPromises = new Map();
 let youtubeConnectionCheck=null;
 
@@ -123,8 +130,11 @@ if(radarBefore.contentEngineVersion!==CONTENT_ENGINE_VERSION){
  console.log('Content engine:',JSON.stringify(await contentStore.fillEmptyWithEngine()));
 }
 let backupBusy=false;
-async function backupTick(){if(!storage||backupBusy)return;backupBusy=true;try{await storage.backup('daily')}catch(e){console.error('Backup:',e.code||'backup_failed')}finally{backupBusy=false}}
+async function backupTick(){if(!storage||backupBusy)return;backupBusy=true;try{await storage.backup('daily');const drive=await driveBackup.status();await radarRetention.tick();if(drive.connected)await driveBackup.run();}catch(e){console.error('Backup:',e.code||'backup_pending')}finally{backupBusy=false}}
 setInterval(backupTick,3600000).unref();
+setTimeout(backupTick,120000).unref();
+let compactBusy=false;async function compactTick(){if(!storage||compactBusy)return;compactBusy=true;try{const result=await storage.compactBackup();if(result.compressed)console.log('Storage: compressed one verified legacy backup');}catch(e){console.error('Storage compact:',e.code||'compact_pending')}finally{compactBusy=false}}
+setInterval(compactTick,60000).unref();
 
 function json(res, status, data, headers = {}) {
   const body = JSON.stringify(data);
@@ -281,8 +291,8 @@ function decrypt(payload) {
   return JSON.parse(Buffer.concat([decipher.update(Buffer.from(payload.data, 'base64')), decipher.final()]).toString('utf8'));
 }
 let tokenWriteChain = Promise.resolve();
-function tokenFile(kind) { return kind === 'analytics' ? ANALYTICS_TOKEN_FILE : TOKEN_FILE; }
-function tokenVersion(kind) { return kind === 'analytics' ? analyticsTokenGeneration : tokenGeneration; }
+function tokenFile(kind) { return kind==='drive'?DRIVE_TOKEN_FILE:kind === 'analytics' ? ANALYTICS_TOKEN_FILE : TOKEN_FILE; }
+function tokenVersion(kind) { return kind==='drive'?driveTokenGeneration:kind === 'analytics' ? analyticsTokenGeneration : tokenGeneration; }
 async function saveToken(token, generation, kind = 'upload') {
   generation ??= tokenVersion(kind);
   const payload = JSON.stringify(encrypt(token));
@@ -324,7 +334,7 @@ async function oauthToken(params) {
   return data;
 }
 async function getAccessToken(kind = 'upload') {
-  const token = kind === 'analytics' ? await loadAnalyticsToken() : await loadToken();
+  const token = kind === 'analytics' ? await loadAnalyticsToken() : await loadToken(kind);
   if(token?.reconnectRequired)throw authRequiredError();
   if (!token?.refresh_token && !token?.access_token) throw authRequiredError();
   if (token.access_token && token.expires_at && token.expires_at > Date.now() + 60_000) return token.access_token;
@@ -362,7 +372,7 @@ async function youtubeFetch(url, options = {}, retryAuth = true, kind = 'upload'
   headers.set('authorization', `Bearer ${access}`);
   const r = await fetch(url, { ...options, headers });
   if (r.status === 401 && retryAuth) {
-    const token = kind === 'analytics' ? await loadAnalyticsToken() : await loadToken();
+    const token = kind === 'analytics' ? await loadAnalyticsToken() : await loadToken(kind);
     if (token?.access_token === access) { token.expires_at = 0; await saveToken(token, tokenVersion(kind), kind); }
     return youtubeFetch(url, options, false, kind);
   }
@@ -884,12 +894,20 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && pathname === '/api/logout')
       return json(res, 200, { ok: true }, { 'set-cookie': sessionCookie('', 0) });
 
+    if(pathname==='/api/storage/transfer'&&transferAuthorized(req,{token:process.env.BACKUP_EXPORT_TOKEN,until:process.env.BACKUP_EXPORT_UNTIL})){
+      if(!storage)return json(res,409,{error:'Backup PostgreSQL belum tersedia'});
+      const {bundle,digest}=await storage.snapshot(),body=gzipSync(JSON.stringify({...bundle,digest})),capacity=await storage.capacity();
+      res.writeHead(200,{'content-type':'application/gzip','content-length':body.length,'cache-control':'no-store','x-storage-estimate-bytes':String(capacity.estimateBytes||0),'x-storage-database-bytes':String(capacity.databaseBytes||0),'x-storage-wal-bytes':String(capacity.walBytes||0),'content-disposition':'attachment; filename="content-hub-backup.json.gz"'});res.end(body);return;
+    }
     const isOAuthCallback = pathname === '/auth/google/callback';
     if ((pathname.startsWith('/api/') || (pathname.startsWith('/auth/') && !isOAuthCallback)) && !isAuthed(req))
       return json(res, 401, { error: 'Silakan login' });
 
     if(req.method==='GET'&&pathname==='/api/releases')return json(res,200,{currentVersion:APP_VERSION,releases:RELEASES},{'cache-control':'no-store'});
-    if(req.method==='GET'&&pathname==='/api/storage')return json(res,200,storage?await storage.status():{mode:'json',ready:true,backups:[]},{'cache-control':'no-store'});
+    if(req.method==='GET'&&pathname==='/api/storage'){const [base,drive,retention]=await Promise.all([storage?storage.status():{mode:'json',ready:true,backups:[]},driveBackup.status(),radarRetention.status()]);return json(res,200,{...base,drive,retention},{'cache-control':'no-store'});}
+    if(req.method==='PATCH'&&pathname==='/api/storage/retention')return json(res,200,await radarRetention.configure(await readJson(req)));
+    if(req.method==='POST'&&pathname==='/api/storage/cleanup')return json(res,200,await radarRetention.tick());
+    if(req.method==='POST'&&pathname==='/api/storage/drive'){if(!storage)return json(res,409,{error:'Backup PostgreSQL belum tersedia'});await storage.backup('manual',{minIntervalMs:60000});return json(res,201,await driveBackup.run({force:true}));}
     if(pathname==='/api/analytics/diagnostics'&&req.method==='GET'){const db=await readDb();return json(res,200,db.channel?.id?(await analytics.store.read(db.channel.id)).validation||{channel:'not_checked',video:'not_checked',errors:[]}:{channel:'not_authorized',errors:[]},{'cache-control':'no-store'});}
     if(pathname==='/api/analytics/diagnostics'&&req.method==='POST'){const db=await readDb(),c=db.channel?.id?await analytics.store.read(db.channel.id):null;if(c?.validation?.checkedAt&&Date.now()-Date.parse(c.validation.checkedAt)<60000)return json(res,200,c.validation);if(db.channel?.id&&hasAnalyticsAccess(await loadAnalyticsToken())){analytics.clear();await analytics.syncDaily(db.channel.id,{force:true});await analytics.syncReach(db.channel.id,{force:true});}return json(res,200,await verifyAnalytics(),{'cache-control':'no-store'});}
     if(req.method==='POST'&&pathname==='/api/storage/backups'){
@@ -1144,18 +1162,19 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/auth/google') {
       if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET)
         return text(res, 503, 'GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET belum diset.');
-      const includeAnalytics = u.searchParams.get('analytics') === '1';
+      const includeDrive=u.searchParams.get('drive')==='1';
+      const includeAnalytics = !includeDrive&&u.searchParams.get('analytics') === '1';
       const monetary = includeAnalytics && u.searchParams.get('monetary') === '1';
-      const nonce = (includeAnalytics ? (monetary?'analytics.money.':'analytics.') : '') + crypto.randomBytes(24).toString('base64url');
+      const nonce = (includeDrive?'drive.':includeAnalytics ? (monetary?'analytics.money.':'analytics.') : '') + crypto.randomBytes(24).toString('base64url');
       const state = `${nonce}.${hmac(nonce)}`;
       const p = new URLSearchParams({
         client_id: GOOGLE_CLIENT_ID,
         redirect_uri: `${APP_URL}/auth/google/callback`,
         response_type: 'code',
-        scope: (includeAnalytics ? [...ANALYTICS_SCOPES,...(monetary?[MONETARY_SCOPE]:[])] : [YOUTUBE_SCOPE]).join(' '),
+        scope: (includeDrive?[DRIVE_SCOPE]:includeAnalytics ? [...ANALYTICS_SCOPES,...(monetary?[MONETARY_SCOPE]:[])] : [YOUTUBE_SCOPE]).join(' '),
         access_type: 'offline',
         prompt: 'select_account consent',
-        include_granted_scopes: 'true',
+        include_granted_scopes: includeDrive?'false':'true',
         state
       });
       const secure = APP_URL.startsWith('https://') ? '; Secure' : '';
@@ -1169,8 +1188,10 @@ const server = http.createServer(async (req, res) => {
       const expected = parseCookies(req).yt_oauth_state || '';
       if (!state || !safeEqual(state, expected))
         return text(res, 400, 'OAuth state tidak valid. Ulangi proses koneksi.');
-      const returnTo = state.startsWith('analytics.') ? '&view=analytics' : '';
+      const isDrive=state.startsWith('drive.');
+      const returnTo = isDrive?'&view=storage':state.startsWith('analytics.') ? '&view=analytics' : '';
       if (u.searchParams.get('error')) {
+        if(isDrive)return redirect(res,'/?view=storage&oauth=drive_denied');
         const db=await readDb();db.youtubeOAuth={state:'denied',at:nowIso(),message:'Izin Google belum diberikan. Pilih akun pemilik channel dan setujui izin YouTube yang diminta.'};await writeDb(db);
         console.log('YouTube OAuth: denied');
         return redirect(res, '/?oauth=denied' + returnTo);
@@ -1188,6 +1209,12 @@ const server = http.createServer(async (req, res) => {
       });
       tok.expires_at = Date.now() + (tok.expires_in || 3600) * 1000;
       const granted = new Set(String(tok.scope || '').split(/\s+/));
+      if(isDrive){
+        if(!granted.has(DRIVE_SCOPE)||!tok.refresh_token)return redirect(res,'/?view=storage&oauth=drive_permission_required');
+        driveTokenGeneration++;refreshPromises.delete('drive');await saveToken(tok,driveTokenGeneration,'drive');
+        await contentStore.mutate(db=>{db.storageBackup={connectedAt:nowIso()};});
+        void backupTick();return redirect(res,'/?view=storage&oauth=drive_ok',{'set-cookie':'yt_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0'+(APP_URL.startsWith('https://')?'; Secure':'')});
+      }
       const db = await readDb();
       if (isAnalytics) {
         if (!db.channel?.id || !await loadToken()) return redirect(res, '/?view=analytics&oauth=not_connected');
@@ -1224,6 +1251,7 @@ const server = http.createServer(async (req, res) => {
       void publicationTick(true).catch(()=>{});
       return redirect(res, '/?oauth=ok' + returnTo, { 'set-cookie': 'yt_oauth_state=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0' + (APP_URL.startsWith('https://') ? '; Secure' : '') });
       } catch (e) {
+        if(isDrive)return redirect(res,'/?view=storage&oauth=drive_connection_failed');
         if (isAnalytics) return redirect(res, '/?view=analytics&oauth=' + encodeURIComponent(e.code || 'connection_failed'));
         console.log('YouTube OAuth: failed',e.code||'connection_failed');
         throw e;

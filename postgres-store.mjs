@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { gzipSync } from 'node:zlib';
+import { gzipSync, gunzipSync } from 'node:zlib';
 
 export const DOCUMENT_KEYS = ['uploads','contents','notes','analytics'];
 const canonical = value => Array.isArray(value) ? value.map(canonical) : value && typeof value==='object' ? Object.fromEntries(Object.keys(value).sort().map(k=>[k,canonical(value[k])])) : value;
@@ -10,6 +10,8 @@ const storageError = () => Object.assign(Error('PostgreSQL belum tersedia. Penyi
 
 // Preserve the existing versioned domain models in JSONB. Every CRUD mutation
 // reads the latest document under a row lock; revisions remain authoritative.
+export const encodeBackup=bundle=>({encoding:'gzip-base64',payload:gzipSync(JSON.stringify(bundle)).toString('base64')});
+export const decodeBackup=bundle=>bundle?.encoding==='gzip-base64'?JSON.parse(gunzipSync(Buffer.from(bundle.payload,'base64'))):bundle;
 export class PostgresStorage {
   constructor(pool,{backupDir,now=Date.now}={}) {this.pool=pool;this.backupDir=backupDir;this.now=now;this.mode='postgresql';this.backupChain=Promise.resolve();this.backupWarning=null;}
   static async connect(url,options) {
@@ -73,7 +75,7 @@ export class PostgresStorage {
       if(kind==='daily'){const last=(await client.query("SELECT id,created_at FROM app_backups WHERE kind='daily' ORDER BY created_at DESC LIMIT 1")).rows[0];if(last&&new Date(last.created_at).toISOString().slice(0,10)===new Date(this.now()).toISOString().slice(0,10))return {...last,existing:true};}
       const documents=Object.fromEntries((await client.query('SELECT key,data FROM app_documents ORDER BY key')).rows.map(r=>[r.key,r.data]));this.validate(documents);
       const bundle={version:1,createdAt:new Date(this.now()).toISOString(),documents},id=crypto.randomUUID(),digest=checksum(bundle);
-      await client.query('INSERT INTO app_backups(id,kind,digest,bundle,created_at) VALUES($1,$2,$3,$4::jsonb,$5)',[id,kind,digest,JSON.stringify(bundle),bundle.createdAt]);
+      await client.query('INSERT INTO app_backups(id,kind,digest,bundle,created_at) VALUES($1,$2,$3,$4::jsonb,$5)',[id,kind,digest,JSON.stringify(encodeBackup(bundle)),bundle.createdAt]);
       // Keep 14 daily and 10 manual restore points. Files mirror those points.
       await client.query(`DELETE FROM app_backups WHERE id IN (SELECT id FROM app_backups WHERE kind='daily' ORDER BY created_at DESC OFFSET 14) OR id IN (SELECT id FROM app_backups WHERE kind='manual' ORDER BY created_at DESC OFFSET 10)`);
       return {id,created_at:bundle.createdAt,digest,bundle,kind};
@@ -91,7 +93,10 @@ export class PostgresStorage {
     return {id:full.id,createdAt:full.created_at,kind:full.kind||kind,digest:full.digest,mirror,warning:this.backupWarning};
   }
   async listBackups(){return (await this.pool.query('SELECT id,created_at AS "createdAt",kind,digest FROM app_backups ORDER BY created_at DESC')).rows;}
-  async getBackup(id){if(!/^[a-f0-9-]{36}$/.test(id))throw Object.assign(Error('Backup tidak valid'),{status:400});const row=(await this.pool.query('SELECT * FROM app_backups WHERE id=$1',[id])).rows[0];if(!row)throw Object.assign(Error('Backup tidak ditemukan'),{status:404});if(checksum(row.bundle)!==row.digest)throw Error('Checksum backup tidak cocok');return row;}
-  async status(){const migration=(await this.pool.query('SELECT id,applied_at FROM app_migrations ORDER BY applied_at DESC LIMIT 1')).rows[0],backups=await this.listBackups();await Promise.all(backups.map(async b=>{b.volumeCopy=await fs.access(path.join(this.backupDir,b.id+'.json.gz')).then(()=>'ready',()=>'missing')}));const last=backups.find(b=>b.kind==='manual');return {mode:this.mode,ready:true,migratedAt:migration?.applied_at||null,backups,backupWarning:backups.some(b=>b.volumeCopy==='missing')?'Backup tetap tersimpan di PostgreSQL dan bisa diunduh. Ada salinan di volume yang belum tersedia.':null,manualAvailableAt:last?new Date(Date.parse(last.createdAt)+60000).toISOString():null};}
+  async getBackup(id){if(!/^[a-f0-9-]{36}$/.test(id))throw Object.assign(Error('Backup tidak valid'),{status:400});const row=(await this.pool.query('SELECT * FROM app_backups WHERE id=$1',[id])).rows[0];if(!row)throw Object.assign(Error('Backup tidak ditemukan'),{status:404});row.bundle=decodeBackup(row.bundle);if(checksum(row.bundle)!==row.digest)throw Error('Checksum backup tidak cocok');return row;}
+  async snapshot(){const documents=Object.fromEntries((await this.pool.query('SELECT key,data FROM app_documents ORDER BY key')).rows.map(r=>[r.key,r.data]));this.validate(documents);const bundle={version:1,createdAt:new Date(this.now()).toISOString(),documents};return {bundle,digest:checksum(bundle)};}
+  async compactBackup(){return this.transaction(async client=>{await client.query('SELECT pg_advisory_xact_lock(44751002)');const row=(await client.query("SELECT id,bundle,digest FROM app_backups WHERE bundle->>'encoding' IS DISTINCT FROM 'gzip-base64' ORDER BY created_at LIMIT 1 FOR UPDATE")).rows[0];if(!row)return {compressed:0};if(checksum(row.bundle)!==row.digest)throw Error('Checksum backup lama tidak cocok');const encoded=encodeBackup(row.bundle);if(checksum(decodeBackup(encoded))!==row.digest)throw Error('Verifikasi kompresi gagal');await client.query('UPDATE app_backups SET bundle=$2::jsonb WHERE id=$1',[row.id,JSON.stringify(encoded)]);return {compressed:1};});}
+  async capacity(){if(this.capacityCache&&this.now()-this.capacityCache.checkedMs<300000)return this.capacityCache.value;try{const row=(await this.pool.query('SELECT pg_database_size(current_database()) AS database_bytes, (SELECT COALESCE(sum(size),0) FROM pg_ls_waldir()) AS wal_bytes')).rows[0],databaseBytes=Number(row.database_bytes),walBytes=Number(row.wal_bytes),budgetBytes=Number(process.env.DATABASE_VOLUME_MB||0)*1024*1024,estimateBytes=databaseBytes+walBytes,ratio=budgetBytes?estimateBytes/budgetBytes:null;const value={databaseBytes,walBytes,estimateBytes,budgetBytes:budgetBytes||null,estimated:true,level:ratio===null?'unknown':ratio>=.9?'critical':ratio>=.75?'warning':'ready',note:'Estimasi database aktif + WAL, bukan pembacaan ruang bebas volume. Ukuran fisik tidak langsung turun setelah penghapusan; PostgreSQL memakai ulang ruang.'};this.capacityCache={checkedMs:this.now(),value};return value;}catch{return {level:'unknown',note:'Ukuran database belum dapat diperiksa.'};}}
+  async status(){const migration=(await this.pool.query('SELECT id,applied_at FROM app_migrations ORDER BY applied_at DESC LIMIT 1')).rows[0],backups=await this.listBackups();await Promise.all(backups.map(async b=>{b.volumeCopy=await fs.access(path.join(this.backupDir,b.id+'.json.gz')).then(()=>'ready',()=>'missing')}));const last=backups.find(b=>b.kind==='manual');return {capacity:await this.capacity(),backupEncoding:'gzip',mode:this.mode,ready:true,migratedAt:migration?.applied_at||null,backups,backupWarning:backups.some(b=>b.volumeCopy==='missing')?'Backup tetap tersimpan di PostgreSQL dan bisa diunduh. Ada salinan di volume yang belum tersedia.':null,manualAvailableAt:last?new Date(Date.parse(last.createdAt)+60000).toISOString():null};}
   async restore(bundle,digest){this.validate(bundle?.documents);if(bundle.version!==1||checksum(bundle)!==digest)throw Error('Backup rusak atau checksum tidak cocok');return this.transaction(async client=>{await client.query('SELECT key FROM app_documents ORDER BY key FOR UPDATE');for(const key of DOCUMENT_KEYS)await client.query('UPDATE app_documents SET data=$2::jsonb,revision=revision+1,updated_at=now() WHERE key=$1',[key,JSON.stringify(bundle.documents[key])]);});}
 }

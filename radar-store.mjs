@@ -79,6 +79,7 @@ export class RadarStore{
  return this.mutate(r=>{
   const added=[],match=createIssueMatcher();let addedCount=0;
   for(const input of inputs){
+   if(r.retention?.enabled&&input.coverage!=='manual'&&!issueId&&[7,14].includes(r.retention.days)&&Number.isFinite(Date.parse(input.publishedAt))&&Date.parse(input.publishedAt)<this.now()-r.retention.days*86400000)continue;
    const url=canonicalUrl(input.url),existing=r.issues.find(i=>i.sources.some(s=>s.url===url));
    const topicMatches=topicIds.length?topicIds:r.topics.filter(t=>matchesTopic(input,t)).map(t=>t.id);
    if(existing){

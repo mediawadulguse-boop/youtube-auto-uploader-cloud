@@ -69,3 +69,15 @@ test('Radar shares content transactions and is included in verified PostgreSQL b
  const point=await storage.backup('manual'),full=await storage.getBackup(point.id);assert.equal(full.bundle.documents.contents.radar.issues[0].sources[0].url,'https://example.org/pajak');assert.equal(checksum(full.bundle),full.digest);await storage.mutate('contents',db=>{db.radar.issues=[]});await storage.restore(full.bundle,full.digest);
  const restarted=new ContentStore(path.join(dir,'contents.json'));restarted.persistence=new PostgresStorage(pool,{backupDir:path.join(dir,'backups')});assert.equal((await new RadarStore(restarted).read()).issues[0].contentIds[0],linked.id);assert.ok((await restarted.read()).contents.some(c=>c.script==='Script utuh'));
 }));
+
+test('compressed backup storage stays compatible with raw restore points; legacy compaction is lossless and bounded',()=>setup(async({dir,storage,pool})=>{
+ await storage.initialize(()=>seed(dir));const point=await storage.backup('manual'),full=await storage.getBackup(point.id);const encoded=(await pool.query('SELECT bundle FROM app_backups WHERE id=$1',[point.id])).rows[0].bundle;assert.equal(encoded.encoding,'gzip-base64');assert.equal(checksum(full.bundle),full.digest);
+ await pool.query('UPDATE app_backups SET bundle=$2::jsonb WHERE id=$1',[point.id,JSON.stringify(full.bundle)]);assert.equal(checksum((await storage.getBackup(point.id)).bundle),full.digest);assert.equal((await storage.compactBackup()).compressed,1);assert.equal((await storage.compactBackup()).compressed,0);assert.equal(checksum((await storage.getBackup(point.id)).bundle),full.digest);
+ const snapshot=await storage.snapshot();assert.equal(checksum(snapshot.bundle),snapshot.digest);assert.equal(snapshot.bundle.documents.contents.contents[0].script,'Isi naskah lengkap');
+ await pool.query('UPDATE app_backups SET digest=$2 WHERE id=$1',[point.id,'invalid']);await assert.rejects(storage.getBackup(point.id),/Checksum/);
+}));
+
+test('capacity warning labels a database + WAL estimate and caches reads; unknown providers fail safely',async()=>{
+ let calls=0;const storage=new PostgresStorage({query:async()=>{calls++;return {rows:[{database_bytes:350*1024*1024,wal_bytes:32*1024*1024}]};}});const previous=process.env.DATABASE_VOLUME_MB;process.env.DATABASE_VOLUME_MB='500';try{const result=await storage.capacity();assert.equal(result.level,'warning');assert.equal(result.estimated,true);assert.equal(result.estimateBytes,382*1024*1024);await storage.capacity();assert.equal(calls,1);}finally{if(previous===undefined)delete process.env.DATABASE_VOLUME_MB;else process.env.DATABASE_VOLUME_MB=previous;}
+ const unknown=new PostgresStorage({query:async()=>{throw Error('unsupported')}});assert.equal((await unknown.capacity()).level,'unknown');
+});

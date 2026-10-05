@@ -7,7 +7,7 @@ const calendar=at=>new Date(at+7*3600000).toISOString().slice(0,10);
 const settings=r=>r.reportSchedule||{enabled:true,revision:1,timeZone:'Asia/Jakarta'};
 export class RadarArchive{
  constructor(store,{now=()=>Date.now()}={}){this.store=store;this.now=now;this.busy=false;}
- async list(){const r=radarData(await this.store.contentStore.read());return {schedule:settings(r),reports:(r.reportArchive||[]).map(({items,...report})=>({...report,itemCount:items.length})),retention:'Maksimal 60 laporan atau 20 MB; arsip terlama dilepas otomatis.'};}
+ async list(){const r=radarData(await this.store.contentStore.read());return {schedule:settings(r),reports:(r.reportArchive||[]).map(({items,...report})=>({...report,itemCount:items.length})),retention:'Maksimal 60 laporan atau 20 MB. Retensi 7/14 hari mengikuti Data & Backup setelah backup Drive terverifikasi.'};}
  async get(id){const r=radarData(await this.store.contentStore.read()),report=r.reportArchive?.find(x=>x.id===id);if(!report)throw fail('Arsip tidak ditemukan.',404);return report.executive?report:{...report,executive:buildExecutiveSummary(report.items,{now:Date.parse(report.archivedAt||report.generatedAt),scope:'Arsip '+(report.period==='weekly'?'mingguan':'harian')})};}
  configure(body){if(!body||typeof body!=='object')throw fail('Data jadwal tidak valid.');return this.store.mutate(r=>{const old=settings(r);if(body.revision!==old.revision)throw fail('Jadwal berubah. Muat ulang.',409);if(typeof body.enabled!=='boolean')throw fail('Status jadwal tidak valid.');return r.reportSchedule={...old,enabled:body.enabled,revision:old.revision+1};});}
  async save(options={}){
@@ -17,7 +17,7 @@ export class RadarArchive{
   const previous=buildRadarDigest(data,{period,date:calendar(Date.parse(range.startAt)-DAY),topic,now});
   report.comparison={startAt:previous.startAt,endAt:previous.endAt,groups:previous.groups,sourceCount:previous.sourceCount,publishers:previous.publishers,deltaGroups:report.groups-previous.groups,deltaSources:report.sourceCount-previous.sourceCount,deltaPublishers:report.publishers-previous.publishers,note:'Perbandingan liputan dari data Radar yang tersedia saat arsip dibuat; bukan perubahan kebenaran atau seluruh berita internet.'};
   // Reports already retain referenced evidence. Do not duplicate raw excerpts in snapshots.
-  report.items=report.items.map(({sources,...item})=>({...item,sources:sources.map(({excerpt,grouping,transcript,...source})=>source)}));
+  report.items=report.items.map(({sources,...item})=>({...item,sources:sources.map(({excerpt,grouping,transcript,article,...source})=>source)}));
   const key=[period,range.startAt,topic].join('|');
   return this.store.mutate(r=>{const old=r.reportArchive?.find(x=>x.archiveKey===key);if(old)return old;
    const saved={...report,id:crypto.randomUUID(),archiveKey:key,archivedAt:new Date(now).toISOString()};

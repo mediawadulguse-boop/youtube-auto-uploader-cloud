@@ -1,0 +1,4 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {transferAuthorized} from '../storage-transfer.mjs';
+test('export capability only accepts GET with exact bearer and a short unexpired deadline',()=>{const token='a'.repeat(48),now=Date.now(),until=new Date(now+900000).toISOString(),req={method:'GET',headers:{authorization:'Bearer '+token}};assert.equal(transferAuthorized(req,{token,until,now}),true);for(const opt of [{token:''},{token:'b'.repeat(48)},{until:new Date(now-1).toISOString()},{until:new Date(now+7200000).toISOString()},{until:'invalid'}])assert.equal(transferAuthorized(req,{token,until,now,...opt}),false);assert.equal(transferAuthorized({...req,method:'POST'},{token,until,now}),false);assert.equal(transferAuthorized({...req,headers:{authorization:'Bearer '+'é'.repeat(48)}},{token,until,now}),false);});
