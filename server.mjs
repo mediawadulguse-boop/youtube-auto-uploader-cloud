@@ -133,8 +133,9 @@ let backupBusy=false;
 async function backupTick(){if(!storage||backupBusy)return;backupBusy=true;try{await storage.backup('daily');const drive=await driveBackup.status();await radarRetention.tick();if(drive.connected)await driveBackup.run();}catch(e){console.error('Backup:',e.code||'backup_pending')}finally{backupBusy=false}}
 setInterval(backupTick,3600000).unref();
 setTimeout(backupTick,120000).unref();
-let compactBusy=false;async function compactTick(){if(!storage||compactBusy)return;compactBusy=true;try{const result=await storage.compactBackup();if(result.compressed)console.log('Storage: compressed one verified legacy backup');}catch(e){console.error('Storage compact:',e.code||'compact_pending')}finally{compactBusy=false}}
-setInterval(compactTick,60000).unref();
+let compactBusy=false;async function compactTick(){if(!storage||compactBusy)return;compactBusy=true;try{await storage.maintain();const result=await storage.compactBackup();if(result.compressed)console.log('Storage: compressed one verified legacy backup');}catch(e){console.error('Storage compact:',e.code||'compact_pending')}finally{compactBusy=false}}
+setInterval(compactTick,120000).unref();
+setTimeout(compactTick,15000).unref();
 
 function json(res, status, data, headers = {}) {
   const body = JSON.stringify(data);

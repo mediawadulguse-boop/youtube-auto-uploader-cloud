@@ -72,7 +72,7 @@ test('Radar shares content transactions and is included in verified PostgreSQL b
 
 test('compressed backup storage stays compatible with raw restore points; legacy compaction is lossless and bounded',()=>setup(async({dir,storage,pool})=>{
  await storage.initialize(()=>seed(dir));const point=await storage.backup('manual'),full=await storage.getBackup(point.id);const encoded=(await pool.query('SELECT bundle FROM app_backups WHERE id=$1',[point.id])).rows[0].bundle;assert.equal(encoded.encoding,'gzip-base64');assert.equal(checksum(full.bundle),full.digest);
- await pool.query('UPDATE app_backups SET bundle=$2::jsonb WHERE id=$1',[point.id,JSON.stringify(full.bundle)]);assert.equal(checksum((await storage.getBackup(point.id)).bundle),full.digest);assert.equal((await storage.compactBackup()).compressed,1);assert.equal((await storage.compactBackup()).compressed,0);assert.equal(checksum((await storage.getBackup(point.id)).bundle),full.digest);
+ await pool.query('UPDATE app_backups SET bundle=$2::jsonb WHERE id=$1',[point.id,JSON.stringify(full.bundle)]);assert.equal(checksum((await storage.getBackup(point.id)).bundle),full.digest);storage.capacity=async()=>({budgetBytes:500*1024*1024,level:'ready'});assert.equal((await storage.compactBackup()).compressed,1);assert.equal((await storage.compactBackup()).compressed,0);assert.equal(checksum((await storage.getBackup(point.id)).bundle),full.digest);
  const snapshot=await storage.snapshot();assert.equal(checksum(snapshot.bundle),snapshot.digest);assert.equal(snapshot.bundle.documents.contents.contents[0].script,'Isi naskah lengkap');
  await pool.query('UPDATE app_backups SET digest=$2 WHERE id=$1',[point.id,'invalid']);await assert.rejects(storage.getBackup(point.id),/Checksum/);
 }));
@@ -80,4 +80,8 @@ test('compressed backup storage stays compatible with raw restore points; legacy
 test('capacity warning labels a database + WAL estimate and caches reads; unknown providers fail safely',async()=>{
  let calls=0;const storage=new PostgresStorage({query:async()=>{calls++;return {rows:[{database_bytes:350*1024*1024,wal_bytes:32*1024*1024}]};}});const previous=process.env.DATABASE_VOLUME_MB;process.env.DATABASE_VOLUME_MB='500';try{const result=await storage.capacity();assert.equal(result.level,'warning');assert.equal(result.estimated,true);assert.equal(result.estimateBytes,382*1024*1024);await storage.capacity();assert.equal(calls,1);}finally{if(previous===undefined)delete process.env.DATABASE_VOLUME_MB;else process.env.DATABASE_VOLUME_MB=previous;}
  const unknown=new PostgresStorage({query:async()=>{throw Error('unsupported')}});assert.equal((await unknown.capacity()).level,'unknown');
+});
+
+test('legacy compaction stops before any write when capacity is critical or unknown',async()=>{
+ const storage=new PostgresStorage({connect:async()=>{throw Error('must not write')}});for(const capacity of [{budgetBytes:500,level:'critical'},{budgetBytes:500,level:'warning'},{level:'unknown'}]){storage.capacity=async()=>capacity;assert.equal((await storage.compactBackup()).skipped,'insufficient_headroom');}
 });
