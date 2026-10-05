@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.24.0
+# YouTube Content Hub v4.25.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -255,6 +255,14 @@ Startup membuat backup PostgreSQL manual atau contents.radar-v<versi-asal>.backu
 - API: `GET /api/radar/digest?period=daily|weekly&date=YYYY-MM-DD&topic=<id>`; semua endpoint tetap memakai login admin. `POST /api/radar/ai` menerima `customPrompt`, `title`, `brief`; aksi `digest` memakai `digestPeriod`, `digestDate`, `digestTopic`.
 
 Rujukan API YouTube: https://developers.google.com/youtube/v3/docs/search/list dan https://developers.google.com/youtube/v3/docs/videos/list.
+
+### Radar editorial dan ringkasan halaman depan (4.25.0)
+
+Ringkasan eksekutif tampil langsung di depan Radar dengan tab Harian dan Mingguan, mengikuti filter. Pemakaian ulang respons berdasarkan periode, tanggal WIB, filter dan revisi data menghindari permintaan yang sama. Pergantian tab, filter atau halaman melindungi tampilan dari respons yang terlambat. Laporan dengan bahan kosong tetap tampil dengan arahan untuk menambah bahan.
+
+Peringkat utama memakai skor potensi Reframe dari DNA/topik (30), sinyal cerita (25), bukti (20), kebaruan terhadap konten workspace (15) dan momentum (10). Skor momentum dihitung terpisah; teks identik minimal 90 karakter/12 kata dihitung satu kelompok bahan. Ini mendeteksi salinan literal, tidak menyimpulkan independensi penerbit atau mengenali seluruh parafrasa. Jenis sumber primer/laporan/komentar dan verifikasi tetap dipilih editor. Kesiapan berarti riset, pemeriksaan perbedaan, atau bahan untuk kerangka, bukan persetujuan publikasi otomatis. Pertanyaan angle memakai sinyal dalam bahan dan klaim berujukan.
+
+Hubungan antarisu memakai judul, penanda entitas, istilah spesifik dan rentang maksimal 14 hari; perbedaan lokasi dijaga. Kandidat pernyataan/tanggapan atau perkembangan diberi penanda tinjauan tanpa menggabungkan atau mengubah sumber. Feedback isu menyimpan pilihan, dimensi alasan, catatan dan maksimal 20 riwayat; penilaian relevan +6, kurang relevan −20. Preferensi topik dengan minimal 5 isu dinilai dibatasi ±4. Hasil video milik channel sendiri memerlukan cache dalam 24 jam, format yang dipilih sama, usia maksimal 30 hari dengan toleransi 25% (1–48 jam), waktu pengambilan berdekatan dan minimal 3 video pembanding. Setelah minimal 3 hasil berbeda mempunyai rasio yang sah, penyesuaian topik dibatasi ±3. Tidak ada klaim kausal atau prediksi viral. Semua penilaian dan ringkasan memakai engine, tanpa kuota AI; hasil belum cukup tetap diberi penanda.
 
 ### Ringkasan eksekutif Radar (4.24.0)
 

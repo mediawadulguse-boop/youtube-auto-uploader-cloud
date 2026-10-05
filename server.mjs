@@ -57,6 +57,7 @@ const YT_CHUNK = Math.max(1, Number(process.env.YOUTUBE_CHUNK_MB || 8)) * 1024 *
 const MAX_BROWSER_CHUNK = 16 * 1024 * 1024;
 const YOUTUBE_SCOPE = 'https://www.googleapis.com/auth/youtube.force-ssl';
 const analytics = new StudioAnalytics(analyticsFetch, { file:path.join(DATA_DIR,'analytics.json'), monetary:async()=>hasMonetaryAccess(await loadAnalyticsToken()) });
+radarStore.performance=async content=>{const db=await readDb(),channelId=db.channel?.id||'';return channelId?buildRadarPerformance(content,await analytics.store.read(channelId),{channelId}):null;};
 const youtubeManager=new YouTubeManager(youtubeFetch);
 let tokenGeneration = 0;
 let analyticsTokenGeneration = 0;
@@ -1021,7 +1022,7 @@ const server = http.createServer(async (req, res) => {
     const archiveMatch=pathname.match(/^\/api\/radar\/reports\/([a-z0-9-]{1,60})$/);
     if(archiveMatch&&req.method==='GET')return json(res,200,await radarArchive.get(archiveMatch[1]));
     if(pathname==='/api/radar/executive'&&req.method==='GET')return json(res,200,buildRadarExecutive(await radarStore.read(),{period:Number(u.searchParams.get('period')||72),q:u.searchParams.get('q')||'',topic:u.searchParams.get('topic')||'',status:u.searchParams.get('status')||'',platform:u.searchParams.get('platform')||''}),{'cache-control':'no-store'});
-    if(pathname==='/api/radar/digest'&&req.method==='GET')return json(res,200,buildRadarDigest(await radarStore.read(),{period:u.searchParams.get('period')||'daily',date:u.searchParams.get('date')||undefined,topic:u.searchParams.get('topic')||''}),{'cache-control':'no-store'});
+    if(pathname==='/api/radar/digest'&&req.method==='GET')return json(res,200,buildRadarDigest(await radarStore.read(),{period:u.searchParams.get('period')||'daily',date:u.searchParams.get('date')||undefined,topic:u.searchParams.get('topic')||'',q:u.searchParams.get('q')||'',status:u.searchParams.get('status')||'',platform:u.searchParams.get('platform')||''}),{'cache-control':'no-store'});
     if(pathname==='/api/radar/sync'&&req.method==='POST')return json(res,200,await radarSync.sync({force:true}));
     if(pathname==='/api/radar/ai/check'&&req.method==='POST')return json(res,200,await radarAI.checkConnection(await readJson(req)));
     if(pathname==='/api/radar/ai/test'&&req.method==='POST')return json(res,200,await radarAI.checkGeneration(await readJson(req)));

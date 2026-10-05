@@ -1,9 +1,10 @@
 import {buildIssueReport} from './radar-engine.mjs';
 import {publisherKey} from './radar-methodology.mjs';
+import {compareEditorial} from './radar-editorial.mjs';
 
-export const EXECUTIVE_VERSION=1;
+export const EXECUTIVE_VERSION=2;
 const stamp=value=>Date.parse(value||'');
-const sortIssues=(a,b)=>(b.stats?.score||0)-(a.stats?.score||0)||(stamp(b.stats?.latestPublishedAt)||0)-(stamp(a.stats?.latestPublishedAt)||0)||a.id.localeCompare(b.id);
+const sortIssues=compareEditorial;
 const uniqueSources=items=>[...new Map(items.flatMap(i=>i.sources||[]).map(s=>[s.url,s])).values()];
 
 // Decision support from stored evidence only. No provider, fetch or content mutations.
@@ -25,7 +26,8 @@ export function buildExecutiveSummary(items,{now=Date.now(),scope='Radar',partia
   const action=issue.groupingReview||conflicts?'Periksa perbedaan':!evidence.length||gaps.length?'Lengkapi riset':'Susun kerangka bersumber';
   const trend=issue.stats?.trend;
   const change=trend?.state==='rising'?`Penerbit aktif bertambah ${trend.deltaPublishers24h} sejak pengamatan ${trend.since}.`:trend?.state==='falling'?`Penerbit aktif berkurang ${Math.abs(trend.deltaPublishers24h)} sejak pengamatan ${trend.since}.`:'Perubahan liputan belum menunjukkan kenaikan atau penurunan yang dapat dibandingkan.';
-  return {id:issue.id,title:issue.title,score:issue.stats?.score||0,reason:issue.stats?.reason||'Prioritas mengikuti peringkat liputan tersimpan.',change,evidence,gaps,action,sourceCount:report.sources.length,publishers};
+  if(issue.editorial)gaps.push(...issue.editorial.gaps.filter(g=>!gaps.includes(g)));
+  return {id:issue.id,title:issue.title,score:issue.editorial?.score??issue.stats?.score??0,momentum:issue.editorial?.momentum?.score??issue.stats?.score??0,reason:issue.editorial?.reasons.join(' ')||issue.stats?.reason||'Prioritas mengikuti peringkat liputan tersimpan.',angle:issue.editorial?.angle||'',readiness:issue.editorial?.readiness?.label||action,change,evidence,gaps,action:issue.editorial?.readiness?.label||action,sourceCount:report.sources.length,publishers};
  });
  let comparison=null;
  if(previousItems){
@@ -38,10 +40,10 @@ export function buildExecutiveSummary(items,{now=Date.now(),scope='Radar',partia
  if(sources.some(s=>s.platform==='YouTube'&&!s.transcript))risks.push('Video tanpa transkrip hanya menyumbang judul/deskripsi.');
  if(sources.some(s=>!Number.isFinite(stamp(s.publishedAt))))risks.push('Sebagian sumber belum memiliki tanggal publikasi.');
  if(groups.some(i=>i.groupingReview))risks.push('Ada kelompok yang memerlukan tinjauan pengelompokan.');
- const overview=groups.length?`${scope}: ${groups.length} kelompok isu dari ${sources.length} tautan sumber. ${priorities.length?`${priorities.length} prioritas riset dipilih dari peringkat liputan.`:'Semua isu dalam cakupan sudah dibahas; belum ada prioritas riset baru.'}`:'Belum ada bahan yang sesuai dalam cakupan ini.';
+ const overview=groups.length?`${scope}: ${groups.length} kelompok isu dari ${sources.length} tautan sumber. ${priorities.length?`${priorities.length} prioritas riset dipilih dari ${groups.some(i=>i.editorial)?'penilaian editorial':'peringkat liputan'}.`:'Semua isu dalam cakupan sudah dibahas; belum ada prioritas riset baru.'}`:'Belum ada bahan yang sesuai dalam cakupan ini.';
  const nextStep=priorities.length?`Mulai dari “${priorities[0].title}”: ${priorities[0].action.toLocaleLowerCase('id-ID')}.`:'Sinkronkan Radar atau sesuaikan topik dan periode untuk menambah bahan.';
- const note='Ringkasan engine tanpa AI. Prioritas memakai skor liputan saat ini, bukan prediksi viral. Kutipan adalah klaim yang dilaporkan sumber; tanda verifikasi berasal dari editor. Alasan sebab-akibat dan kesimpulan editorial tetap perlu diperiksa.';
- const text=['RINGKASAN EKSEKUTIF',overview,...(comparison?[`PERUBAHAN LIPUTAN\n${comparison.deltaGroups>=0?'+':''}${comparison.deltaGroups} kelompok; ${comparison.deltaSources>=0?'+':''}${comparison.deltaSources} tautan sumber. ${comparison.continuingGroups} kelompok juga memiliki liputan pada periode pembanding.`,...comparison.newCoverageTitles.map(t=>'Tanpa liputan tersimpan pada periode pembanding: '+t),comparison.note]:[]),'PRIORITAS RISET',...priorities.map((p,n)=>[`${n+1}. ${p.title}`,p.reason,p.change,...p.evidence.flatMap(e=>['Klaim sumber: '+e.text,...e.references.map(s=>`[${s.number}] ${s.publisher} — ${s.title}\n${s.url}`)]),...p.gaps.map(g=>'Perlu diperiksa: '+g),'Langkah: '+p.action].join('\n')),'LANGKAH BERIKUTNYA',nextStep,...(risks.length?['CATATAN CAKUPAN',...risks]:[]),note].join('\n\n');
+ const note='Ringkasan engine tanpa AI. Potensi editorial, momentum dan kesiapan bahan dinilai terpisah, bukan prediksi viral. Kutipan adalah klaim yang dilaporkan sumber; tanda verifikasi berasal dari editor. Alasan sebab-akibat dan kesimpulan editorial tetap perlu diperiksa.';
+ const text=['RINGKASAN EKSEKUTIF',overview,...(comparison?[`PERUBAHAN LIPUTAN\n${comparison.deltaGroups>=0?'+':''}${comparison.deltaGroups} kelompok; ${comparison.deltaSources>=0?'+':''}${comparison.deltaSources} tautan sumber. ${comparison.continuingGroups} kelompok juga memiliki liputan pada periode pembanding.`,...comparison.newCoverageTitles.map(t=>'Tanpa liputan tersimpan pada periode pembanding: '+t),comparison.note]:[]),'PRIORITAS RISET',...priorities.map((p,n)=>[`${n+1}. ${p.title}`,`Potensi editorial: ${p.score}/100 · Momentum: ${p.momentum}/100 · ${p.readiness}`,...(p.angle?['Angle riset: '+p.angle]:[]),p.reason,p.change,...p.evidence.flatMap(e=>['Klaim sumber: '+e.text,...e.references.map(s=>`[${s.number}] ${s.publisher} — ${s.title}\n${s.url}`)]),...p.gaps.map(g=>'Perlu diperiksa: '+g),'Langkah: '+p.action].join('\n')),'LANGKAH BERIKUTNYA',nextStep,...(risks.length?['CATATAN CAKUPAN',...risks]:[]),note].join('\n\n');
  return {version:EXECUTIVE_VERSION,usesAI:false,generatedAt:new Date(now).toISOString(),scope,partial,fallback,overview,groups:groups.length,sourceCount:sources.length,priorities,comparison,risks,nextStep,note,text};
 }
 

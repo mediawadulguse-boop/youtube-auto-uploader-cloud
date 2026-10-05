@@ -2,6 +2,7 @@ import {fail,issueStats} from './radar-store.mjs';
 import {buildIssueReport,ENGINE_VERSION} from './radar-engine.mjs';
 import {publisherKey} from './radar-methodology.mjs';
 import {buildExecutiveSummary} from './radar-executive.mjs';
+import {analyzeEditorial,compareEditorial} from './radar-editorial.mjs';
 
 // Calendar boundaries in WIB (UTC+7), including Monday–Sunday weeks.
 export function digestRange(period='daily',date,now=Date.now()) {
@@ -15,21 +16,25 @@ export function digestRange(period='daily',date,now=Date.now()) {
   return {period,date:selected,timeZone:'Asia/Jakarta',startAt:new Date(start).toISOString(),endAt:new Date(end).toISOString(),throughAt:new Date(Math.min(end,now)).toISOString(),partial:now<end};
 }
 
-export function buildRadarDigest(data,{period='daily',date,topic='',now=Date.now()}={}) {
+export function buildRadarDigest(data,{period='daily',date,topic='',q='',status='',platform='',now=Date.now()}={}) {
   const range=digestRange(period,date,now),start=Date.parse(range.startAt),end=Math.min(Date.parse(range.endAt),now);
   if(topic&&!data.topics.some(t=>t.id===topic))throw fail('Topik ringkasan tidak ditemukan.',404);
-  const groups=data.issues.filter(i=>i.status!=='ignored'&&i.stats.relevant!==false&&(!topic||i.topicIds.includes(topic))).flatMap(i=>{
-    const sources=i.sources.filter(s=>{const published=Date.parse(s.publishedAt||'');return published>=start&&published<end;});
+  if(status&&!['new','saved','ignored','discussed'].includes(status))throw fail('Status Radar tidak valid.');
+  if(platform&&!['YouTube','Berita / Web'].includes(platform))throw fail('Platform Radar tidak valid.');
+  const search=q.trim().toLocaleLowerCase('id-ID'),eligible=data.issues.filter(i=>i.status!=='ignored'&&i.stats.relevant!==false&&(!topic||i.topicIds.includes(topic))&&(!status||i.status===status)&&[i.title,...i.sources.flatMap(s=>[s.title,s.publisher,s.excerpt||''])].join(' ').toLocaleLowerCase('id-ID').includes(search));
+  const groups=eligible.flatMap(i=>{
+    const sources=i.sources.filter(s=>{const published=Date.parse(s.publishedAt||'');return (!platform||s.platform===platform)&&published>=start&&published<end;});
     if(!sources.length)return [];
     const stats=issueStats({...i,sources,observations:[]},end);if(i.groupingReview){stats.isHot=false;stats.reason+=' Pengelompokan sumber perlu ditinjau.';}
-    return [{id:i.id,title:i.title,status:i.status,eventDate:i.eventDate||null,topicIds:i.topicIds,groupingReview:!!i.groupingReview,sources,stats}];
-  }).sort((a,b)=>b.stats.score-a.stats.score||Date.parse(b.stats.latestPublishedAt)-Date.parse(a.stats.latestPublishedAt)||a.id.localeCompare(b.id));
+    const issue={id:i.id,title:i.title,status:i.status,eventDate:i.eventDate||null,topicIds:i.topicIds,contentIds:i.contentIds||[],editorialFeedback:i.editorialFeedback||null,groupingReview:!!i.groupingReview,sources,stats};
+    issue.editorial=analyzeEditorial(issue,{topics:data.topics,issues:data.issues,contents:data.linkedContents||[],now:end});return [issue];
+  }).sort(compareEditorial);
   const sources=groups.flatMap(i=>i.sources),platforms={};
   for(const source of sources)platforms[source.platform]=(platforms[source.platform]||0)+1;
   const items=groups.slice(0,10).map(issue=>({...issue,report:buildIssueReport(issue)}));
   const summary=groups.length?`${groups.length} kelompok isu dari ${sources.length} sumber dalam periode ini, termasuk ${platforms.YouTube||0} video YouTube. Liputan teratas: ${items.slice(0,3).map(i=>i.title).join('; ')}.`:'Belum ada sumber bertanggal dalam periode ini.';
   const previousStart=start-(Date.parse(range.endAt)-start),previousEnd=range.partial?previousStart+Math.max(0,end-start):start;
-  const previousItems=data.issues.filter(i=>i.status!=='ignored'&&i.stats.relevant!==false&&(!topic||i.topicIds.includes(topic))).flatMap(i=>{const sources=i.sources.filter(s=>{const at=Date.parse(s.publishedAt||'');return at>=previousStart&&at<previousEnd;});return sources.length?[{...i,sources}]:[];});
+  const previousItems=eligible.flatMap(i=>{const sources=i.sources.filter(s=>{const at=Date.parse(s.publishedAt||'');return (!platform||s.platform===platform)&&at>=previousStart&&at<previousEnd;});return sources.length?[{...i,sources}]:[];});
   const executive=buildExecutiveSummary(groups,{now,scope:period==='weekly'?'Ringkasan mingguan':'Ringkasan harian',partial:range.partial,previousItems});
   executive.comparison.startAt=new Date(previousStart).toISOString();executive.comparison.throughAt=new Date(previousEnd).toISOString();
   return {...range,engine:'extractive-rules',engineVersion:ENGINE_VERSION,usesAI:false,summary,executive,generatedAt:new Date(now).toISOString(),topic,groups:groups.length,sourceCount:sources.length,publishers:new Set(sources.map(publisherKey).filter(Boolean)).size,platforms,items,
