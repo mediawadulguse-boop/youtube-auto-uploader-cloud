@@ -1,13 +1,14 @@
 import crypto from 'node:crypto';
 import {buildRadarDigest,digestRange} from './radar-digest.mjs';
 import {fail,radarData} from './radar-store.mjs';
+import {buildExecutiveSummary} from './radar-executive.mjs';
 const DAY=86400000;
 const calendar=at=>new Date(at+7*3600000).toISOString().slice(0,10);
 const settings=r=>r.reportSchedule||{enabled:true,revision:1,timeZone:'Asia/Jakarta'};
 export class RadarArchive{
  constructor(store,{now=()=>Date.now()}={}){this.store=store;this.now=now;this.busy=false;}
  async list(){const r=radarData(await this.store.contentStore.read());return {schedule:settings(r),reports:(r.reportArchive||[]).map(({items,...report})=>({...report,itemCount:items.length})),retention:'Maksimal 60 laporan atau 20 MB; arsip terlama dilepas otomatis.'};}
- async get(id){const r=radarData(await this.store.contentStore.read()),report=r.reportArchive?.find(x=>x.id===id);if(!report)throw fail('Arsip tidak ditemukan.',404);return report;}
+ async get(id){const r=radarData(await this.store.contentStore.read()),report=r.reportArchive?.find(x=>x.id===id);if(!report)throw fail('Arsip tidak ditemukan.',404);return report.executive?report:{...report,executive:buildExecutiveSummary(report.items,{now:Date.parse(report.archivedAt||report.generatedAt),scope:'Arsip '+(report.period==='weekly'?'mingguan':'harian')})};}
  configure(body){if(!body||typeof body!=='object')throw fail('Data jadwal tidak valid.');return this.store.mutate(r=>{const old=settings(r);if(body.revision!==old.revision)throw fail('Jadwal berubah. Muat ulang.',409);if(typeof body.enabled!=='boolean')throw fail('Status jadwal tidak valid.');return r.reportSchedule={...old,enabled:body.enabled,revision:old.revision+1};});}
  async save(options={}){
   if(!options||typeof options!=='object'||Array.isArray(options))throw fail('Data arsip tidak valid.');const {period='daily',date,topic=''}=options;

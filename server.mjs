@@ -14,6 +14,7 @@ import {RadarWorkspace} from './radar-workspace.mjs';
 import {RadarAcquire,acquireCaptions} from './radar-acquire.mjs';
 import {RadarArchive} from './radar-archive.mjs';
 import {buildRadarDigest} from './radar-digest.mjs';
+import {buildRadarExecutive} from './radar-executive.mjs';
 import {buildIssueReport} from './radar-engine.mjs';
 import {explainIssueGrouping} from './radar-grouping.mjs';
 import { RadarAIProviders } from './radar-ai.mjs';
@@ -1019,6 +1020,7 @@ const server = http.createServer(async (req, res) => {
     if(pathname==='/api/radar/report-schedule'&&req.method==='PATCH')return json(res,200,await radarArchive.configure(await readJson(req)));
     const archiveMatch=pathname.match(/^\/api\/radar\/reports\/([a-z0-9-]{1,60})$/);
     if(archiveMatch&&req.method==='GET')return json(res,200,await radarArchive.get(archiveMatch[1]));
+    if(pathname==='/api/radar/executive'&&req.method==='GET')return json(res,200,buildRadarExecutive(await radarStore.read(),{period:Number(u.searchParams.get('period')||72),q:u.searchParams.get('q')||'',topic:u.searchParams.get('topic')||'',status:u.searchParams.get('status')||'',platform:u.searchParams.get('platform')||''}),{'cache-control':'no-store'});
     if(pathname==='/api/radar/digest'&&req.method==='GET')return json(res,200,buildRadarDigest(await radarStore.read(),{period:u.searchParams.get('period')||'daily',date:u.searchParams.get('date')||undefined,topic:u.searchParams.get('topic')||''}),{'cache-control':'no-store'});
     if(pathname==='/api/radar/sync'&&req.method==='POST')return json(res,200,await radarSync.sync({force:true}));
     if(pathname==='/api/radar/ai/check'&&req.method==='POST')return json(res,200,await radarAI.checkConnection(await readJson(req)));

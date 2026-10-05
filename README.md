@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.7.1
+# YouTube Content Hub v4.24.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -255,6 +255,12 @@ Startup membuat backup PostgreSQL manual atau contents.radar-v<versi-asal>.backu
 - API: `GET /api/radar/digest?period=daily|weekly&date=YYYY-MM-DD&topic=<id>`; semua endpoint tetap memakai login admin. `POST /api/radar/ai` menerima `customPrompt`, `title`, `brief`; aksi `digest` memakai `digestPeriod`, `digestDate`, `digestTopic`.
 
 Rujukan API YouTube: https://developers.google.com/youtube/v3/docs/search/list dan https://developers.google.com/youtube/v3/docs/videos/list.
+
+### Ringkasan eksekutif Radar (4.24.0)
+
+Tombol **Ringkasan eksekutif** pada Radar mengikuti pencarian, topik, status, platform dan periode. Engine memilih tiga prioritas riset dari peringkat liputan saat ini, menampilkan maksimal dua klaim bersumber per isu, tautan rujukan, perubahan jumlah penerbit bila ada pengamatan pembanding, kekurangan bahan dan langkah berikutnya. Ringkasan tidak memakai AI, tidak menulis data dan tidak menyatakan prediksi viral atau verifikasi otomatis. Bahan di luar periode hanya menjadi fallback yang diberi penanda.
+
+Ringkasan harian/mingguan juga memuat blok eksekutif dengan perubahan jumlah kelompok dan tautan sumber terhadap periode sebelumnya. Periode berjalan dibandingkan dengan durasi yang sama, berdasarkan kalender WIB; istilah tanpa liputan tersimpan pada periode pembanding tidak berarti peristiwa baru terjadi. Klaim laporan diambil dari sumber dalam periode tersebut. Ringkasan dapat disalin, termasuk tautan rujukan. Arsip baru menyimpan snapshot eksekutif; arsip lama dibaca dari bukti yang sudah tersimpan tanpa dimutasi.
 
 ### Pemulihan tampilan konten (4.23.2)
 

@@ -1,6 +1,7 @@
 import {fail,issueStats} from './radar-store.mjs';
 import {buildIssueReport,ENGINE_VERSION} from './radar-engine.mjs';
 import {publisherKey} from './radar-methodology.mjs';
+import {buildExecutiveSummary} from './radar-executive.mjs';
 
 // Calendar boundaries in WIB (UTC+7), including Monday–Sunday weeks.
 export function digestRange(period='daily',date,now=Date.now()) {
@@ -27,6 +28,10 @@ export function buildRadarDigest(data,{period='daily',date,topic='',now=Date.now
   for(const source of sources)platforms[source.platform]=(platforms[source.platform]||0)+1;
   const items=groups.slice(0,10).map(issue=>({...issue,report:buildIssueReport(issue)}));
   const summary=groups.length?`${groups.length} kelompok isu dari ${sources.length} sumber dalam periode ini, termasuk ${platforms.YouTube||0} video YouTube. Liputan teratas: ${items.slice(0,3).map(i=>i.title).join('; ')}.`:'Belum ada sumber bertanggal dalam periode ini.';
-  return {...range,engine:'extractive-rules',engineVersion:ENGINE_VERSION,usesAI:false,summary,generatedAt:new Date(now).toISOString(),topic,groups:groups.length,sourceCount:sources.length,publishers:new Set(sources.map(publisherKey).filter(Boolean)).size,platforms,items,
+  const previousStart=start-(Date.parse(range.endAt)-start),previousEnd=range.partial?previousStart+Math.max(0,end-start):start;
+  const previousItems=data.issues.filter(i=>i.status!=='ignored'&&i.stats.relevant!==false&&(!topic||i.topicIds.includes(topic))).flatMap(i=>{const sources=i.sources.filter(s=>{const at=Date.parse(s.publishedAt||'');return at>=previousStart&&at<previousEnd;});return sources.length?[{...i,sources}]:[];});
+  const executive=buildExecutiveSummary(groups,{now,scope:period==='weekly'?'Ringkasan mingguan':'Ringkasan harian',partial:range.partial,previousItems});
+  executive.comparison.startAt=new Date(previousStart).toISOString();executive.comparison.throughAt=new Date(previousEnd).toISOString();
+  return {...range,engine:'extractive-rules',engineVersion:ENGINE_VERSION,usesAI:false,summary,executive,generatedAt:new Date(now).toISOString(),topic,groups:groups.length,sourceCount:sources.length,publishers:new Set(sources.map(publisherKey).filter(Boolean)).size,platforms,items,
     note:'Ringkasan dari sumber Radar yang tersimpan, menurut tanggal publikasi WIB. Isu diabaikan dan sumber tanpa tanggal tidak disertakan. Skor dihitung dari liputan dalam periode ini; cuplikan dan deskripsi belum membuktikan klaim.'};
 }
