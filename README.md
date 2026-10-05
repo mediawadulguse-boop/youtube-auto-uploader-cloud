@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.25.0
+# YouTube Content Hub v4.25.1
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -255,6 +255,12 @@ Startup membuat backup PostgreSQL manual atau contents.radar-v<versi-asal>.backu
 - API: `GET /api/radar/digest?period=daily|weekly&date=YYYY-MM-DD&topic=<id>`; semua endpoint tetap memakai login admin. `POST /api/radar/ai` menerima `customPrompt`, `title`, `brief`; aksi `digest` memakai `digestPeriod`, `digestDate`, `digestTopic`.
 
 Rujukan API YouTube: https://developers.google.com/youtube/v3/docs/search/list dan https://developers.google.com/youtube/v3/docs/videos/list.
+
+### Perlindungan PostgreSQL (4.25.1)
+
+- Error koneksi pada client yang sedang dipakai ditangani selama transaksi; kegagalan diteruskan ke pemanggil dan koneksi rusak dikeluarkan dari pool. Tidak ada perpindahan ke database kosong.
+- Penulisan JSONB hanya dilakukan jika dokumen benar-benar berubah. Mutasi tanpa perubahan mempertahankan revisi dan waktu penyimpanan. Pemeriksaan revisi domain dan row lock tetap berlaku.
+- Perubahan ini mengurangi penulisan yang tidak perlu, tetapi tidak memperbesar volume atau memulihkan database yang sudah kehabisan ruang. Pemulihan kapasitas harus dilakukan dan diverifikasi terpisah.
 
 ### Radar editorial dan ringkasan halaman depan (4.25.0)
 

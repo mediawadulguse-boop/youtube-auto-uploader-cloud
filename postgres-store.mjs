@@ -20,8 +20,14 @@ export class PostgresStorage {
   }
   async transaction(fn) {
     const client=await this.pool.connect();
-    try {await client.query('BEGIN');const result=await fn(client);await client.query('COMMIT');return result;}
-    catch(e){await client.query('ROLLBACK').catch(()=>{});throw e;}finally{client.release();}
+    let connectionError,rollbackError;
+    // pg emits errors on checked-out clients too. The pool's idle-client
+    // listener does not protect a transaction while its connection is lost.
+    const onError=error=>{connectionError=error;};
+    client.on?.('error',onError);
+    try {await client.query('BEGIN');const result=await fn(client);if(connectionError)throw connectionError;await client.query('COMMIT');return result;}
+    catch(e){try{await client.query('ROLLBACK')}catch(error){rollbackError=error}throw e;}
+    finally{client.release(connectionError||rollbackError);client.removeListener?.('error',onError);}
   }
   async initialize(seed) {
     await this.pool.query(`CREATE TABLE IF NOT EXISTS app_documents (key text PRIMARY KEY, data jsonb NOT NULL, revision bigint NOT NULL DEFAULT 1, updated_at timestamptz NOT NULL DEFAULT now());
@@ -52,7 +58,7 @@ export class PostgresStorage {
     if(!Array.isArray(documents.uploads.jobs)||!Array.isArray(documents.contents.contents)||!Array.isArray(documents.contents.pillars)||!Array.isArray(documents.contents.columns)||!Array.isArray(documents.notes.notes)||!Array.isArray(documents.notes.categories)||!documents.analytics.channels)throw Error('Model data backup tidak valid');
   }
   async read(key){const {rows}=await this.pool.query('SELECT data FROM app_documents WHERE key=$1',[key]);if(!rows.length)throw storageError();return structuredClone(rows[0].data);}
-  async mutate(key,fn){return this.transaction(async client=>{const {rows}=await client.query('SELECT data FROM app_documents WHERE key=$1 FOR UPDATE',[key]);if(!rows.length)throw storageError();const data=structuredClone(rows[0].data),result=await fn(data);await client.query('UPDATE app_documents SET data=$2::jsonb,revision=revision+1,updated_at=now() WHERE key=$1',[key,JSON.stringify(data)]);return structuredClone(result);});}
+  async mutate(key,fn){return this.transaction(async client=>{const {rows}=await client.query('SELECT data FROM app_documents WHERE key=$1 FOR UPDATE',[key]);if(!rows.length)throw storageError();const data=structuredClone(rows[0].data),before=JSON.stringify(data),result=await fn(data),after=JSON.stringify(data);if(after!==before)await client.query('UPDATE app_documents SET data=$2::jsonb,revision=revision+1,updated_at=now() WHERE key=$1',[key,after]);return structuredClone(result);});}
   async write(key,data){await this.mutate(key,document=>{for(const k of Object.keys(document))delete document[k];Object.assign(document,structuredClone(data));});}
   backup(kind='manual',options={}) {
     // Serialize the database snapshot and filesystem mirror together locally.

@@ -9,11 +9,28 @@ import {PostgresStorage,checksum} from '../postgres-store.mjs';
 import {ContentStore} from '../content-store.mjs';
 import {NotesStore} from '../notes-store.mjs';
 import {AnalyticsStore} from '../analytics-store.mjs';
+import {EventEmitter} from 'node:events';
 
 // Real PostgreSQL WASM engine; serialize its single connection like a pool.
 function poolFor(db){let tail=Promise.resolve();const query=(sql,args)=>!args&&sql.includes(';')?db.exec(sql).then(()=>({rows:[]})):db.query(sql,args);return {query,async connect(){const previous=tail;let release;tail=new Promise(r=>release=r);await previous;return {query,release}},end:()=>db.close()};}
 async function setup(run){const dir=await fs.mkdtemp(path.join(os.tmpdir(),'pg-store-')),engine=new PGlite(),pool=poolFor(engine);try{await run({dir,pool,storage:new PostgresStorage(pool,{backupDir:path.join(dir,'backups')})})}finally{await pool.end();await fs.rm(dir,{recursive:true,force:true})}}
 async function seed(dir){const contents=new ContentStore(path.join(dir,'contents.json')),notes=new NotesStore(path.join(dir,'notes.json')),analytics=new AnalyticsStore(path.join(dir,'analytics.json'));await contents.create({title:'Naskah asli',script:'Isi naskah lengkap'});await notes.create({title:'Note asli',body:'Catatan\nbaris dua'});await analytics.mutate('A',c=>{c.videos.x={title:'Video'}});const documents={uploads:{version:1,jobs:[],channel:{id:'A'}},contents:await contents.load(),notes:await notes.load(),analytics:await analytics.load()},files={contents:contents.file,notes:notes.file,analytics:analytics.file};return {documents,files};}
+test('connection loss during a checked-out transaction rejects safely and destroys the damaged client',async()=>{
+ const client=new EventEmitter(),lost=Object.assign(Error('Connection terminated unexpectedly'),{code:'ECONNRESET'}),queries=[];let released;
+ client.query=async sql=>{queries.push(sql);if(sql==='ROLLBACK')throw lost;return {rows:[]};};client.release=error=>{released=error};
+ const storage=new PostgresStorage({connect:async()=>client});
+ await assert.rejects(storage.transaction(async()=>{client.emit('error',lost);return 'must not commit'}),error=>error===lost);
+ assert.deepEqual(queries,['BEGIN','ROLLBACK']);assert.equal(released,lost);assert.equal(client.listenerCount('error'),0);
+ const healthy=new EventEmitter();healthy.query=async()=>({rows:[]});healthy.release=error=>assert.equal(error,undefined);storage.pool.connect=async()=>healthy;
+ assert.equal(await storage.transaction(async()=>42),42);assert.equal(healthy.listenerCount('error'),0);
+});
+test('no-op document mutations keep revisions and timestamps unchanged while real edits still persist',()=>setup(async({dir,storage,pool})=>{
+ await storage.initialize(()=>seed(dir));const before=(await pool.query("SELECT revision,updated_at FROM app_documents WHERE key='contents'")).rows[0];
+ assert.equal(await storage.mutate('contents',()=>({unchanged:true})).then(r=>r.unchanged),true);
+ assert.deepEqual((await pool.query("SELECT revision,updated_at FROM app_documents WHERE key='contents'")).rows[0],before);
+ await storage.mutate('contents',db=>{db.contents[0].script+=' tambahan'});
+ const after=(await pool.query("SELECT revision FROM app_documents WHERE key='contents'")).rows[0];assert.equal(Number(after.revision),Number(before.revision)+1);assert.match((await storage.read('contents')).contents[0].script,/tambahan$/);
+}));
 test('PostgreSQL JSONB import verifies hashes, preserves originals, revisions and category/column/script history; restart never reimports stale JSON',()=>setup(async({dir,storage,pool})=>{
  const initial=await seed(dir),original=await fs.readFile(initial.files.contents,'utf8');await storage.initialize(async()=>initial);assert.equal(checksum(await storage.read('contents')),checksum(initial.documents.contents));assert.equal(await fs.readFile(initial.files.contents,'utf8'),original);const folders=await fs.readdir(path.join(dir,'backups'));assert.ok(folders.some(n=>n.startsWith('migration-')));
  const contents=new ContentStore(initial.files.contents),notes=new NotesStore(initial.files.notes);contents.persistence=storage;notes.persistence=storage;
