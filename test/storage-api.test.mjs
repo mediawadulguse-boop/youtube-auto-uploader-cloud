@@ -29,6 +29,7 @@ test('parallel backup requests create one manual restore point and return cooldo
  const results=await Promise.all([1,2].map(()=>fetch(base+'/api/storage/backups',{method:'POST',headers:{cookie,'content-type':'application/json'},body:'{}'})));assert.deepEqual(results.map(r=>r.status).sort(),[201,429]);
  const backup=await results.find(r=>r.status===201).json(),limited=await results.find(r=>r.status===429).json();assert.ok(limited.retryAfter>0);assert.equal(backup.mirror,'ready');
  const status=await get('/api/storage').then(r=>r.json());assert.equal(status.backups.filter(b=>b.kind==='manual').length,1);assert.ok(status.manualAvailableAt);assert.equal(status.backupWarning,null);
+ assert.equal(status.usage.available,true);assert.equal(status.usage.categories.length,8);assert.ok(status.usage.backups.storedBytes>0);assert.ok(status.volume.capacity.totalBytes>0);assert.ok(status.backups.find(b=>b.id===backup.id).fileBytes>0);assert.ok(!JSON.stringify(status).includes('app_documents'));
  const download=await get('/api/storage/backups/'+backup.id);assert.equal(download.status,200);assert.equal(download.headers.get('content-type'),'application/gzip');const {digest,...bundle}=JSON.parse(gunzipSync(Buffer.from(await download.arrayBuffer())));assert.equal(digest,checksum(bundle));assert.ok(bundle.documents.notes);
  assert.equal((await get('/api/storage/backups/00000000-0000-4000-8000-000000000000')).status,404);
 });

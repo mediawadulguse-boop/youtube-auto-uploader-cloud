@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import {volumeUsage} from './storage-usage.mjs';
 import { URL } from 'node:url';
 import { ContentStore } from './content-store.mjs';
 import { RadarStore } from './radar-store.mjs';
@@ -900,7 +901,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 401, { error: 'Silakan login' });
 
     if(req.method==='GET'&&pathname==='/api/releases')return json(res,200,{currentVersion:APP_VERSION,releases:RELEASES},{'cache-control':'no-store'});
-    if(req.method==='GET'&&pathname==='/api/storage'){const [base,drive,retention]=await Promise.all([storage?storage.status():{mode:'json',ready:true,backups:[]},driveBackup.status(),radarRetention.status()]);return json(res,200,{...base,drive,retention},{'cache-control':'no-store'});}
+    if(req.method==='GET'&&pathname==='/api/storage'){const [base,drive,retention,volume]=await Promise.all([storage?storage.status():{mode:'json',ready:true,backups:[]},driveBackup.status(),radarRetention.status(),volumeUsage(DATA_DIR)]);return json(res,200,{...base,drive,retention,volume},{'cache-control':'no-store'});}
     if(req.method==='PATCH'&&pathname==='/api/storage/retention')return json(res,200,await radarRetention.configure(await readJson(req)));
     if(req.method==='POST'&&pathname==='/api/storage/cleanup')return json(res,200,await radarRetention.tick());
     if(req.method==='POST'&&pathname==='/api/storage/drive'){if(!storage)return json(res,409,{error:'Backup PostgreSQL belum tersedia'});await storage.backup('manual',{minIntervalMs:60000});return json(res,201,await driveBackup.run({force:true}));}

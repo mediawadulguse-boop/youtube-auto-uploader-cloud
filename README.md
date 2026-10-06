@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.27.0
+# YouTube Content Hub v4.28.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -9,6 +9,8 @@ Sidebar pada desktop dan menu drawer pada ponsel; dashboard, kalender, library, 
 Status memakai badge ikon + warna + teks pada judul kolom Kanban, dashboard, kalender, daftar, editor, dan antrean. Tahap produksi memakai badge berisi warna: Ide abu-abu, Naskah biru, Produksi amber, Editing ungu, Review pink, Siap Upload hijau. Publikasi memakai badge berbingkai: Belum upload, Masuk Cloud, Antre YouTube, Upload YouTube, Menyiapkan Jadwal, Terjadwal YouTube, Tayang, Gagal, dan Dibatalkan. Warna status tetap konsisten dan terpisah dari warna pilar.
 
 ## Data & Backup dan riwayat update
+
+Dashboard penggunaan menyediakan empat indikator: estimasi database + WAL, penggunaan volume aplikasi, ukuran isi data JSON sebelum kompresi, dan ukuran nilai backup yang disimpan di PostgreSQL. Tab **Kategori data** merinci produksi/naskah, Radar/channel, Note, Analytics, antrean, AI/prompt, laporan dan pengaturan. Tab **Backup & berkas** merinci salinan harian/manual, file video, checkpoint dan data lokal. Ukuran gzip tersedia pada daftar unduhan. Angka Drive berasal dari salinan terakhir terverifikasi, bukan seluruh penggunaan akun Drive. Database, volume dan Drive dihitung sebagai lokasi terpisah. Pengukuran berjalan hanya saat status dimuat, membaca agregat tanpa mengirim isi naskah atau token. Pemindaian volume yang tidak lengkap dan kapasitas yang belum tersedia ditandai secara eksplisit.
 
 Worker mengklaim antrean upload dengan kunci yang sama dengan pembatalan. Antrean yang sudah dibatalkan tidak diaktifkan kembali. Operator dapat menjeda eksekusi worker otomatis dengan `WORKER_ENABLED=false`; default tetap aktif.
 
