@@ -41,7 +41,7 @@ export function headline(title,publisher='') {
 }
 const overlap=(a,b)=>[...a].some(x=>b.has(x));
 const weight=t=>/^\d+$/.test(t)?3:COMMON.has(t)?1:2;
-function profileConflicts(a,b,entitiesOnly=false) {
+export function profileConflicts(a,b,entitiesOnly=false) {
   const conflicts=[];
   if(!entitiesOnly&&a.negative!==b.negative)conflicts.push('Pernyataan dan penyangkalan berbeda.');
   for(const key of Object.keys(a.entities))if(b.entities[key]&&!overlap(a.entities[key],b.entities[key]))conflicts.push((['place','kabupaten','kota','kecamatan','desa','jalan','pantai','pasar','sman','smpn'].includes(key)?'Lokasi':key==='person'?'Nama tokoh':'Organisasi')+' berbeda ('+key+').');

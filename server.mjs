@@ -1023,7 +1023,7 @@ const server = http.createServer(async (req, res) => {
         return json(res,200,{...report,connectedChannel:db.channel,videos:report.videos.map(v=>{const job=jobs.find(j=>j.youtubeVideoId===v.id);return {...v,title:v.title||job?.title||'Judul belum tersedia',contentId:job?.contentId||productions.find(c=>c.youtubeVideoId===v.id)?.id||null}})},{'cache-control':'no-store'});
       }catch(e){return json(res,e.status||502,{code:e.code||'upstream_error',error:e.message},{'cache-control':'no-store'});}
     }
-    if(pathname==='/api/radar'&&req.method==='GET')return json(res,200,{...await radarStore.read(),ai:await radarAI.status(u.searchParams.get('aiProvider') || undefined),syncBusy:radarSync.busy});
+    if(pathname==='/api/radar'&&req.method==='GET')return json(res,200,{...await radarStore.read({includeResearchPlans:false}),ai:await radarAI.status(u.searchParams.get('aiProvider') || undefined),syncBusy:radarSync.busy});
     if(pathname==='/api/radar/prompts'&&req.method==='GET')return json(res,200,await radarMemory.list());
     if(pathname==='/api/radar/prompts'&&req.method==='POST')return json(res,201,await radarMemory.save(await readJson(req)));
     const promptMatch=pathname.match(/^\/api\/radar\/prompts\/([a-z0-9-]{1,60})$/);

@@ -82,3 +82,24 @@ Laju memakai dua pengamatan views berjarak minimal 30 menit; percepatan perlu ti
 Riwayat maksimal 30 hari / 800 pengamatan / 200 video per channel; sinkronisasi sangat sering dapat memperpendek cakupan. Sepuluh unggahan terbaru diperiksa bersama maksimal 40 video tersimpan bergiliran dalam satu panggilan videos. Video tidak tersedia atau tidak dipilih pada giliran ini tidak mendapat pengamatan baru. Deskripsi disimpan maksimal 3.000 karakter. Ringkasan hanya menjumlahkan interval nonnegatif yang tersedia di dalam periode, bukan seluruh views channel. Tidak ada backfill historis atau klaim mengetahui cadence channel lengkap.
 
 Validasi lokal mencakup cold start, null, nol, koreksi views, interval berbeda, pembanding usia/durasi, retensi/migrasi/restart, perlindungan feedback, penghapusan channel selama sync, batch API dan rendering/filter/escaping. Pemeriksaan produksi terbatas pada health, versi dan aset publik serta CI; tampilan akun yang login belum diaudit secara visual.
+
+## Penguatan engine riset — v4.29.0 (6 Oktober 2026)
+
+Diimplementasikan tanpa panggilan AI atau migrasi kelompok tersimpan:
+
+1. Pencocokan topik membaca judul dan bahan utama artikel/transkrip tersimpan. Kata/frasa utuh serta pengecualian menggantikan kecocokan potongan kata.
+2. Bukti identik/hampir identik dihitung sekali. Salinan hampir identik harus berbagi minimal 90% rangkaian lima kata pada bahan lebih pendek, panjang relatif minimal 70%, dan angka, negasi serta identitas yang dikenali sama. Sumber asli tetap tersimpan; ini heuristik untuk perhitungan, bukan penetapan asal berita.
+3. Kalimat isi disaring dengan jangkar judul dan penjagaan lokasi/identitas. Judul saja serta opini tidak menjadi klaim utama. Ranking klaim menggabungkan kecocokan jangkar, angka selain tanggal sederhana, bahan lengkap, verifikasi dan peran primer. Bukti, kesiapan kerangka serta ringkasan eksekutif mengikuti dukungan sumber pada klaim terpilih.
+4. Peta bahan menunjukkan lima dimensi: peristiwa/data, aturan/mekanisme, dampak manusia, pembanding dan tanggapan. Status berarti disebut dalam bahan relevan, bukan terbukti lengkap. Opini yang berupa tanggapan tetap dilabeli opini; tidak berubah menjadi bukti utama.
+5. Tiga angle Sistem, Sejarah dan Manusia membawa pertanyaan, rujukan dan bahan yang kurang. Usulan kueri pencarian terikat judul dan celah riset; pencarian belum dijalankan otomatis. Ruang riset dan brief kerangka membawa kebutuhan tersebut.
+6. Respons daftar hanya membawa ringkasan cakupan. Peta dan angle lengkap dimuat pada detail; respons yang selesai setelah dialog ditutup diabaikan.
+
+Bobot prioritas tetap DNA/topik 30, sinyal cerita 25, bukti 20, kebaruan 15 dan momentum 10. Momentum tidak menggantikan kesiapan bahan. Klasifikasi kalimat dan entitas tetap berbasis pola terbatas; verifikasi sumber berasal dari editor.
+
+Rekomendasi lanjutan:
+
+- Evaluasi 20–30 isu nyata dengan penilaian editor: relevansi, salah gabung/pisah, duplikasi, dukungan klaim utama, manfaat angle, dan kebutuhan riset yang belum terdeteksi. Ukur sebelum/sesudah; regresi sintetis belum membuktikan akurasi pada seluruh produksi.
+- Tambahkan perbandingan perkembangan antarwaktu dengan periode, satuan dan konteks yang cocok. Hindari menyebut angka berbeda sebagai pertentangan bila periode atau definisinya berbeda.
+- Seleksi portofolio top-10 agar perkembangan dari satu keluarga isu tidak memenuhi seluruh halaman; tampilkan hubungan dan akses semua kelompok, tanpa menyembunyikan kandidat berskor rendah.
+- Ambil artikel lengkap sesuai celah riset secara selektif, dengan cache, backoff dan penanganan ketersediaan. Caption/transkrip mengikuti izin yang tersedia; tidak menganggap deskripsi sebagai isi video.
+- Nilai keberhasilan dari kegunaan bahan untuk draft dan keputusan editor, bukan jumlah berita masuk atau skor tinggi saja. Pantau waktu respons dan pertumbuhan ukuran payload saat material bertambah.

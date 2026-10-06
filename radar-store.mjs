@@ -4,6 +4,7 @@ import {checksum} from './postgres-store.mjs';
 import {createIssueMatcher,rateIssue,RADAR_METHOD,displayHeadline} from './radar-methodology.mjs';
 import {selectIssue,groupingProvenance} from './radar-grouping.mjs';
 import {analyzeEditorial,compareEditorial,relateIssues,EDITORIAL_METHOD} from './radar-editorial.mjs';
+import {matchesResearchTopic} from './radar-research-plan.mjs';
 export const LENSES=[{id:'system',name:'The System & Capital',color:'#6b55d8',role:'Bedah struktur, uang, kekuasaan, dan kebijakan.'},{id:'history',name:'The Hidden History & Mechanics',color:'#22799a',role:'Sejarah, arsip, kronologi, dan data sebagai bukti.'},{id:'human',name:'The Human Mirror',color:'#b26930',role:'Dampak sehari-hari, empati, dan pergeseran perspektif.'}];
 export const fail=(message,status=400)=>Object.assign(new Error(message),{status});
 const txt=(v,required=false)=>{if(typeof v!=='string'||(required&&!v.trim()))throw fail('Teks wajib diisi dan harus valid.');return v.trim()};
@@ -21,10 +22,10 @@ function videoMetadata(video){
  return {thumbnail:typeof video.thumbnail==='string'&&/^https:\/\/i\.ytimg\.com\//.test(video.thumbnail)?video.thumbnail.slice(0,2048):'',duration:typeof video.duration==='string'&&/^PT[0-9HMS.]+$/.test(video.duration)?video.duration.slice(0,60):'',viewCount:Number.isSafeInteger(video.viewCount)&&video.viewCount>=0?video.viewCount:null};
 }
 export const issueStats=rateIssue;
-export function matchesTopic(source,topic){const hay=(source.title+' '+(source.excerpt||'')).toLocaleLowerCase('id');return topic.enabled&&topic.keywords.some(x=>hay.includes(x.toLowerCase()))&&!topic.exclusions.some(x=>hay.includes(x.toLowerCase()));}
+export function matchesTopic(source,topic){return !!topic.enabled&&matchesResearchTopic(source,topic);}
 export class RadarStore{
  constructor(contentStore,{now=()=>Date.now()}={}){this.contentStore=contentStore;this.now=now}
- async read(){
+ async read({includeResearchPlans=true}={}){
   const db=await this.contentStore.read(),r=radarData(db),now=this.now(),performance=this.performance?await this.performance(db).catch(()=>null):null;
   const issues=r.issues.map(i=>{
    const stats=issueStats(i,now),matched=r.topics.filter(t=>t.enabled&&i.sources.some(source=>t.sources.includes(source.platform==='YouTube'?'youtube':'news')&&matchesTopic(source,t))),relevant=matched.length>0;
@@ -33,6 +34,8 @@ export class RadarStore{
    if(!relevant){stats.isHot=false;stats.reason+=' Tidak cocok dengan topik aktif.';}
    const issue={...i,topicIds:[...new Set([...i.topicIds,...matched.map(t=>t.id)])],stats};
    issue.editorial=analyzeEditorial(issue,{topics:r.topics,issues:r.issues,contents:db.contents,performance,now});
+   const plan=issue.editorial.research;issue.editorial.researchCoverage={mentioned:plan.coverage.filter(d=>d.state==='mentioned').length,total:plan.coverage.length};
+   if(!includeResearchPlans)delete issue.editorial.research;
    issue.stats.isHot=issue.editorial.momentum.isHot&&relevant&&!issue.groupingReview;
    return issue;
   });

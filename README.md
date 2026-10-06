@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.28.1
+# YouTube Content Hub v4.29.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -19,6 +19,12 @@ Sinkronisasi publikasi menyimpan hingga 50 status video dalam satu transaksi, de
 Halaman Data & Backup tidak dibuat ulang oleh sinkronisasi empat detik. Status dimuat saat halaman dibuka atau melalui **Muat ulang**; proses backup, pesan hasil, dan scroll tetap tersedia. Pemeriksaan Analytics mempunyai status/error sendiri. Backup manual memakai cooldown satu menit di dalam transaksi untuk menolak permintaan bersamaan. Unduhan memeriksa status HTTP dan format gzip; kegagalan ditampilkan pada halaman. Jika salinan volume gagal dibuat, backup PostgreSQL tetap tersedia untuk unduhan dan peringatan salinan volume ditampilkan.
 
 Menu **Riwayat Update** menampilkan versi terpasang, tanggal WIB, catatan fitur/perbaikan, pencarian, dan filter jenis perubahan. Riwayat rilis dikelola di `releases.mjs`, terpisah dari riwayat perubahan naskah.
+
+## Radar sebagai engine riset
+
+Metodologi editorial v2 menilai dukungan pada klaim utama. Klaim dipilih dari kalimat relevan dengan judul serta identitas yang dikenali; judul saja dan opini tidak menjadi bukti utama. Artikel/transkrip lengkap serta verifikasi harus ada pada sumber yang memuat klaim tersebut. Peta riset menandai dimensi yang disebut sumber: peristiwa/data, aturan/mekanisme, dampak manusia, pembanding dan tanggapan. Tiga angle Reframe menyertakan pertanyaan, bahan yang kurang dan rujukan; kueri pencarian adalah usulan, belum dijalankan. Checklist awal dan brief kerangka ikut membawa kebutuhan tersebut. Daftar Radar hanya mengirim ringkasan cakupan; peta dan angle lengkap dimuat saat membuka detail agar daftar tidak membawa seluruh rencana riset.
+
+Salinan hampir identik didiskon bila minimal 90% rangkaian lima kata pada bahan yang lebih pendek sama, panjang relatif minimal 70%, serta angka, negasi dan identitas yang dikenali tetap sama. Hanya perhitungan bukti/momentum yang berubah; sumber asli, koreksi kelompok, feedback dan naskah dipertahankan. Pencocokan topik membaca bahan artikel/transkrip tersimpan dengan kata/frasa utuh. Semua analisis tanpa panggilan AI. Status bahan untuk kerangka bukan naskah final atau verifikasi otomatis, dan angka dimensi bukan probabilitas kebenaran.
 
 ## Pengelolaan konten
 

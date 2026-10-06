@@ -2,7 +2,7 @@ import {buildIssueReport} from './radar-engine.mjs';
 import {publisherKey} from './radar-methodology.mjs';
 import {compareEditorial} from './radar-editorial.mjs';
 
-export const EXECUTIVE_VERSION=2;
+export const EXECUTIVE_VERSION=3;
 const stamp=value=>Date.parse(value||'');
 const sortIssues=compareEditorial;
 const uniqueSources=items=>[...new Map(items.flatMap(i=>i.sources||[]).map(s=>[s.url,s])).values()];
@@ -13,12 +13,12 @@ export function buildExecutiveSummary(items,{now=Date.now(),scope='Radar',partia
  const candidates=groups.filter(i=>i.status!=='discussed');
  const priorities=candidates.slice(0,3).map(issue=>{
   const report=issue.report||buildIssueReport(issue),claims=report.summary.filter(c=>!c.headlineOnly);
-  const evidence=claims.slice(0,2).map(c=>({text:c.text,attributed:!!c.attributed,references:c.sourceNumbers.map(n=>report.sources.find(s=>s.number===n)).filter(Boolean).map(s=>({number:s.number,title:s.title,url:s.url,publisher:s.publisher}))}));
+  const evidence=(issue.editorial?(issue.editorial.evidence?[issue.editorial.evidence]:[]):claims.slice(0,2)).map(c=>({text:c.text,attributed:!!c.attributed,references:(c.references||c.sourceNumbers.map(n=>report.sources.find(s=>s.number===n)).filter(Boolean)).map(s=>({number:s.number,title:s.title,url:s.url,publisher:s.publisher}))}));
   const gaps=[];
   if(issue.groupingReview)gaps.push('Tinjau batas kelompok sebelum memakai gabungan sumber.');
   const conflicts=(report.conflicts?.length||0)+(report.differences?.length||0);
   if(conflicts)gaps.push('Bandingkan angka atau pernyataan yang berbeda; belum ada penentuan kebenaran.');
-  if(!evidence.length)gaps.push('Bahan masih judul saja; lengkapi artikel atau transkrip.');
+  if(!evidence.length)gaps.push('Belum ada klaim faktual relevan untuk titik awal; lengkapi artikel atau transkrip, termasuk jika bahan masih judul saja.');
   else if(report.sources.some(s=>!s.hasArticle&&!s.hasTranscript))gaps.push('Sebagian bahan masih cuplikan atau deskripsi; periksa konteks lengkap.');
   if(!report.sources.some(s=>s.verification==='verified'))gaps.push('Belum ada sumber yang ditandai terverifikasi oleh editor.');
   const publishers=new Set(report.sources.filter(s=>!s.repost).map(publisherKey).filter(Boolean)).size;

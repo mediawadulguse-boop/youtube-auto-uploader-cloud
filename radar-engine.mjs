@@ -10,6 +10,7 @@ const numberPattern=/(?<![\p{L}\p{N}])(?:Rp\.?\s*)?\d+(?:[.,]\d+)*(?:\s*(?:%|per
 const numbers=text=>[...text.matchAll(numberPattern)].map(m=>m[0].toLowerCase());
 const opinion=/\b(menilai|berpendapat|berpandangan|seharusnya|semestinya|diduga|dugaan|diperkirakan|memperkirakan|perkiraan|prediksi|memprediksi|diyakini|mungkin|berpotensi|diharapkan|harapannya|mengkhawatirkan|terbaik|terburuk|lebih baik|tidak adil|optimistis|pesimistis)\b|[?!]/i;
 const attributed=/\b(menurut|mengatakan|menyebut|mengklaim|klaim|ujar|kata|tutur|ungkap|mengungkapkan|menegaskan|menyatakan)\b|[“”"«»]/i;
+export function classifyClaimText(text){const values=numbers(text);return {kind:opinion.test(text)?'opinions':values.length?'data':'facts',numbers:values,attributed:attributed.test(text)};}
 const boiler=/^(?:subscribe|like(?: dan|,| &)? share|follow|baca juga|selengkapnya|hak cipta|copyright|klik (?:link|tautan)|jangan lupa|tonton video|https?:\/\/|www\.|#)/i;
 const blocks=new Set(['p','div','li','br','h1','h2','h3','h4','tr','section','article']);
 export function plainSource(value){
@@ -59,7 +60,7 @@ function collect(issue){
  const material=sources.map(s=>sentences(s));
  for(const [index,source] of sources.entries())for(const text of material[index].items){
   // Predictions remain opinions; reported numbers retain attribution and source references.
-  const values=numbers(text),kind=opinion.test(text)?'opinions':values.length?'data':'facts';
+  const {numbers:values,kind}=classifyClaimText(text);
   // Deduplicate literal claims only: fuzzy similarity can erase names or temporal qualifiers.
   const exactKey=kind+JSON.stringify(values)+normalize(text),existing=exact.get(exactKey);
   if(existing){if(!existing.sourceNumbers.includes(index+1))existing.sourceNumbers.push(index+1);existing.headlineOnly&&=material[index].headlineOnly;existing.attributed||=attributed.test(text);continue;}
