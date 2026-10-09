@@ -113,7 +113,8 @@ if(process.env.DATABASE_URL){
     const candidate=await PostgresStorage.connect(process.env.DATABASE_URL,{backupDir:path.join(DATA_DIR,'backups')});
     await candidate.initialize(async()=>({documents:{uploads:await readDb(),contents:await contentStore.load(),notes:await notesStore.load(),analytics:await analytics.store.load()},files:{uploads:DB_FILE,contents:contentStore.file,notes:notesStore.file,analytics:analytics.store.file}}));
     storage=candidate;contentStore.persistence=storage;notesStore.persistence=storage;analytics.store.persistence=storage;dbLoad=null;
-    const status=await storage.status();console.log('Storage:',JSON.stringify({mode:'postgresql',migrationVerified:true,migratedAt:status.migratedAt,backupCount:status.backups.length}));
+    // initialize() verifies persistence; capacity/category measurements belong to the status page, not the startup healthcheck.
+    console.log('Storage:',JSON.stringify({mode:'postgresql',migrationVerified:true}));
   }catch(e){console.error('Storage initialization failed. Original files preserved; refusing empty fallback.',e.code||'migration_error');process.exit(1);}
 }
 const radarBefore=await contentStore.read();
@@ -122,7 +123,7 @@ if(radarBefore.radar && radarBefore.radar.clusteringVersion!==RADAR_METHOD.versi
  else{const prior=radarBefore.radar.clusteringVersion,backupVersion=Number.isInteger(prior)&&prior>0&&prior<100?prior:1;try{await fsp.copyFile(contentStore.file,path.join(DATA_DIR,'contents.radar-v'+backupVersion+'.backup.json'),fs.constants.COPYFILE_EXCL)}catch(error){if(error.code!=='EEXIST')throw error;}}
  console.log('Radar methodology:',JSON.stringify(await radarStore.recluster()));
 }
-console.log('Radar status:',JSON.stringify({methodology:RADAR_METHOD.version,...(await radarStore.read()).radarSummary}));
+console.log('Radar status:',JSON.stringify({methodology:RADAR_METHOD.version,...(await radarStore.read({includeResearchPlans:false})).radarSummary}));
 const policyStatus=await radarRetention.status(),driveStatus=await driveBackup.status();console.log('Storage policy:',JSON.stringify({retentionDays:policyStatus.days,retentionEnabled:policyStatus.enabled,lastCleanupAt:policyStatus.lastRunAt||null,lastCleanupResult:policyStatus.lastResult||null,driveConnected:driveStatus.connected,lastBackupVerifiedAt:driveStatus.lastVerifiedAt||null}));
 if(radarBefore.contentEngineVersion!==CONTENT_ENGINE_VERSION){
  if(radarBefore.contents.length){
