@@ -814,7 +814,7 @@ setTimeout(async()=>{try{if((await readDb()).channel?.id&&await loadToken()){con
 
 async function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'history.js', 'storage.js', 'features.css', 'rich-text.js', 'rich-text.css', 'updates.js', 'storage.css', 'radar.js', 'radar.css', 'script-format.js', 'writing.css'].includes(rel)) return false;
+  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'history.js', 'storage.js', 'features.css', 'rich-text.js', 'rich-text.css', 'updates.js', 'storage.css', 'radar.js', 'radar.css', 'script-format.js', 'writing.css', 'preferences.js', 'preferences.css'].includes(rel)) return false;
   try {
     const data = await fsp.readFile(path.join(PUBLIC_DIR, rel));
     const type = rel.endsWith('.js') ? 'text/javascript; charset=utf-8' : rel.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
@@ -901,6 +901,18 @@ const server = http.createServer(async (req, res) => {
       return json(res, 401, { error: 'Silakan login' });
 
     if(req.method==='GET'&&pathname==='/api/releases')return json(res,200,{currentVersion:APP_VERSION,releases:RELEASES},{'cache-control':'no-store'});
+    if(req.method==='GET'&&pathname==='/api/settings/connections'){
+      const db=await readDb(),token=await loadToken(),analyticsToken=await loadAnalyticsToken();
+      const check=db.youtubeConnection;
+      return json(res,200,{
+        youtube:{connected:!!token&&!token.reconnectRequired,auth:token?.reconnectRequired?'reconnect_required':token?'connected':'not_connected',
+          channel:db.channel?{id:db.channel.id,title:db.channel.title}:null,
+          connection:check?{state:check.state,code:check.code,message:check.message,checkedAt:check.checkedAt}:null},
+        analytics:{authorized:hasAnalyticsAccess(analyticsToken),monetaryAuthorized:hasMonetaryAccess(analyticsToken),
+          diagnostics:db.channel?.id?(await analytics.store.read(db.channel.id)).validation||null:null}
+      },{'cache-control':'no-store'});
+    }
+    if(req.method==='GET'&&pathname==='/api/radar/ai/status')return json(res,200,await radarAI.status(u.searchParams.get('provider')||undefined),{'cache-control':'no-store'});
     if(req.method==='GET'&&pathname==='/api/storage'){const [base,drive,retention,volume]=await Promise.all([storage?storage.status():{mode:'json',ready:true,backups:[]},driveBackup.status(),radarRetention.status(),volumeUsage(DATA_DIR)]);return json(res,200,{...base,drive,retention,volume},{'cache-control':'no-store'});}
     if(req.method==='PATCH'&&pathname==='/api/storage/retention')return json(res,200,await radarRetention.configure(await readJson(req)));
     if(req.method==='POST'&&pathname==='/api/storage/cleanup')return json(res,200,await radarRetention.tick());

@@ -1,0 +1,13 @@
+#preferencesPanel{display:grid;gap:18px;min-width:0}
+.preference-toolbar{display:flex;align-items:center;justify-content:space-between;gap:14px}.preference-toolbar p{margin:0}
+.preference-tabs{display:flex;gap:6px;border-bottom:1px solid #e5e9ef;overflow-x:auto;padding-bottom:8px}
+.preference-tabs button{border:0;background:transparent;padding:10px 16px;border-radius:8px;color:#64748b;font:inherit;white-space:nowrap;cursor:pointer}
+.preference-tabs button[aria-selected=true]{background:#eef2ff;color:#4338ca;font-weight:700}
+.preference-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.preference-grid[hidden]{display:none}
+.preference-card{display:flex;flex-direction:column;gap:12px;min-width:0;margin:0}.preference-card h3,.preference-card p{margin:0}.preference-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.preference-badge{display:inline-flex;align-items:center;gap:7px;padding:5px 10px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap;background:#fff7e6;color:#946200}.preference-badge:before{content:'';height:6px;width:6px;border-radius:50%;background:currentColor}.preference-badge.ready{background:#eaf7ef;color:#167a45}
+.preference-detail{display:grid;gap:10px;font-size:13px;overflow-wrap:anywhere}.preference-detail p:not(.hint){display:flex;justify-content:space-between;gap:12px}.preference-detail p>span{color:#64748b}.preference-detail strong{text-align:right;font-weight:600}
+.preference-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-top:auto}.preference-actions .btn{font-size:12px;white-space:normal}.preference-provider{display:grid;gap:5px;font-size:12px;flex:1 1 180px}.preference-provider select{width:100%;min-width:0;margin:0;padding:10px 12px;border:1px solid #dbe2ed;border-radius:8px;background:white;color:#263858;font:inherit}.preference-actions a{text-decoration:none}
+.preference-error{color:#b42318;font-size:13px;overflow-wrap:anywhere}.preference-error:empty{display:none}.preference-footnote{margin:0;max-width:900px}
+@media(max-width:850px){.preference-grid{grid-template-columns:1fr}}
+@media(max-width:480px){.preference-toolbar{align-items:flex-start;flex-direction:column}.preference-card-head{flex-wrap:wrap}.preference-tabs button{padding:9px 11px}.preference-detail p:not(.hint){flex-direction:column;gap:4px}.preference-detail strong{text-align:left}}

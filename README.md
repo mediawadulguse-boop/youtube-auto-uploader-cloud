@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.29.0
+# YouTube Content Hub v4.30.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -324,3 +324,7 @@ Backup JSONB baru memakai gzip/base64; backup lama tetap dapat dibaca dan dikomp
 Transfer satu kali untuk administrator: `/api/storage/transfer` hanya menerima GET dengan bearer `BACKUP_EXPORT_TOKEN` acak minimal 32 karakter dan `BACKUP_EXPORT_UNTIL` ISO di masa depan maksimal 1 jam. Default nonaktif, tidak membuka sesi atau API lain. Hapus kedua variabel segera sesudah salinan diterima; jangan menaruh token di URL/log. Snapshot terkompresi berisi digest yang dapat diverifikasi dengan `storage-restore.mjs` sebelum restore.
 
 4.26.1 menambahkan VACUUM biasa berkala serta ambang autovacuum rendah untuk JSONB/TOAST. Kompresi lama berhenti bila kapasitas tidak diketahui atau melebihi batas aman, agar tidak menambah tekanan ruang sementara.
+
+### Pengaturan terpusat
+
+Menu **Pengaturan** (`/?view=preferences`) memusatkan koneksi YouTube, Analytics, provider AI dan Google Drive; tab Status Sistem menampilkan kesehatan aplikasi, versi, database, backup dan retensi. Tombol Cek API menjalankan pemeriksaan layanan secara eksplisit. Membuka atau memuat ulang halaman hanya membaca status, tanpa permintaan AI. Pilihan provider di halaman ini berlaku untuk pemeriksaan; provider utama dan kredensial mengikuti konfigurasi server. Tab Workspace menyediakan akses ke pilar, Kanban dan pengaturan Radar.
