@@ -1,5 +1,5 @@
 // A central status page. Reading it never runs provider tests or consumes AI quota.
-const preferencesUi={panel:null,tab:'connections',data:{},errors:{},checked:{},busy:new Set(),tasks:new Map(),provider:''};
+const preferencesUi={panel:null,tab:'connections',data:{},errors:{},checked:{},busy:new Set(),tasks:new Map(),provider:'',publicationMessage:''};
 function preferencesPanel(){return hub.view==='preferences'&&preferencesUi.panel?.isConnected?preferencesUi.panel:null}
 const preferenceDate=value=>value?storageDate(value):'Belum diperiksa';
 function preferenceBadge(label,tone='waiting'){return `<span class="preference-badge ${tone}">${esc(label)}</span>`}
@@ -10,7 +10,7 @@ window.renderPreferences=body=>{
   body.innerHTML=`<div id="preferencesPanel"><div class="preference-toolbar"><p class="hint">Status koneksi dan kesehatan aplikasi dalam satu tempat.</p><button type="button" class="btn" data-preference-reload>Muat ulang status</button></div>
   <div class="preference-tabs" role="tablist" aria-label="Bagian pengaturan">${[['connections','Koneksi'],['system','Status sistem'],['workspace','Workspace']].map(([id,label])=>`<button type="button" role="tab" id="preference-tab-${id}" aria-controls="preference-${id}" data-preference-tab="${id}">${label}</button>`).join('')}</div>
   <div id="preference-connections" role="tabpanel" aria-labelledby="preference-tab-connections" class="preference-grid">
-  ${preferenceCard('youtube','YouTube','Koneksi channel untuk upload dan pembaruan status publikasi.',`<a class="btn primary" href="/auth/google" data-preference-connect="youtube">Hubungkan YouTube</a><button type="button" class="btn" data-preference-check="youtube">Cek API YouTube</button>${preferenceLink('upload','Upload & antrean')}`)}
+  ${preferenceCard('youtube','YouTube','Koneksi channel untuk upload dan pembaruan status publikasi.',`<a class="btn primary" href="/auth/google" data-preference-connect="youtube">Hubungkan YouTube</a><button type="button" class="btn" data-preference-check="youtube">Cek API YouTube</button><button type="button" class="btn" data-preference-sync>Sinkronkan status tayang</button>${preferenceLink('upload','Upload & antrean')}`)}
   ${preferenceCard('analytics','YouTube Analytics','Izin laporan channel diperiksa terpisah dari koneksi upload.',`<a class="btn primary" href="/auth/google?analytics=1">Hubungkan Analytics</a><button type="button" class="btn" data-preference-check="analytics">Cek Analytics</button>${preferenceLink('analytics','Buka laporan')}`)}
   ${preferenceCard('ai','Provider AI','Engine Radar tetap dapat bekerja tanpa AI. Pemeriksaan katalog model tidak membuat naskah.',`<label class="preference-provider">Provider yang diperiksa<select aria-label="Provider AI yang diperiksa" data-preference-provider></select></label><button type="button" class="btn" data-preference-check="ai">Cek koneksi & model</button>${preferenceLink('radar','Buka Radar')}`)}
   ${preferenceCard('drive','Google Drive','Koneksi akun dan keberhasilan backup ditampilkan secara terpisah.',`<a class="btn primary" href="/auth/google?drive=1" data-preference-connect="drive">Hubungkan Google Drive</a>${preferenceLink('storage','Kelola backup Drive')}`)}
@@ -34,6 +34,7 @@ window.renderPreferences=body=>{
     if(tab){preferencesUi.tab=tab.dataset.preferenceTab;paintPreferencesTabs();}
     if(go)navigate(go.dataset.preferenceGo);
     if(check)void checkPreference(check.dataset.preferenceCheck);
+    if(e.target.closest('[data-preference-sync]'))void syncPreferencePublications();
     if(e.target.closest('[data-preference-reload]'))void loadPreferences();
   };
   panel.onkeydown=e=>{
@@ -58,11 +59,12 @@ function paintPreferences(){
   const unknown=(key)=>errors[key]?'Belum dapat diperiksa':'Memeriksa';
   const failed=state=>['error','reconnect_required'].includes(state);
   let yLabel=!y?unknown('connections'):y.auth==='reconnect_required'?'Hubungkan ulang':!y.connected?'Belum terhubung':failed(y.connection?.state)?'Perlu perhatian':y.connection?.state==='ready'?'API terverifikasi':'Izin tersimpan';
-  paintPreference('youtube',errors.connections?'Belum dapat diperiksa':errors.youtube?'Pemeriksaan gagal':yLabel,!errors.connections&&!errors.youtube&&y?.connected&&y.connection?.state==='ready'?'ready':'waiting',y?line('Channel',y.channel?.title||'Belum dipilih')+line('Pemeriksaan API',preferenceDate(y.connection?.checkedAt))+`<p class="hint">${esc(y.connection?.message||'Tekan Cek API YouTube untuk memeriksa koneksi langsung.')}</p>`:'Menunggu respons koneksi.',errors.connections||errors.youtube||'');
+  paintPreference('youtube',errors.connections?'Belum dapat diperiksa':errors.youtube?'Pemeriksaan gagal':yLabel,!errors.connections&&!errors.youtube&&y?.connected&&y.connection?.state==='ready'?'ready':'waiting',y?line('Channel',y.channel?.title||'Belum dipilih')+line('Pemeriksaan API',preferenceDate(y.connection?.checkedAt))+`<p class="hint">${esc(y.connection?.message||'Tekan Cek API YouTube untuk memeriksa koneksi langsung.')}</p>`:'Menunggu respons koneksi.',errors.connections||errors.youtube||errors.publications||'');
   const diag=a?.diagnostics,analyticsReady=a?.authorized&&['ready','empty'].includes(diag?.channel);
   paintPreference('analytics',errors.connections?'Belum dapat diperiksa':errors.analytics?'Pemeriksaan gagal':!a?unknown('connections'):!a.authorized?'Belum diberi izin':diag?.channel==='error'?'Perlu perhatian':analyticsReady?'API terverifikasi':'Izin tersimpan',!errors.connections&&!errors.analytics&&analyticsReady?'ready':'waiting',a?line('Izin pendapatan',a.monetaryAuthorized?'Diberikan':'Belum diberikan')+line('Pemeriksaan API',preferenceDate(diag?.checkedAt))+`<p class="hint">${esc(diag?.errors?.map(e=>e.message).filter(Boolean).join(' · ')||(!a.authorized?'Hubungkan Analytics pada channel yang sama.':diag?.channel==='empty'?'API merespons; laporan belum memiliki data.':'Lihat laporan untuk rincian data channel.'))}</p>`:'Menunggu respons koneksi.',errors.connections||errors.analytics||'');
   const activeTest=ai?.generationTest,aiReady=ai?.configured&&ai.connection?.state==='connected';
   paintPreference('ai',errors.ai?'Belum dapat diperiksa':!ai?unknown('ai'):!ai.configured?'Belum dikonfigurasi':aiReady?'Katalog terhubung':failed(ai.connection?.state)?'Perlu perhatian':'Belum diperiksa',!errors.ai&&aiReady?'ready':'waiting',ai?line('Model',ai.model||'—')+line('Pratinjau hari ini',`${ai.used} / ${ai.limit}`)+line('Uji jawaban',activeTest?.message||'Belum diuji')+`<p class="hint">${esc(ai.connection?.message||ai.setupMessage||'')}</p><p class="hint">Provider utama: ${esc(ai.defaultProvider)} · Perpindahan cadangan ${ai.autoFallback?'aktif':'nonaktif'}.</p>`:'Menunggu respons provider.',errors.ai||'');
+  if(preferencesUi.publicationMessage)panel.querySelector('[data-preference-detail="youtube"]').insertAdjacentHTML('beforeend',`<p class="hint" role="status">${esc(preferencesUi.publicationMessage)}</p>`);
   const select=panel.querySelector('[data-preference-provider]');
   if(ai?.providers){const signature=JSON.stringify(ai.providers.map(p=>[p.providerId,p.provider,p.configured]));if(select.dataset.signature!==signature){select.dataset.signature=signature;select.innerHTML=ai.providers.map(p=>`<option value="${esc(p.providerId)}">${esc(p.provider)}${p.configured?'':' — belum dikonfigurasi'}</option>`).join('');}select.value=preferencesUi.provider||ai.providerId;}
   select.disabled=busy.has('ai')||!ai;
@@ -74,6 +76,7 @@ function paintPreferences(){
   paintPreference('retention',errors.storage?'Belum dapat diperiksa':!r?unknown('storage'):r.error?'Perlu perhatian':r.enabled?'Aktif':'Nonaktif',!errors.storage&&r?.enabled&&!r.error?'ready':'waiting',r?line('Periode',r.days+' hari')+line('Pembersihan terakhir',r.lastRunAt?preferenceDate(r.lastRunAt):'Belum berjalan')+`<p class="hint">${esc(r.error||'Naskah, referensi tersimpan dan data yang dilindungi tetap dipertahankan.')}</p>`:'Menunggu respons kebijakan.',errors.storage||'');
   for(const link of panel.querySelectorAll('[data-preference-connect]'))link.textContent=link.dataset.preferenceConnect==='youtube'?(y?.connected||y?.auth==='reconnect_required'?'Hubungkan ulang YouTube':'Hubungkan YouTube'):(d?.connected?'Hubungkan ulang Drive':'Hubungkan Google Drive');
   for(const button of panel.querySelectorAll('[data-preference-check]')){const key=button.dataset.preferenceCheck;button.disabled=busy.has(key)||busy.has('connections')||(key==='ai'&&!ai?.configured)||(key==='analytics'&&!a?.authorized)||(key==='youtube'&&!y?.connected);button.textContent=busy.has(key)?'Memeriksa…':({youtube:'Cek API YouTube',analytics:'Cek Analytics',ai:'Cek koneksi & model'})[key];}
+  const sync=panel.querySelector('[data-preference-sync]');sync.disabled=busy.has('publications')||busy.has('youtube')||busy.has('connections')||!!errors.connections||!y?.connected||y.auth==='reconnect_required';sync.textContent=busy.has('publications')?'Menyinkronkan…':'Sinkronkan status tayang';
   panel.querySelector('[data-preference-reload]').disabled=busy.size>0;
 }
 async function loadPreference(key,url,options={}){
@@ -93,4 +96,14 @@ async function checkPreference(key){
   try{await storageRequest(key==='youtube'?'/api/youtube/check':'/api/analytics/diagnostics',{method:'POST',body:'{}'},90000);await loadPreference('connections','/api/settings/connections');}
   catch(e){preferencesUi.errors[key]=e.message;}
   finally{preferencesUi.busy.delete(key);paintPreferences();}
+}
+
+async function syncPreferencePublications(){
+  if(preferencesUi.busy.has('publications')||preferencesUi.busy.has('youtube')||preferencesUi.busy.has('connections'))return;
+  preferencesUi.busy.add('publications');delete preferencesUi.errors.publications;preferencesUi.publicationMessage='';paintPreferences();
+  try{
+    const result=await storageRequest('/api/youtube/sync-publications',{method:'POST',body:'{}'},90000);
+    preferencesUi.publicationMessage=result.busy?'Sinkronisasi sedang berjalan.':'Status tayang diperbarui: '+(result.updated||0)+' konten.';
+  }catch(e){preferencesUi.errors.publications=e.message;}
+  finally{await refresh();await loadPreference('connections','/api/settings/connections');preferencesUi.busy.delete('publications');paintPreferences();}
 }

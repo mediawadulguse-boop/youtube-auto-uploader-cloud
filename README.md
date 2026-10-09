@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.30.0
+# YouTube Content Hub v4.30.1
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -328,3 +328,5 @@ Transfer satu kali untuk administrator: `/api/storage/transfer` hanya menerima G
 ### Pengaturan terpusat
 
 Menu **Pengaturan** (`/?view=preferences`) memusatkan koneksi YouTube, Analytics, provider AI dan Google Drive; tab Status Sistem menampilkan kesehatan aplikasi, versi, database, backup dan retensi. Tombol Cek API menjalankan pemeriksaan layanan secara eksplisit. Membuka atau memuat ulang halaman hanya membaca status, tanpa permintaan AI. Pilihan provider di halaman ini berlaku untuk pemeriksaan; provider utama dan kredensial mengikuti konfigurasi server. Tab Workspace menyediakan akses ke pilar, Kanban dan pengaturan Radar.
+
+Pemeriksaan koneksi YouTube dan tombol **Sinkronkan status tayang** tersedia di Pengaturan > Koneksi. Banner global di halaman workspace dihapus; sinkronisasi otomatis tetap berjalan.
