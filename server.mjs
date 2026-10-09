@@ -45,7 +45,7 @@ const UPLOAD_DIR = path.join(DATA_DIR, 'uploads');
 const DB_FILE = path.join(DATA_DIR, 'db.json');
 let storage=null;
 const contentStore = new ContentStore(path.join(DATA_DIR, 'contents.json'));
-const radarStore=new RadarStore(contentStore);
+const radarStore=new RadarStore(contentStore,{focusMode:'controversy'});
 const radarMemory=new RadarMemory(radarStore);
 const radarWorkspace=new RadarWorkspace(radarStore);
 const radarAcquire=new RadarAcquire(radarStore,{captions:async source=>{const generation=tokenGeneration,db=await readDb();if(Date.parse(db.youtubeWorker?.retryAt)>Date.now())throw Object.assign(new Error('Kuota YouTube sedang dibatasi. Gunakan impor manual.'),{status:429});const result=await acquireCaptions(source,{youtube:youtubeFetch,channelId:db.channel?.id});if(generation!==tokenGeneration||(await readDb()).channel?.id!==db.channel?.id)throw Object.assign(new Error('Channel berubah selama pengambilan caption.'),{status:409});return result;}});
@@ -1037,6 +1037,7 @@ const server = http.createServer(async (req, res) => {
       }catch(e){return json(res,e.status||502,{code:e.code||'upstream_error',error:e.message},{'cache-control':'no-store'});}
     }
     if(pathname==='/api/radar'&&req.method==='GET')return json(res,200,{...await radarStore.read({includeResearchPlans:false}),ai:await radarAI.status(u.searchParams.get('aiProvider') || undefined),syncBusy:radarSync.busy});
+    if(pathname==='/api/radar/focus'&&req.method==='PATCH')return json(res,200,await radarStore.configureFocus(await readJson(req)),{'cache-control':'no-store'});
     if(pathname==='/api/radar/prompts'&&req.method==='GET')return json(res,200,await radarMemory.list());
     if(pathname==='/api/radar/prompts'&&req.method==='POST')return json(res,201,await radarMemory.save(await readJson(req)));
     const promptMatch=pathname.match(/^\/api\/radar\/prompts\/([a-z0-9-]{1,60})$/);

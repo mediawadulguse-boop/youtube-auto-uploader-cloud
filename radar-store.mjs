@@ -1,3 +1,4 @@
+import {withFocus,investigateIssue,RADAR_FOCUS_METHOD} from './radar-focus.mjs';
 import {analyzeChannel} from './radar-channels.mjs';
 import crypto from 'node:crypto';
 import {checksum} from './postgres-store.mjs';
@@ -13,8 +14,8 @@ const when=v=>{if(!v)return null;if(!Number.isFinite(Date.parse(v)))throw fail('
 export function canonicalUrl(value){let u;try{u=new URL(txt(value,true))}catch{throw fail('Masukkan link http/https yang valid.')}if(!['https:','http:'].includes(u.protocol)||u.username||u.password)throw fail('Link harus http/https tanpa kredensial.');u.hash='';u.hostname=u.hostname.toLowerCase();for(const key of [...u.searchParams.keys()])if(/^(utm_|fbclid$|gclid$)/i.test(key))u.searchParams.delete(key);if(/(^|\.)youtu(be\.com|\.be)$/.test(u.hostname)){const id=u.hostname==='youtu.be'?u.pathname.slice(1).split('/')[0]:u.searchParams.get('v')||u.pathname.match(/^\/(shorts|embed)\/([^/]+)/)?.[2];if(id&&/^[\w-]{11}$/.test(id))return 'https://www.youtube.com/watch?v='+id;}if(u.hostname==='twitter.com'||u.hostname==='www.twitter.com')u.hostname='x.com';u.searchParams.sort();return u.href;}
 export function platform(url){const h=new URL(url).hostname;return /(^|\.)youtube\.com$|^youtu\.be$/.test(h)?'YouTube':/(^|\.)(x|twitter)\.com$/.test(h)?'X':/(^|\.)instagram\.com$/.test(h)?'Instagram':/(^|\.)tiktok\.com$/.test(h)?'TikTok':'Berita / Web';}
 const defaults=()=>({version:1,clusteringVersion:RADAR_METHOD.version,topics:[['system','Struktur & kebijakan',['pajak','subsidi','kebijakan publik','monopoli','ketenagakerjaan','ekonomi politik','regulasi','birokrasi']],['history','Sejarah & data',['arsip sejarah','krisis komoditas','tata kota','rekam jejak perusahaan','kronologi','data empiris']],['human','Realitas manusia',['biaya hidup','kelas menengah','meritokrasi','burnout','alienasi','ilusi pilihan']]].map(([lens,name,keywords])=>({id:'default-'+lens,name,keywords,exclusions:[],lenses:[lens],language:'id',region:'ID',sources:['news','youtube'],enabled:true,revision:1})),feeds:[],channels:[],issues:[],sync:{},aiUsage:{}});
-export function radarData(db){return db.radar||defaults()}
-function writable(db){return db.radar||=defaults()}
+export function radarData(db,defaultMode='general'){return withFocus(db.radar||defaults(),defaultMode)}
+function writable(db,defaultMode){return db.radar=radarData(db,defaultMode)}
 const find=(arr,id)=>{const v=arr.find(x=>x.id===id);if(!v)throw fail('Data Radar tidak ditemukan.',404);return v};
 const revision=(old,body)=>{if(old&&body.revision!==old.revision)throw fail('Data berubah di tab lain. Muat Radar terbaru.',409)};
 function videoMetadata(video){
@@ -24,16 +25,18 @@ function videoMetadata(video){
 export const issueStats=rateIssue;
 export function matchesTopic(source,topic){return !!topic.enabled&&matchesResearchTopic(source,topic);}
 export class RadarStore{
- constructor(contentStore,{now=()=>Date.now()}={}){this.contentStore=contentStore;this.now=now}
+ constructor(contentStore,{now=()=>Date.now(),focusMode='general'}={}){this.contentStore=contentStore;this.now=now;this.focusMode=focusMode}
+ data(db){return radarData(db,this.focusMode)}
  async read({includeResearchPlans=true}={}){
-  const db=await this.contentStore.read(),r=radarData(db),now=this.now(),performance=this.performance?await this.performance(db).catch(()=>null):null;
+  const db=await this.contentStore.read(),r=this.data(db),now=this.now(),performance=this.performance?await this.performance(db).catch(()=>null):null;
   const issues=r.issues.map(i=>{
-   const stats=issueStats(i,now),matched=r.topics.filter(t=>t.enabled&&i.sources.some(source=>t.sources.includes(source.platform==='YouTube'?'youtube':'news')&&matchesTopic(source,t))),relevant=matched.length>0;
+   const stats=issueStats(i,now),matched=r.topics.filter(t=>t.enabled&&i.sources.some(source=>t.sources.includes(source.platform==='YouTube'?'youtube':'news')&&matchesTopic(source,t))),focus=investigateIssue(i),relevant=matched.length>0&&(r.focus.mode!=='controversy'||focus.eligible);
    stats.relevant=relevant;
    if(i.groupingReview){stats.isHot=false;stats.reason+=' Pengelompokan sumber perlu ditinjau.';}
-   if(!relevant){stats.isHot=false;stats.reason+=' Tidak cocok dengan topik aktif.';}
-   const issue={...i,topicIds:[...new Set([...i.topicIds,...matched.map(t=>t.id)])],stats};
+   if(!relevant){stats.isHot=false;stats.reason+=matched.length?' '+focus.reason:' Tidak cocok dengan topik aktif.';}
+   const issue={...i,topicIds:[...new Set([...i.topicIds,...matched.map(t=>t.id)])],stats,focus};
    issue.editorial=analyzeEditorial(issue,{topics:r.topics,issues:r.issues,contents:db.contents,performance,now});
+   if(r.focus.mode==='controversy'){issue.editorial.reasons.unshift(focus.reason);if(focus.eligible)issue.editorial.gaps.unshift('Cari bukti primer, dampak, dan tanggapan pihak yang dipersoalkan.');}
    const plan=issue.editorial.research;issue.editorial.researchCoverage={mentioned:plan.coverage.filter(d=>d.state==='mentioned').length,total:plan.coverage.length};
    if(!includeResearchPlans)delete issue.editorial.research;
    issue.stats.isHot=issue.editorial.momentum.isHot&&relevant&&!issue.groupingReview;
@@ -43,7 +46,7 @@ export class RadarStore{
   const relations=relateIssues(issues,now);for(const issue of issues)issue.relatedIssues=relations.get(issue.id)||[];
   const rankedIssues=issues.filter(i=>i.stats.relevant&&!['ignored','discussed'].includes(i.status)).sort(compareEditorial);
   const {reportArchive,aiCache,aiHistory,promptLibrary,...visible}=r;
-  return {...visible,channels:r.channels.map(c=>analyzeChannel(c,r.topics,issues,now)),lenses:LENSES,issues,hotIssues,rankedIssueIds:rankedIssues.map(i=>i.id),methodology:RADAR_METHOD,editorialMethodology:EDITORIAL_METHOD,
+  return {...visible,channels:r.channels.map(c=>analyzeChannel(c,r.topics,issues,now)),lenses:LENSES,issues,hotIssues,rankedIssueIds:rankedIssues.map(i=>i.id),methodology:RADAR_METHOD,editorialMethodology:EDITORIAL_METHOD,focusMethodology:RADAR_FOCUS_METHOD,
    radarSummary:{groups:issues.length,ranked:rankedIssues.length,hot:hotIssues.length,belowThreshold:issues.filter(i=>!i.stats.isHot).length,ratedAt:new Date(now).toISOString()},
    linkedContents:db.contents.map(c=>({id:c.id,title:c.title,format:c.format,youtubeVideoId:c.youtubeVideoId||''})),
    coverage:{YouTube:(r.sync.youtubeAt||r.channels.some(c=>c.enabled&&c.lastSyncAt))?'Dipantau':'Belum dipantau','Berita / Web':r.sync.newsAt?'Dipantau':'Belum dipantau',X:'Belum dipantau',Instagram:'Belum dipantau',TikTok:'Belum dipantau'}};
@@ -72,7 +75,8 @@ export class RadarStore{
   });
  }
 
- mutate(fn){return this.contentStore.mutate(db=>fn(writable(db),db))}
+ mutate(fn){return this.contentStore.mutate(db=>fn(writable(db,this.focusMode),db))}
+ configureFocus(body){return this.mutate(r=>{if(!body||!['general','controversy'].includes(body.mode))throw fail('Pilih fokus investigasi atau topik umum.');revision(r.focus,body);r.focus={mode:body.mode,revision:r.focus.revision+1};const next=withFocus(r,this.focusMode);Object.assign(r,next);return r.focus;});}
  saveTopic(body,id){return this.mutate(r=>{const old=id?find(r.topics,id):null;revision(old,body);const name=txt(body.name,true),keywords=list(body.keywords),exclusions=list(body.exclusions||[]),lenses=list(body.lenses,3),sources=list(body.sources,2);if(!keywords.length||!lenses.length||lenses.some(x=>!LENSES.some(l=>l.id===x))||!sources.length||sources.some(x=>!['news','youtube'].includes(x)))throw fail('Isi keyword, lensa, dan sumber pemantauan.');if(!/^[a-z]{2}$/.test(body.language)||!/^[A-Z]{2}$/.test(body.region)||typeof body.enabled!=='boolean')throw fail('Bahasa, wilayah, atau status tidak valid.');if(!old&&r.topics.length>=60)throw fail('Maksimal 60 topik.');const item={id:old?.id||crypto.randomUUID(),name,keywords,exclusions,lenses,sources,language:body.language,region:body.region,enabled:body.enabled,revision:(old?.revision||0)+1};if(old)r.topics[r.topics.indexOf(old)]=item;else r.topics.push(item);return item;});}
  remove(kind,id,body){return this.mutate(r=>{if(!['topics','feeds','channels'].includes(kind))throw fail('Jenis data tidak valid.');const item=find(r[kind],id);revision(item,body);r[kind]=r[kind].filter(x=>x.id!==id);return {ok:true};});}
  saveFeed(body,id){return this.mutate(r=>{const old=id?find(r.feeds,id):null;revision(old,body);const url=canonicalUrl(body.url);if(!old&&r.feeds.length>=15)throw fail('Maksimal 15 RSS.');const item={id:old?.id||crypto.randomUUID(),name:txt(body.name,true),url,enabled:body.enabled!==false,revision:(old?.revision||0)+1};if(old)r.feeds[r.feeds.indexOf(old)]=item;else r.feeds.push(item);return item;});}
