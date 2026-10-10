@@ -14,6 +14,7 @@ import {buildRadarPerformance} from './radar-performance.mjs';
 import {RadarWorkspace} from './radar-workspace.mjs';
 import {RadarAcquire,acquireCaptions} from './radar-acquire.mjs';
 import {RadarArchive} from './radar-archive.mjs';
+import {buildRadarTrends} from './radar-trends.mjs';
 import {buildRadarDigest} from './radar-digest.mjs';
 import {buildRadarExecutive} from './radar-executive.mjs';
 import {buildIssueReport} from './radar-engine.mjs';
@@ -815,7 +816,7 @@ setTimeout(async()=>{try{if((await readDb()).channel?.id&&await loadToken()){con
 
 async function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'history.js', 'storage.js', 'features.css', 'rich-text.js', 'rich-text.css', 'updates.js', 'storage.css', 'radar.js', 'radar.css', 'script-format.js', 'writing.css', 'preferences.js', 'preferences.css', 'hub-teleprompter.js', 'teleprompter.html', 'teleprompter.js'].includes(rel)) return false;
+  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'history.js', 'storage.js', 'features.css', 'rich-text.js', 'rich-text.css', 'updates.js', 'storage.css', 'radar.js', 'radar.css', 'script-format.js', 'writing.css', 'preferences.js', 'preferences.css', 'hub-teleprompter.js', 'teleprompter.html', 'teleprompter.js', 'radar-trends.js'].includes(rel)) return false;
   try {
     const data = await fsp.readFile(path.join(PUBLIC_DIR, rel));
     const type = rel.endsWith('.js') ? 'text/javascript; charset=utf-8' : rel.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';
@@ -1051,6 +1052,7 @@ const server = http.createServer(async (req, res) => {
     const archiveMatch=pathname.match(/^\/api\/radar\/reports\/([a-z0-9-]{1,60})$/);
     if(archiveMatch&&req.method==='GET')return json(res,200,await radarArchive.get(archiveMatch[1]));
     if(pathname==='/api/radar/executive'&&req.method==='GET')return json(res,200,buildRadarExecutive(await radarStore.read(),{period:Number(u.searchParams.get('period')||72),q:u.searchParams.get('q')||'',topic:u.searchParams.get('topic')||'',status:u.searchParams.get('status')||'',platform:u.searchParams.get('platform')||''}),{'cache-control':'no-store'});
+    if(pathname==='/api/radar/trends'&&req.method==='GET')return json(res,200,buildRadarTrends(radarStore.data(await contentStore.read()),{period:Number(u.searchParams.get('period')||24),topic:u.searchParams.get('topic')||'',platform:u.searchParams.get('platform')||''}),{'cache-control':'no-store'});
     if(pathname==='/api/radar/digest'&&req.method==='GET')return json(res,200,buildRadarDigest(await radarStore.read(),{period:u.searchParams.get('period')||'daily',date:u.searchParams.get('date')||undefined,topic:u.searchParams.get('topic')||'',q:u.searchParams.get('q')||'',status:u.searchParams.get('status')||'',platform:u.searchParams.get('platform')||''}),{'cache-control':'no-store'});
     if(pathname==='/api/radar/sync'&&req.method==='POST')return json(res,200,await radarSync.sync({force:true}));
     if(pathname==='/api/radar/ai/check'&&req.method==='POST')return json(res,200,await radarAI.checkConnection(await readJson(req)));

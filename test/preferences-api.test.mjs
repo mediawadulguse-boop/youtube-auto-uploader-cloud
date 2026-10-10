@@ -16,8 +16,8 @@ test('settings status is private, read-only and does not contact providers or ex
   let logs='';server.stdout.on('data',b=>logs+=b);server.stderr.on('data',b=>logs+=b);
   t.after(async()=>{server.kill();if(server.exitCode===null)await new Promise(r=>server.once('exit',r));await fs.rm(dir,{recursive:true,force:true});});
   for(let n=0;n<100;n++){try{if((await fetch(base+'/api/health')).ok)break;}catch{}await new Promise(r=>setTimeout(r,50));}
-  for(const [asset,type] of [['/preferences.js','text/javascript'],['/preferences.css','text/css']]){const response=await fetch(base+asset);assert.equal(response.status,200);assert.ok(response.headers.get('content-type').startsWith(type));assert.ok((await response.text()).length>100);}
-  const endpoints=['/api/settings/connections','/api/radar/ai/status','/api/radar/focus'];
+  for(const [asset,type] of [['/preferences.js','text/javascript'],['/preferences.css','text/css'],['/radar-trends.js','text/javascript']]){const response=await fetch(base+asset);assert.equal(response.status,200);assert.ok(response.headers.get('content-type').startsWith(type));assert.ok((await response.text()).length>100);}
+  const endpoints=['/api/settings/connections','/api/radar/ai/status','/api/radar/focus','/api/radar/trends'];
   for(const endpoint of endpoints)assert.equal((await fetch(base+endpoint)).status,401);
   const login=await fetch(base+'/api/login',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({password:'settings-test'})});assert.equal(login.status,200,logs);
   const headers={cookie:login.headers.get('set-cookie').split(';')[0]},before=await fs.readFile(path.join(dir,'contents.json'),'utf8');
@@ -29,6 +29,7 @@ test('settings status is private, read-only and does not contact providers or ex
   assert.equal((await fetch(base+endpoints[1]+'?provider=invalid',{headers})).status,400);
   assert.equal(await fs.readFile(path.join(dir,'contents.json'),'utf8'),before);
   assert.ok(!logs.includes('Unexpected provider request'));
+  const trends=await fetch(base+'/api/radar/trends?period=24',{headers});assert.equal(trends.status,200);assert.equal(trends.headers.get('cache-control'),'no-store');assert.equal((await trends.json()).sourceCount,0);assert.equal(await fs.readFile(path.join(dir,'contents.json'),'utf8'),before);assert.equal((await fetch(base+'/api/radar/trends?period=72',{headers})).status,400);
   const radar=await fetch(base+'/api/radar',{headers}).then(r=>r.json());assert.equal(radar.focus.mode,'controversy');assert.equal(radar.topics.filter(t=>t.id.startsWith('focus-')).length,4);
   const setFocus=(body)=>fetch(base+'/api/radar/focus',{method:'PATCH',headers:{...headers,'content-type':'application/json'},body:JSON.stringify(body)});
   assert.equal((await setFocus({mode:'general',revision:1})).status,200);assert.equal((await setFocus({mode:'controversy',revision:1})).status,409);assert.equal((await setFocus({mode:'invalid',revision:2})).status,400);
