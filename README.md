@@ -334,3 +334,7 @@ Pemeriksaan koneksi YouTube dan tombol **Sinkronkan status tayang** tersedia di 
 ### Fokus investigasi Radar
 
 Secara awal, Radar aplikasi memprioritaskan kebijakan yang dipersoalkan, politik/kekuasaan, ekonomi/korporasi, serta sisi gelap industri. Engine memerlukan konteks dan sinyal masalah dalam judul atau kalimat sumber yang sama. Dugaan dan bantahan tidak ditetapkan sebagai fakta. Berita/video otomatis di luar fokus tidak ditambahkan; referensi manual dan naskah tetap tersimpan. Peringkat, ringkasan harian/mingguan dan eksekutif ikut fokus aktif. Pilihan **Investigasi** atau **Topik umum** disimpan melalui Radar > Topik & Sumber > Fokus editorial. Empat preset pencarian ditambahkan satu kali tanpa menimpa topik yang sudah disunting. Pemeriksaan tetap berupa aturan leksikal, sehingga kalimat tersirat dapat terlewat dan editor tetap dapat memasukkan link manual atau mengubah topik.
+
+### Teleprompter dari Script
+
+Buka detail konten → Script → **Teleprompter**. Tab baru memuat judul dan teks editor terbaru, termasuk draft yang belum tersimpan. Tombol tidak aktif untuk naskah kosong. Mode baca menyediakan tempo, gulir per baris, ukuran teks, panduan mata, mirror, fullscreen dan preset. **Ikuti suara** memerlukan izin mikrofon serta dukungan SpeechRecognition browser; gulir manual tetap tersedia. Naskah yang dibawa adalah salinan latihan lokal, bukan penyuntingan pada konten server. Buka ulang dari Script untuk memuat versi editor terbaru; gunakan **Kembali ke Script** untuk melanjutkan penyuntingan. Membaca tidak menggunakan kuota AI.

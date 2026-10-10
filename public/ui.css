@@ -75,7 +75,7 @@ body{font-size:14px;-webkit-font-smoothing:antialiased}button,a,input,select,tex
 .content-progress{margin:10px 0 7px;font-size:10px;color:#626f86;max-width:240px}
 .content-progress>span{display:flex;justify-content:space-between;gap:12px;margin-bottom:5px}
 .content-progress b{font-weight:650}
-.script-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px}
+.script-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;margin-bottom:9px}
 .content-editor .script-heading label{font-size:12px;font-weight:650;margin:0;color:#5a6270}
 .script-heading .btn{font-size:11px;min-height:32px}
 .content-table .content-progress{min-width:110px}
