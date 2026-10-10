@@ -1,21 +1,18 @@
-import {plainSource} from './radar-engine.mjs';
-import {displayHeadline,sourceMaterialKey,publisherKey} from './radar-methodology.mjs';
+import {trendText,extractTrendKeywords,trendKeywordMention} from './radar-keywords.mjs';
+import {sourceMaterialKey,publisherKey} from './radar-methodology.mjs';
 import {matchesTopic,canonicalUrl,fail} from './radar-store.mjs';
 import {focusAllows} from './radar-focus.mjs';
 const HOUR=3600000;
-const STOP=new Set('di ke dari pada dalam dengan dan atau untuk yang ini itu tersebut oleh sebagai adalah akan sudah telah juga para ia mereka kami kita kamu saya nya namun tetapi karena agar jika saat ketika setelah sebelum tentang atas hingga lalu masih lebih paling sangat jadi menjadi bisa dapat punya memiliki ada tidak tak bukan belum hari minggu bulan tahun jam terbaru update breaking news video foto live shorts youtube subscribe like share berita politik ekonomi kebijakan kontroversi kontroversial polemik sebut menyebut disebut kata ujar mengatakan kritik mengkritik dikritik dipersoalkan dipertanyakan mempertanyakan bantah membantah dibantah bantahan tuduhan diduga dugaan menilai dinilai menolak ditolak penolakan wacana rencana ungkap mengungkapkan menurut soal terkait mengenai tanggapi tanggapan baca juga selengkapnya simak begini berikut kini kembali minta meminta beri memberi jadi bikin pak bu bapak ibu hal secara tengah terus resmi indonesia nasional'.split(' '));
-const normalize=value=>String(value||'').normalize('NFKD').replace(/\p{M}/gu,'').toLocaleLowerCase('id-ID');
-function words(text){return (normalize(plainSource(text)).match(/[\p{L}\p{N}]+/gu)||[]).filter(word=>word.length>=3&&!STOP.has(word)&&!/^[\p{N}]+$/u.test(word));}
-function sourceTerms(source){
- const title=words(displayHeadline(source.title||'',source.publisher||'')),terms=new Map();
- // Co-occurring title terms are labels, not reconstructed sentences or search queries.
- for(const word of new Set([...title,...words(source.excerpt||'')]))terms.set(word,{key:word,label:word,words:[word],kind:'word',headline:title.includes(word)});
- for(let i=0;i<title.length;i++)for(let j=i+1;j<Math.min(title.length,i+5);j++){
-  if(title[i]===title[j])continue;
-  const pair=[title[i],title[j]].sort(),key=pair.join(' · ');
-  terms.set(key,{key,label:key,words:pair,kind:'pair',headline:true});
+function documentIndex(documents){
+ const index=new Map();
+ for(const doc of documents)for(const word of new Set(doc.text.all.flatMap(segment=>segment.map(token=>token.word)))){
+  if(!index.has(word))index.set(word,new Set());index.get(word).add(doc);
  }
- return terms;
+ return index;
+}
+function matchingDocuments(term,index){
+ const pool=term.words.map(word=>index.get(word)||new Set()).sort((a,b)=>a.size-b.size)[0];
+ return [...(pool||[])].filter(doc=>trendKeywordMention(doc.text,term));
 }
 export function buildRadarTrends(data,{period=24,topic='',platform='',now=Date.now()}={}){
  if(![24,168].includes(Number(period)))throw fail('Pilih tren 24 jam atau 7 hari.');period=Number(period);
@@ -37,29 +34,27 @@ export function buildRadarTrends(data,{period=24,topic='',platform='',now=Date.n
   const material=sourceMaterialKey(source);
   if(seenUrls.has(url)||material.trim()&&seenMaterial.has(material)){duplicates++;continue;}
   seenUrls.add(url);if(material.trim())seenMaterial.add(material);
-  documents.push({at,url,source,issue,terms:sourceTerms(source),current:at>=start});
+  documents.push({at,url,source,issue,text:trendText(source),current:at>=start});
  }
- const current=documents.filter(d=>d.current),previous=documents.filter(d=>!d.current),items=new Map();
- for(const doc of current)for(const term of doc.terms.values()){
-  if(!items.has(term.key))items.set(term.key,{...term,headlineMentions:0,docs:[]});const item=items.get(term.key);item.docs.push(doc);if(term.headline)item.headlineMentions++;
- }
- const sorted=[...items.values()].filter(item=>item.headlineMentions>0&&(item.kind==='word'||item.docs.length>=2)).sort((a,b)=>b.docs.length-a.docs.length||Number(b.kind==='pair')-Number(a.kind==='pair')||a.key.localeCompare(b.key,'id'));
+ const current=documents.filter(d=>d.current),previous=documents.filter(d=>!d.current),items=new Map(),currentIndex=documentIndex(current),previousIndex=documentIndex(previous);
+ for(const doc of current){doc.keywords=extractTrendKeywords(doc.source,doc.text);for(const term of doc.keywords.values())if(!items.has(term.key))items.set(term.key,term);}
+ const sorted=[...items.values()].map(term=>({...term,docs:matchingDocuments(term,currentIndex)})).filter(term=>term.docs.length).sort((a,b)=>b.docs.length-a.docs.length||b.specificity-a.specificity||a.key.localeCompare(b.key,'id'));
  const chosen=[];
  for(const item of sorted){
-  // Avoid repeating a single word when a pair covers exactly the same documents.
-  if(item.kind==='word'&&chosen.some(pair=>pair.kind==='pair'&&pair.words.includes(item.key)&&pair.docs.length===item.docs.length))continue;
-  if(item.kind==='pair'&&chosen.filter(x=>x.kind==='pair').length>=6)continue;
+  // Suppress a less specific phrase only when exactly the same sources support both.
+  if(chosen.some(other=>item.words.every(word=>other.words.includes(word))&&item.docs.length===other.docs.length&&item.docs.every(doc=>other.docs.includes(doc))))continue;
   chosen.push(item);if(chosen.length===10)break;
  }
  const step=period===24?HOUR:24*HOUR,count=period===24?24:7;
  const keywords=chosen.map(item=>{
-  const before=previous.filter(doc=>doc.terms.has(item.key)).length;
+  const before=matchingDocuments(item,previousIndex).length;
+  const contextDoc=item.docs.filter(doc=>doc.keywords.has(item.key)).toSorted((a,b)=>b.at-a.at)[0]||item.docs[0];
   const buckets=Array.from({length:count},(_,i)=>({startAt:new Date(start+i*step).toISOString(),endAt:new Date(start+(i+1)*step).toISOString(),count:0}));
   for(const doc of item.docs)buckets[Math.min(count-1,Math.floor((doc.at-start)/step))].count++;
-  return {key:item.key,label:item.label,kind:item.kind,count:item.docs.length,previousCount:before,delta:item.docs.length-before,share:Math.round(item.docs.length/Math.max(1,current.length)*100),publishers:new Set(item.docs.map(d=>publisherKey(d.source)).filter(Boolean)).size,buckets,
+  return {key:item.key,label:item.label,kind:item.kind,context:{title:contextDoc.source.title,url:contextDoc.url,publisher:contextDoc.source.publisher},count:item.docs.length,previousCount:before,delta:item.docs.length-before,share:Math.round(item.docs.length/Math.max(1,current.length)*100),publishers:new Set(item.docs.map(d=>publisherKey(d.source)).filter(Boolean)).size,buckets,
    sources:item.docs.toSorted((a,b)=>b.at-a.at).slice(0,5).map(d=>({issueId:d.issue.id,title:d.source.title,url:d.url,publisher:d.source.publisher,platform:d.source.platform,publishedAt:d.source.publishedAt}))};
  });
  const platforms={};for(const doc of current)platforms[doc.source.platform]=(platforms[doc.source.platform]||0)+1;
- return {version:1,usesAI:false,metric:'source-frequency',period,topic,platform,generatedAt:new Date(now).toISOString(),startAt:new Date(start).toISOString(),endAt:new Date(now).toISOString(),previousStartAt:new Date(previousStart).toISOString(),timeZone:'Asia/Jakarta',sourceCount:current.length,previousSourceCount:previous.length,publishers:new Set(current.map(d=>publisherKey(d.source)).filter(Boolean)).size,platforms,excluded:{undated,future,reposts,duplicates},keywords,
-  note:'Kata kunci ditemukan pada judul; frekuensi dihitung dari judul dan cuplikan/deskripsi dari sumber Radar tersimpan, sekali per sumber. Tanda · berarti dua kata muncul bersama pada judul, bukan pernyataan fakta. Perbandingan memakai rentang sebelumnya dengan durasi yang sama; kelengkapan dipengaruhi sumber, sinkronisasi dan retensi. Ini bukan volume pencarian Google Trends atau ukuran seluruh percakapan publik.'};
+ return {version:2,usesAI:false,metric:'source-frequency',period,topic,platform,generatedAt:new Date(now).toISOString(),startAt:new Date(start).toISOString(),endAt:new Date(now).toISOString(),previousStartAt:new Date(previousStart).toISOString(),timeZone:'Asia/Jakarta',sourceCount:current.length,previousSourceCount:previous.length,publishers:new Set(current.map(d=>publisherKey(d.source)).filter(Boolean)).size,platforms,excluded:{undated,future,reposts,duplicates},keywords,
+  note:'Frasa isu ditemukan pada judul sumber, termasuk tokoh/lembaga yang muncul dekat pokok masalah. Hitungan memakai judul dan cuplikan/deskripsi dari sumber Radar tersimpan, sekali per sumber. Tanda · menghubungkan unsur topik dalam kalimat yang sama, bukan membentuk klaim baru. Judul asli menjadi konteks; kata umum dan nama tunggal tidak dijadikan keyword. Perbandingan memakai rentang sebelumnya dengan durasi yang sama; kelengkapan dipengaruhi sumber, sinkronisasi dan retensi. Ini bukan volume pencarian Google Trends atau ukuran seluruh percakapan publik.'};
 }

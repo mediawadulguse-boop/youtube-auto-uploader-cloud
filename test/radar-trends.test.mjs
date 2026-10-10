@@ -16,7 +16,7 @@ test('trends count one mention per unique source, both news and YouTube, and sam
  assert.equal(r.sourceCount,3);assert.equal(r.previousSourceCount,1);assert.equal(r.platforms.YouTube,1);assert.equal(r.usesAI,false);assert.equal(r.metric,'source-frequency');
  const pair=keyword(r,'gibran · ijazah');assert.equal(pair.count,3);assert.equal(pair.previousCount,1);assert.equal(pair.delta,2);assert.equal(pair.buckets.reduce((n,b)=>n+b.count,0),3);assert.equal(pair.buckets.length,24);assert.equal(pair.share,100);
  assert.equal(JSON.stringify(d),frozen);assert.match(r.note,/bukan volume pencarian Google/);
- const youtube=buildRadarTrends(d,{now,platform:'YouTube'});assert.equal(youtube.sourceCount,1);assert.equal(keyword(youtube,'gibran').count,1);
+ const youtube=buildRadarTrends(d,{now,platform:'YouTube'});assert.equal(youtube.sourceCount,1);assert.equal(keyword(youtube,'gibran · ijazah').count,1);
 });
 
 test('reposts, duplicate URL/material, undated and future sources never inflate the chart',()=>{
@@ -27,7 +27,15 @@ test('reposts, duplicate URL/material, undated and future sources never inflate 
  const undated=source('f','Politik Gibran: kritik ijazah',0,{publishedAt:null});
  const future=source('g','Politik Gibran membantah tuduhan ijazah',-1);
  const r=buildRadarTrends(data([issue('one',[first,duplicate,material,repost,undated,future]),issue('two',[first])]),{now});
- assert.equal(r.sourceCount,1);assert.deepEqual(r.excluded,{undated:1,future:1,reposts:1,duplicates:3});assert.equal(keyword(r,'gibran').count,1);
+ assert.equal(r.sourceCount,1);assert.deepEqual(r.excluded,{undated:1,future:1,reposts:1,duplicates:3});assert.equal(keyword(r,'gibran · ijazah').count,1);
+});
+
+test('context comes from a current headline that supplied the phrase, not a matching excerpt',()=>{
+ const title='Apakah Wakil Presiden Gibran membantah tuduhan ijazah demi menjawab kritik?';
+ const origin=source('headline',title,1),excerptOnly=source('excerpt','Politik: presiden menjawab kritik publik',2,{excerpt:'Gibran membantah tuduhan ijazah.'});
+ const r=buildRadarTrends(data([issue('one',[origin,excerptOnly])]),{now});
+ const term=keyword(r,'gibran · ijazah');assert.equal(term.count,2);assert.equal(term.context.title,title);assert.equal(term.context.url,origin.url);
+ assert.ok(r.keywords.every(k=>!/(?:^|[ ·])(?:demi|apakah)(?:$|[ ·])/.test(k.key)));assert.ok(!keyword(r,'gibran'));
 });
 
 test('topical match and controversy must belong to the counted source, not different sources in one issue',()=>{
