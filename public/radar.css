@@ -59,3 +59,4 @@
 @media(max-width:600px){.radar-hero .feature-actions>.btn,.radar-hero .feature-actions>.radar-actions-menu{flex:1 1 auto}.radar-actions-menu>summary{text-align:center}.radar-actions-popover{right:0;max-width:calc(100vw - 70px)}.radar-actions-popover .btn{flex:none!important}.radar-brief-heading h3{font-size:17px}.radar-brief-heading .radar-engine-badge{font-size:10px}.radar-brief-footer .btn{width:100%}}
 .radar-footer-detail{margin-top:8px}.radar-footer-detail>summary{cursor:pointer;font-weight:600}.radar-footer-detail .radar-ai-footer{margin-top:12px}
 .radar-executive-brief,.radar-card{align-items:stretch;scroll-margin-top:90px}#radarExecutiveFront,#radarTrends{scroll-margin-top:90px}
+.radar-prompt-template{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;font:inherit;font-size:13px;padding:14px;background:#f6f8fc;border-radius:8px}

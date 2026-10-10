@@ -1,7 +1,9 @@
 import crypto from 'node:crypto';
 import {fail,radarData} from './radar-store.mjs';
+import {STORYBOARD_PROMPT} from './storyboard-prompt.mjs';
 export const PROMPT_ACTIONS=['summary','script','polish','digest','shorts','storyboard','analysis'];
 export const STARTER_PROMPTS=[{id:'starter-script',name:'Long: sejarah, sistem, manusia',action:'script',prompt:'Susun naskah percakapan dengan hook pertanyaan, bukti sejarah/data, struktur sistem, dampak manusia dan refleksi. Tandai celah riset, pertahankan atribusi serta rujukan.'},{id:'starter-shorts',name:'Tiga Short mandiri',action:'shorts',prompt:'Buat tiga Short yang dapat ditonton terpisah: satu tentang data/sejarah, satu tentang sistem, satu tentang dampak manusia. Masing-masing punya hook, bukti bersumber dan penutup reflektif.'},{id:'starter-digest',name:'Prioritas editorial',action:'digest',prompt:'Utamakan isu dengan bahan cukup, jelaskan perubahan liputan dan daftar sumber primer atau transkrip yang masih perlu diperiksa.'}];
+STARTER_PROMPTS.push({id:'starter-storyboard',name:'Script → Storyboard investigatif · CapCut PC',action:'storyboard',prompt:STORYBOARD_PROMPT});
 export class RadarMemory{
  constructor(store){this.store=store;}
  async list(){const r=radarData(await this.store.contentStore.read());return {prompts:r.promptLibrary||[],starters:STARTER_PROMPTS};}
