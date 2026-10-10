@@ -42,4 +42,7 @@ test('executive UI escapes source text, displays research gaps, and includes onl
  vm.runInContext(code.slice(code.indexOf('function radarExecutiveReport('),code.indexOf('const rDialog=')),ctx);
  const summary=buildExecutiveSummary([issue('html',[source('a')],{title:'<img src=x onerror=alert(1)>'})],{now});const html=ctx.radarExecutiveReport(summary);assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<img/);assert.match(html,/Klaim sumber/);assert.match(html,/Perlu diperiksa/);assert.match(html,/data-executive-copy/);assert.match(html,/rel="noopener noreferrer"/);
  assert.equal(ctx.radarExecutiveReport(null),'');
+ const brief=ctx.radarExecutiveReport(summary,{compact:true});
+ assert.match(brief,/&lt;img/);assert.doesNotMatch(brief,/<img|<ul|radar-executive-evidence/);assert.match(brief,/data-executive-full/);assert.match(brief,/data-executive-issue="html"/);assert.match(brief,/Konteks sumber/);
+ assert.ok(brief.length<html.length);assert.equal(summary.priorities[0].evidence[0].text.includes('Rp'),true);
 });
