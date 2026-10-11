@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.35.1
+# YouTube Content Hub v4.35.2
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -374,3 +374,12 @@ Penyimpanan tetap memakai productionNotes dan richText.productionNotes; tidak di
 Tab detail konten berada di baris paling atas. Judul dan badge, status penyimpanan, Simpan, Progres produksi dan Menu konten menggunakan area ringkas. Judul panjang hanya dipendekkan secara visual; judul lengkap tersedia melalui tooltip dan kolom Perencanaan. Storyboard memakai toolbar kecil, tabel selebar layar, dan baris status durasi di bawah. Tidak ada panel judul, bantuan, impor atau catatan yang terus mengambil ruang vertikal.
 
 Impor, Catatan dan Ekspor tersedia pada toolbar; progres/checklist tersedia di atas. Panel mengambang dibuka satu per satu di atas lembar kerja, ditutup melalui klik di luar atau Escape. Escape pertama menutup panel dan mengembalikan fokus ke tombolnya. Tabel tidak menyusut ketika panel terbuka. Pada layar sempit toolbar dapat membungkus; gulir horizontal/vertikal tetap berada di tabel tanpa gulir ganda pada formulir. Edit sel, undo, paste, impor/ekspor, catatan, autosave dan naskah Script tetap menggunakan penyimpanan sebelumnya, tanpa migrasi database atau panggilan AI tambahan.
+
+
+### Teleprompter langsung ke VO dan kembali ke Brief (4.35.2)
+
+Tombol Teleprompter pada Script membuka pembaca dalam overlay layar penuh di halaman yang sama, tanpa tab baru, izin pop-up, daftar naskah atau editor Studio. Snapshot memakai judul dan seluruh Script terbaru, termasuk draft yang belum disimpan. Pengaturan font, tempo, mirror, gulir manual, ikuti suara dan fullscreen tetap tersedia. Konten tidak ditulis ulang oleh pembaca.
+
+**Tutup** atau **Escape** kembali ke tab Perencanaan/Brief pada detail konten yang sama tanpa memuat ulang formulir. Escape menutup pengaturan/modal pembaca terlebih dahulu jika terbuka. Keluar menghentikan pemutaran, pengenalan suara dan wake lock serta melepas iframe/listener/timer. Panel loading tetap menyediakan tombol tutup; kegagalan loading setelah 30 detik kembali ke detail dengan pemberitahuan.
+
+Transfer dan penutupan memeriksa origin, window iframe dan token sesi; naskah hanya dikirim sekali. Pengaturan/preset disimpan lokal, tetapi snapshot VO dari konten tidak dimasukkan ke daftar naskah latihan. Pustaka naskah Studio lama tetap dipertahankan. Versi Studio mandiri masih tersedia melalui /teleprompter.html; alur Hub langsung memakai mode baca.

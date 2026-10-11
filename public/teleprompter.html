@@ -22,6 +22,11 @@
 @media(max-width:610px){.voice-controls{gap:8px;padding-top:9px}.voice-controls .btn{padding:7px 10px;font-size:11px}.voice-transcript{width:100%;max-width:100%}.read-mode .voice-transcript:empty{display:none}}
 
 .hub-session .local-note{font-size:11px}.hub-session .read-banner>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.hub-session .read-banner>div{flex-wrap:wrap;justify-content:flex-end}.hub-session .read-banner{gap:10px}.hub-session .read-banner .btn{padding:8px 10px}@media(max-width:600px){.hub-session.read-mode .read-banner{height:auto;min-height:52px;padding-top:8px;padding-bottom:8px;align-items:center}.hub-session .read-banner>div{max-width:60%}.hub-session .topbar{height:auto;min-height:79px;padding:12px 0;flex-wrap:wrap}.hub-session .top-actions{flex-wrap:wrap}}
+
+/* A Hub session has only its current VO reader, never another script workspace. */
+.hub-session .sidebar,.hub-session .topbar,.hub-session .intro,.hub-session .preset-strip,.hub-session .editor-panel,.hub-session .bottom-details,.hub-session .shortcut-note{display:none!important}
+.hub-session .read-banner>span{flex:1;min-width:0}.hub-session .read-banner>div{flex-wrap:nowrap;max-width:none}
+@media(max-width:600px){.hub-session.read-mode .read-banner{height:52px;min-height:52px;padding:0 10px}.hub-session .read-banner>span{max-width:none}.hub-session .read-banner .btn{padding:7px}.hub-session #exitRead{font-size:10px}}
 </style>
 </head>
 <body>
