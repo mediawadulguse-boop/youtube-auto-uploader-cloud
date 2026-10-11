@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.31.0
+# YouTube Content Hub v4.35.1
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -367,3 +367,10 @@ Lembar kerja Storyboard memiliki nomor shot otomatis serta lima sel yang dapat d
 Total durasi adalah estimasi dari angka durasi per shot. **Hitung timecode** secara eksplisit menyusun timecode berurutan, tanpa mengubah narasi. Waktu asli SRT tetap dipertahankan sebelum tombol tersebut digunakan. Durasi kosong, rentang atau format yang tidak dikenali diberi status belum lengkap.
 
 Penyimpanan tetap memakai productionNotes dan richText.productionNotes; tidak diperlukan migrasi database. Membuka konten tidak menulis ulang data. Tabel HTML/Markdown sesuai template dibaca menjadi sel; catatan bebas dan tabel dengan bentuk lain tetap tersedia di **Catatan produksi**. Perubahan sel dan catatan memakai autosave, draft lokal, duplikasi dan riwayat yang sudah ada. Penerapan storyboard AI mengganti shot, mempertahankan catatan produksi, membuka tab Storyboard, dan tidak mengubah Script. Jika Script diubah kemudian, editor perlu memperbarui storyboard dari naskah terbaru. Tidak ada pemotongan karakter atau panggilan AI untuk edit sel, total durasi dan timecode.
+
+
+### Workspace berfokus pada lembar kerja (4.35.1)
+
+Tab detail konten berada di baris paling atas. Judul dan badge, status penyimpanan, Simpan, Progres produksi dan Menu konten menggunakan area ringkas. Judul panjang hanya dipendekkan secara visual; judul lengkap tersedia melalui tooltip dan kolom Perencanaan. Storyboard memakai toolbar kecil, tabel selebar layar, dan baris status durasi di bawah. Tidak ada panel judul, bantuan, impor atau catatan yang terus mengambil ruang vertikal.
+
+Impor, Catatan dan Ekspor tersedia pada toolbar; progres/checklist tersedia di atas. Panel mengambang dibuka satu per satu di atas lembar kerja, ditutup melalui klik di luar atau Escape. Escape pertama menutup panel dan mengembalikan fokus ke tombolnya. Tabel tidak menyusut ketika panel terbuka. Pada layar sempit toolbar dapat membungkus; gulir horizontal/vertikal tetap berada di tabel tanpa gulir ganda pada formulir. Edit sel, undo, paste, impor/ekspor, catatan, autosave dan naskah Script tetap menggunakan penyimpanan sebelumnya, tanpa migrasi database atau panggilan AI tambahan.

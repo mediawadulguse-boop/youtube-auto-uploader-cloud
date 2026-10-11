@@ -44,7 +44,7 @@
       <button data-view="settings"><span data-icon="layers"></span>Pilar Konten</button>
       <button data-view="preferences"><span data-icon="settings"></span>Pengaturan</button>
     </div>
-    <div class="sidebar-bottom"><div class="workspace-note"><span data-icon="spark"></span><strong>Mulai dari sebuah ide.</strong><p>Simpan naskah dan riset,<br>lalu wujudkan menjadi konten.</p></div><button id="localDrafts" class="btn">Draft lokal</button><button id="logoutBtn" class="btn logout"><span data-icon="logout"></span>Keluar<span class="version">v4.35.0</span></button></div>
+    <div class="sidebar-bottom"><div class="workspace-note"><span data-icon="spark"></span><strong>Mulai dari sebuah ide.</strong><p>Simpan naskah dan riset,<br>lalu wujudkan menjadi konten.</p></div><button id="localDrafts" class="btn">Draft lokal</button><button id="logoutBtn" class="btn logout"><span data-icon="logout"></span>Keluar<span class="version">v4.35.1</span></button></div>
   </nav>
   <main class="workspace">
   <section id="contentHub">
@@ -69,12 +69,13 @@
   </main>
 </div>
 <div id="toast" class="toast" role="status"></div><dialog id="contentEditor" class="content-editor" aria-labelledby="editorHeading">
-  <div class="editor-header"><div><span class="eyebrow">DETAIL KONTEN</span><h2 id="editorHeading">Konten baru</h2><div id="editorStatusBadges"></div></div><button id="closeEditor" class="btn" aria-label="Tutup editor">Tutup</button></div>
-  <div class="editor-toolbar"><span id="saveIndicator" role="status">Tersimpan</span><button id="saveContent" class="btn mini">Simpan sekarang</button><details class="editor-menu"><summary class="btn mini">Menu konten</summary><div><button id="fillContentEngine" class="btn mini">Isi kolom kosong · Engine</button><button id="duplicateContent" class="btn mini">Duplikasi</button><button id="archiveContent" class="btn mini">Arsipkan</button><button id="deleteContent" class="btn mini danger">Hapus</button></div></details></div>
+  <div class="editor-topbar"><div class="editor-tabs" role="tablist" aria-label="Bagian detail konten"><button data-tab="plan" class="active">Perencanaan</button><button data-tab="script">Script</button><button data-tab="storyboard">Storyboard</button><button data-tab="research">Riset & Aset</button><button data-tab="publish">Publikasi</button><button data-tab="history">Riwayat</button></div><button id="closeEditor" class="btn mini" aria-label="Tutup editor">Tutup</button></div>
+  <div class="editor-context">
+    <div class="editor-header"><div><h2 id="editorHeading">Konten baru</h2><div id="editorStatusBadges"></div></div></div>
+    <div class="editor-toolbar"><span id="saveIndicator" role="status">Tersimpan</span><button id="saveContent" class="btn mini">Simpan</button><details id="editorProgress" class="editor-progress"><summary><span class="progress-heading"><strong>Progres produksi</strong><span id="editorProgressText">0/4 · 0%</span></span><progress id="editorProgressBar" class="production-progress-bar" max="100" value="0" aria-label="Progres produksi"></progress><span class="progress-toggle" aria-hidden="true">⌄</span></summary><div class="editor-progress-panel"><div id="contentChecklist" class="checklist"></div><p id="editorNextStep" class="hint"></p></div></details><details class="editor-menu"><summary class="btn mini">Menu konten</summary><div><button id="fillContentEngine" class="btn mini">Isi kolom kosong · Engine</button><button id="duplicateContent" class="btn mini">Duplikasi</button><button id="archiveContent" class="btn mini">Arsipkan</button><button id="deleteContent" class="btn mini danger">Hapus</button></div></details></div>
+  </div>
   <p id="contentEngineResult" class="hint" role="status"></p>
   <div id="editorConflict" class="notice hide"><span id="conflictText"></span><button id="reloadContent" class="btn mini">Muat versi server</button><button id="copyDraft" class="btn mini">Simpan sebagai salinan</button></div>
-  <div class="editor-tabs" role="tablist" aria-label="Bagian detail konten"><button data-tab="plan" class="active">Perencanaan</button><button data-tab="script">Script</button><button data-tab="storyboard">Storyboard</button><button data-tab="research">Riset & Aset</button><button data-tab="publish">Publikasi</button><button data-tab="history">Riwayat</button></div>
-  <details id="editorProgress" class="editor-progress"><summary><span class="progress-heading"><strong>Progres produksi</strong><span id="editorProgressText">0/4 · 0%</span></span><progress id="editorProgressBar" class="production-progress-bar" max="100" value="0" aria-label="Progres produksi"></progress><span class="progress-toggle" aria-hidden="true">⌄</span></summary><div id="contentChecklist" class="checklist"></div><p id="editorNextStep" class="hint"></p></details>
   <form id="contentForm" autocomplete="off">
     <section data-panel="plan"><div class="editor-fields">
       <label class="span2">Judul konten<input name="title" required></label>
