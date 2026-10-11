@@ -27,3 +27,20 @@ test('long storyboard cells, legacy notes, script and history survive save, relo
  const input=structuredClone(rows);input[0][3]='[DOK] '+ 'Bahan utuh '.repeat(6000)+'AKHIR';const html=cleanRichHtml(sheet.html(input,legacy));const updated=await store.update(saved.id,{revision:saved.revision,richText:{productionNotes:html}});assert.equal(updated.script,script);assert.equal(updated.productionNotes,richPlainText(html));assert.match(updated.productionNotes,/AKHIR/);assert.equal(updated.history.at(-1).richText.productionNotes,legacy);
  const restarted=new ContentStore(file),copy=await restarted.duplicate(saved.id);assert.equal(copy.script,script);assert.equal(copy.richText.productionNotes,html);assert.match(copy.richText.productionNotes,/<strong>Jember<\/strong>/);
 });
+test('CSV imports quoted narration, commas, doubled quotes and multiline editing without clipping',()=>{
+ const input=structuredClone(rows);input[0][2]='Menurut sumber, "angka" belum berubah.\nNarasi kedua | tetap.';input[1][4]='CapCut: SFX "click", paper rustle\nKlip berikutnya.';
+ const table=[['No','Timecode','Durasi','Narasi','Visual','Editing'],...input.map((row,i)=>[String(i+1),...row])];
+ const csv=table.map(row=>row.map(cell=>'"'+cell.replace(/"/g,'""')+'"').join(',')).join('\r\n');
+ assert.deepEqual(plain(sheet.importRows('\uFEFF'+csv)),input);assert.deepEqual(plain(sheet.parseDelimited(csv,',')),table);
+});
+test('semicolon CSV and reordered friendly headers map each field to its intended column',()=>{
+ const csv='Narasi;No;Visual;Timecode;Editing;Durasi\n"Narasi asli, utuh.";1;[DOK] Sumber;00:00;SFX click;3,5 detik';
+ assert.deepEqual(plain(sheet.importRows(csv)),[['00:00','3,5 detik','Narasi asli, utuh.','[DOK] Sumber','SFX click']]);
+ const markdown='| No | Timecode | Durasi | VO | Visual | Editing |\n| --- | --- | --- | --- | --- | --- |\n| 1 | 00:00 | 5s | Narasi utuh. | [DOK] Sumber | SFX click |';
+ assert.deepEqual(plain(sheet.importRows(markdown)),[['00:00','5s','Narasi utuh.','[DOK] Sumber','SFX click']]);
+});
+test('incomplete CSV, broken quotes and plain prose cannot silently become imported shots',()=>{
+ for(const text of ['No,Timecode,Durasi,Narasi,Visual,Editing\n1,00:00,5s,Narasi,[DOK] Sumber','1,00:00,5s,Narasi,[DOK] Sumber,SFX click,Kolom tambahan','Narasi saja tanpa tabel','No,Timecode,Durasi,Narasi,Visual,Editing'])assert.throws(()=>sheet.importRows(text),/belum terbaca/);
+ assert.throws(()=>sheet.importRows('"1","00:00","5s","Narasi belum ditutup'),/belum ditutup/);
+ assert.throws(()=>sheet.parseDelimited('"sel"teks,berikutnya',','),/di luar tanda kutip/);
+});

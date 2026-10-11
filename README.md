@@ -1,4 +1,4 @@
-# YouTube Content Hub v4.35.2
+# YouTube Content Hub v4.35.3
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
 
@@ -383,3 +383,7 @@ Tombol Teleprompter pada Script membuka pembaca dalam overlay layar penuh di hal
 **Tutup** atau **Escape** kembali ke tab Perencanaan/Brief pada detail konten yang sama tanpa memuat ulang formulir. Escape menutup pengaturan/modal pembaca terlebih dahulu jika terbuka. Keluar menghentikan pemutaran, pengenalan suara dan wake lock serta melepas iframe/listener/timer. Panel loading tetap menyediakan tombol tutup; kegagalan loading setelah 30 detik kembali ke detail dengan pemberitahuan.
 
 Transfer dan penutupan memeriksa origin, window iframe dan token sesi; naskah hanya dikirim sekali. Pengaturan/preset disimpan lokal, tetapi snapshot VO dari konten tidak dimasukkan ke daftar naskah latihan. Pustaka naskah Studio lama tetap dipertahankan. Versi Studio mandiri masih tersedia melalui /teleprompter.html; alur Hub langsung memakai mode baca.
+
+### Impor Storyboard
+
+Buka detail konten → Storyboard → Impor → Pilih file → Masukkan shot. File CSV, TSV, Markdown dan TXT dibaca otomatis tanpa konversi atau AI. Tabel yang disalin dari ChatGPT, Excel atau Google Sheets juga dapat ditempel langsung. Jumlah shot dan narasi pertama ditampilkan sebelum impor. Shot lama dipertahankan kecuali pilihan **Ganti storyboard yang ada** dicentang; gunakan **Urungkan** untuk membatalkan. Script dan catatan produksi dipertahankan.
