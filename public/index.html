@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="/preferences.css">
 <link rel="stylesheet" href="/radar.css">
 <link rel="stylesheet" href="/writing.css">
+<link rel="stylesheet" href="/storyboard.css">
 
 </head>
 <body>
@@ -43,7 +44,7 @@
       <button data-view="settings"><span data-icon="layers"></span>Pilar Konten</button>
       <button data-view="preferences"><span data-icon="settings"></span>Pengaturan</button>
     </div>
-    <div class="sidebar-bottom"><div class="workspace-note"><span data-icon="spark"></span><strong>Mulai dari sebuah ide.</strong><p>Simpan naskah dan riset,<br>lalu wujudkan menjadi konten.</p></div><button id="localDrafts" class="btn">Draft lokal</button><button id="logoutBtn" class="btn logout"><span data-icon="logout"></span>Keluar<span class="version">v4.34.1</span></button></div>
+    <div class="sidebar-bottom"><div class="workspace-note"><span data-icon="spark"></span><strong>Mulai dari sebuah ide.</strong><p>Simpan naskah dan riset,<br>lalu wujudkan menjadi konten.</p></div><button id="localDrafts" class="btn">Draft lokal</button><button id="logoutBtn" class="btn logout"><span data-icon="logout"></span>Keluar<span class="version">v4.35.0</span></button></div>
   </nav>
   <main class="workspace">
   <section id="contentHub">
@@ -69,10 +70,10 @@
 </div>
 <div id="toast" class="toast" role="status"></div><dialog id="contentEditor" class="content-editor" aria-labelledby="editorHeading">
   <div class="editor-header"><div><span class="eyebrow">DETAIL KONTEN</span><h2 id="editorHeading">Konten baru</h2><div id="editorStatusBadges"></div></div><button id="closeEditor" class="btn" aria-label="Tutup editor">Tutup</button></div>
-  <div class="editor-toolbar"><span id="saveIndicator" role="status">Tersimpan</span><button id="saveContent" class="btn mini">Simpan sekarang</button><button id="fillContentEngine" class="btn mini">Isi kolom kosong · Engine</button><button id="duplicateContent" class="btn mini">Duplikasi</button><button id="archiveContent" class="btn mini">Arsipkan</button><button id="deleteContent" class="btn mini danger">Hapus</button></div>
+  <div class="editor-toolbar"><span id="saveIndicator" role="status">Tersimpan</span><button id="saveContent" class="btn mini">Simpan sekarang</button><details class="editor-menu"><summary class="btn mini">Menu konten</summary><div><button id="fillContentEngine" class="btn mini">Isi kolom kosong · Engine</button><button id="duplicateContent" class="btn mini">Duplikasi</button><button id="archiveContent" class="btn mini">Arsipkan</button><button id="deleteContent" class="btn mini danger">Hapus</button></div></details></div>
   <p id="contentEngineResult" class="hint" role="status"></p>
   <div id="editorConflict" class="notice hide"><span id="conflictText"></span><button id="reloadContent" class="btn mini">Muat versi server</button><button id="copyDraft" class="btn mini">Simpan sebagai salinan</button></div>
-  <div class="editor-tabs"><button data-tab="plan" class="active">Perencanaan</button><button data-tab="script">Script</button><button data-tab="research">Riset & Aset</button><button data-tab="publish">Publikasi</button><button data-tab="history">Riwayat</button></div>
+  <div class="editor-tabs" role="tablist" aria-label="Bagian detail konten"><button data-tab="plan" class="active">Perencanaan</button><button data-tab="script">Script</button><button data-tab="storyboard">Storyboard</button><button data-tab="research">Riset & Aset</button><button data-tab="publish">Publikasi</button><button data-tab="history">Riwayat</button></div>
   <details id="editorProgress" class="editor-progress"><summary><span class="progress-heading"><strong>Progres produksi</strong><span id="editorProgressText">0/4 · 0%</span></span><progress id="editorProgressBar" class="production-progress-bar" max="100" value="0" aria-label="Progres produksi"></progress><span class="progress-toggle" aria-hidden="true">⌄</span></summary><div id="contentChecklist" class="checklist"></div><p id="editorNextStep" class="hint"></p></details>
   <form id="contentForm" autocomplete="off">
     <section data-panel="plan"><div class="editor-fields">
@@ -82,9 +83,9 @@
       <label>Penanggung jawab<input name="owner" placeholder="Nama anggota tim"></label><label>Deadline produksi (WIB)<input name="deadline" type="datetime-local"></label>
       <label>Rencana tayang (WIB)<input name="plannedPublishAt" type="datetime-local"></label><label>Target audiens<input name="audience" placeholder="Untuk siapa konten ini dibuat?"></label>
       <div class="rich-field span2"><label for="rich-brief">Brief / ide</label><textarea id="rich-brief" name="brief" rows="5" placeholder="Tujuan, angle, pesan utama, dan latar belakang"></textarea></div>
-      <div class="rich-field span2"><label for="rich-productionNotes">Rencana produksi</label><textarea id="rich-productionNotes" name="productionNotes" rows="5" placeholder="Adegan, B-roll, lokasi, narasumber, dan kebutuhan thumbnail"></textarea></div>
     </div></section>
     <section data-panel="script" class="hide"><div class="script-heading"><label for="rich-script">Script</label><button type="button" id="scriptAI" class="btn mini">Bantuan AI</button><button type="button" id="openTeleprompter" class="btn mini">Teleprompter</button><button type="button" id="copyScript" class="btn mini">Salin Script</button></div><div class="rich-field"><textarea id="rich-script" name="script" rows="18" placeholder="Tulis naskah lengkap di sini…"></textarea></div><div id="scriptStats" class="hint"></div></section>
+    <section data-panel="storyboard" class="hide"><div id="storyboardSheet"></div><div class="storyboard-storage" hidden><textarea id="rich-productionNotes" name="productionNotes"></textarea></div></section>
     <section data-panel="research" class="hide"><div class="subheading"><h3>Data & sumber riset</h3><button id="addSource" type="button" class="btn mini">+ Sumber</button></div><p class="hint">Simpan fakta, angka, catatan wawancara, dan tautan. Tandai bahan yang sudah diperiksa.</p><div id="sourceRows"></div><div class="subheading"><h3>Aset & referensi</h3><button id="addAsset" type="button" class="btn mini">+ Aset</button></div><p class="hint">Simpan tautan Drive, dokumen, bahan visual, atau video final. Video dikirim melalui menu Upload.</p><div id="assetRows"></div></section>
     <section data-panel="publish" class="hide"><div class="editor-fields"><label class="span2">Deskripsi YouTube<textarea name="description" rows="7"></textarea></label><label class="span2">Tag YouTube<input name="tags" placeholder="Pisahkan dengan koma"></label></div><div id="contentPublication"></div><div class="editor-fields"><label class="span2">Sudah upload manual di YouTube Studio?<input id="manualYouTubeVideo" placeholder="Tempel tautan atau ID video pada channel yang terhubung"></label></div><button type="button" id="linkManualYouTube" class="btn">Hubungkan video / Cek status</button><p class="hint">Video manual perlu ditautkan sekali ke konten ini. Status dibaca dari YouTube saat pengecekan dan diperbarui berkala sekitar 5 menit. Tahap produksi serta checklist dikelola terpisah.</p><button type="button" id="prepareUpload" class="btn primary">Siapkan Upload Video</button><p class="hint">Memilih konten belum mengunggah video. Pilih file final lalu tekan Upload & Jadwalkan.</p></section>
     <section data-panel="history" class="hide"><p class="hint">30 versi perubahan terakhir tersimpan. Pemulihan membuat versi baru.</p><div id="contentHistory"></div></section>
@@ -111,6 +112,6 @@
   <div class="editor-header"><div><span class="eyebrow">NOTE</span><h2 id="noteCategoryHeading">Kategori Note</h2></div><button id="closeNoteCategory" class="btn" type="button">Tutup</button></div>
   <form id="noteCategoryForm"><input name="oldName" type="hidden"><label>Nama kategori<input name="name" required placeholder="Contoh: Riset, Ide, atau Produksi"></label><p class="hint">Kategori baru hanya disimpan setelah menekan Tambah kategori. Nama kosong tidak disimpan.</p><div id="noteCategoryError" class="notice hide" role="alert"></div><div class="feature-actions"><button id="saveNoteCategory" class="btn primary" type="submit">Tambah kategori</button><button id="resetNoteCategory" class="btn" type="button">Kategori baru</button></div></form><div id="noteCategoryList" class="note-category-list"></div>
 </dialog>
-<script src="/app.js"></script><script src="/analytics.js"></script><script src="/ui.js"></script><script src="/script-format.js"></script><script src="/rich-text.js"></script><script src="/notes.js"></script><script src="/board-settings.js"></script><script src="/video-analytics.js"></script><script src="/storage.js"></script><script src="/updates.js"></script><script src="/radar.js"></script><script src="/radar-trends.js"></script><script src="/preferences.js"></script><script src="/hub-teleprompter.js"></script><script src="/content.js"></script><script src="/studio.js"></script><script src="/history.js"></script>
+<script src="/app.js"></script><script src="/analytics.js"></script><script src="/ui.js"></script><script src="/script-format.js"></script><script src="/rich-text.js"></script><script src="/notes.js"></script><script src="/board-settings.js"></script><script src="/video-analytics.js"></script><script src="/storage.js"></script><script src="/updates.js"></script><script src="/radar.js"></script><script src="/radar-trends.js"></script><script src="/preferences.js"></script><script src="/hub-teleprompter.js"></script><script src="/storyboard.js"></script><script src="/content.js"></script><script src="/studio.js"></script><script src="/history.js"></script>
 
 </body></html>

@@ -30,3 +30,8 @@ test('formatted AI table survives save, restart and duplicate with searchable pl
  const sanitized=cleanRichHtml('<table onclick="evil()"><tr><td style="color:red"><img src=x onerror="evil()">Isi</td></tr></table>');
  assert.equal(sanitized,'<table><tr><td>Isi</td></tr></table>');
 });
+
+test('Markdown storyboard line breaks render safely within table cells',()=>{
+ const html=render('| Visual | Narasi |\n| --- | --- |\n| [DOK] Data | Kalimat pertama.<br>Kalimat kedua.<img src=x onerror=evil()> |');
+ assert.match(html,/<td>Kalimat pertama\.<br>Kalimat kedua\.&lt;img/);assert.doesNotMatch(html,/<img|onerror="/);
+});

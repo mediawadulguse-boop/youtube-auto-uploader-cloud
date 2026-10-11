@@ -816,7 +816,7 @@ setTimeout(async()=>{try{if((await readDb()).channel?.id&&await loadToken()){con
 
 async function serveStatic(res, pathname) {
   const rel = pathname === '/' ? 'index.html' : pathname.replace(/^\/+/, '');
-  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'history.js', 'storage.js', 'features.css', 'rich-text.js', 'rich-text.css', 'updates.js', 'storage.css', 'radar.js', 'radar.css', 'script-format.js', 'writing.css', 'preferences.js', 'preferences.css', 'hub-teleprompter.js', 'teleprompter.html', 'teleprompter.js', 'radar-trends.js'].includes(rel)) return false;
+  if (!['index.html', 'app.js', 'content.js', 'content.css', 'analytics.js', 'analytics.css', 'base.css', 'ui.css', 'ui.js', 'notes.js', 'board-settings.js', 'video-analytics.js', 'studio.js', 'history.js', 'storage.js', 'features.css', 'rich-text.js', 'rich-text.css', 'updates.js', 'storage.css', 'radar.js', 'radar.css', 'script-format.js', 'writing.css', 'preferences.js', 'preferences.css', 'hub-teleprompter.js', 'teleprompter.html', 'teleprompter.js', 'radar-trends.js', 'storyboard.js', 'storyboard.css'].includes(rel)) return false;
   try {
     const data = await fsp.readFile(path.join(PUBLIC_DIR, rel));
     const type = rel.endsWith('.js') ? 'text/javascript; charset=utf-8' : rel.endsWith('.css') ? 'text/css; charset=utf-8' : 'text/html; charset=utf-8';

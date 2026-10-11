@@ -4,6 +4,7 @@ window.HubScriptFormat=(()=>{
   function inline(value){
     return escape(value).replace(/\*\*([^*\n]+)\*\*/g,'<strong>$1</strong>').replace(/__([^_\n]+)__/g,'<strong>$1</strong>').replace(/(?<!\*)\*([^*\n]+)\*(?!\*)/g,'<em>$1</em>');
   }
+  function tableInline(value){return String(value).split(/<br\s*\/?>/gi).map(inline).join('<br>');}
   function cells(line){
     return line.trim().replace(/^\|/,'').replace(/(?<!\\)\|$/,'').split(/(?<!\\)\|/).map(c=>c.trim().replace(/\\\|/g,'|'));
   }
@@ -18,7 +19,7 @@ window.HubScriptFormat=(()=>{
       const header=cells(line),separator=i+1<lines.length?cells(lines[i+1]):[];
       if(header.length>1&&separator.length===header.length&&separator.every(c=>/^:?-{3,}:?$/.test(c))){
         flushParagraph();flushList();let rows='';i++;
-        while(i+1<lines.length&&lines[i+1].includes('|')){const row=cells(lines[i+1]);if(row.length!==header.length)break;i++;rows+='<tr>'+row.map(c=>'<td>'+inline(c)+'</td>').join('')+'</tr>';}
+        while(i+1<lines.length&&lines[i+1].includes('|')){const row=cells(lines[i+1]);if(row.length!==header.length)break;i++;rows+='<tr>'+row.map(c=>'<td>'+tableInline(c)+'</td>').join('')+'</tr>';}
         out.push('<table><thead><tr>'+header.map(c=>'<th>'+inline(c)+'</th>').join('')+'</tr></thead><tbody>'+rows+'</tbody></table>');continue;
       }
       const heading=trim.match(/^#{1,6}\s+(.+?)\s*#*$/),standalone=trim.match(/^\*\*([^*]+)\*\*$/);
