@@ -1,7 +1,8 @@
 import sanitizeHtml from 'sanitize-html';
 import { parseDocument } from 'htmlparser2';
 
-export const RICH_FIELDS = ['brief','hook','script','cta','productionNotes'];
+export const RICH_FIELDS = ['brief','hook','script','cta','productionNotes','description'];
+const color = /^(?:#[\da-f]{3}(?:[\da-f]{3})?|rgb\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*\)|rgba\(\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*\d{1,3}\s*,\s*(?:0(?:\.\d+)?|1(?:\.0+)?)\s*\))$/i;
 const blocks = new Set(['p','div','li','blockquote','h2','h3']);
 const fail = message => Object.assign(new Error(message), {status:400});
 export function safeLink(value) {
@@ -11,11 +12,13 @@ export function cleanRichHtml(value) {
   if (typeof value !== 'string') throw fail('Format teks tidak valid');
   return sanitizeHtml(value, {
     allowedTags:['p','div','br','b','strong','i','em','u','s','strike','ul','ol','li','blockquote','h2','h3','font','span','a','table','thead','tbody','tr','th','td'],
-    allowedAttributes:{a:['href','target','rel'],font:['size']},
+    allowedAttributes:{'*':['style'],a:['href','target','rel'],font:['size','color'],td:['colspan','rowspan'],th:['colspan','rowspan']},
+    allowedStyles:{'*':{color:[color],'background-color':[color]}},
     allowedSchemes:['https','http','mailto'], allowProtocolRelative:false,
     transformTags:{
       a:(_tag,attrs)=>({tagName:'a',attribs:safeLink(attrs.href)?{href:safeLink(attrs.href),target:'_blank',rel:'noopener noreferrer'}:{}}),
-      font:(_tag,attrs)=>({tagName:'font',attribs:/^[1-7]$/.test(attrs.size)?{size:attrs.size}:{}})
+      font:(_tag,attrs)=>({tagName:'font',attribs:{...(/^[1-7]$/.test(attrs.size)?{size:attrs.size}:{}),...(color.test(attrs.color||'')?{color:attrs.color}:{}),...(attrs.style?{style:attrs.style}:{})}}),
+      ...Object.fromEntries(['td','th'].map(tag=>[tag,(_tag,attrs)=>({tagName:tag,attribs:{...(attrs.style?{style:attrs.style}:{}),...Object.fromEntries(['colspan','rowspan'].filter(k=>/^\d+$/.test(attrs[k]||'')&&Number(attrs[k])>0&&Number(attrs[k])<=100).map(k=>[k,attrs[k]]))}})]))
     }
   });
 }

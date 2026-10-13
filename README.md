@@ -1,6 +1,14 @@
-# YouTube Content Hub v4.35.3
+# YouTube Content Hub v4.36.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
+
+## Storyboard editor teks (4.36.0)
+
+Tab Storyboard menggunakan satu editor dokumen untuk teks, tabel dan catatan produksi. Toolbar di atas editor menyediakan warna teks, sorotan serta warna sel/kolom/baris/tabel: klik sel tabel, pilih cakupan, lalu pilih **Isi tabel**. Tombol **Tabel** menyisipkan tabel enam kolom dan **＋ Baris** menambah baris setelah baris aktif. Tabel lama dan catatan tetap utuh. Script tetap menjadi bahan Teleprompter.
+
+Brief, Script, Note dan Deskripsi YouTube memakai toolbar bersama. Pada ponsel toolbar digeser horizontal; area baca tidak dipenuhi baris tombol. Warna dibatasi pada nilai CSS aman dan ikut autosave, riwayat, duplikasi serta buka ulang. Urungkan/Ulangi memiliki riwayat terpisah per editor, direset saat konten diganti. Deskripsi dikirim ke YouTube sebagai teks biasa.
+
+Bagian versi sebelumnya di bawah menjelaskan riwayat perubahan; editor dokumen menggantikan grid sel versi 4.35.x.
 
 ## Tampilan dan navigasi
 
@@ -386,4 +394,4 @@ Transfer dan penutupan memeriksa origin, window iframe dan token sesi; naskah ha
 
 ### Impor Storyboard
 
-Buka detail konten → Storyboard → Impor → Pilih file → Masukkan shot. File CSV, TSV, Markdown dan TXT dibaca otomatis tanpa konversi atau AI. Tabel yang disalin dari ChatGPT, Excel atau Google Sheets juga dapat ditempel langsung. Jumlah shot dan narasi pertama ditampilkan sebelum impor. Shot lama dipertahankan kecuali pilihan **Ganti storyboard yang ada** dicentang; gunakan **Urungkan** untuk membatalkan. Script dan catatan produksi dipertahankan.
+Buka detail konten → Storyboard → Impor → Pilih file → Masukkan shot. File CSV, TSV, Markdown dan TXT dibaca otomatis tanpa konversi atau AI. Tabel yang disalin dari ChatGPT, Excel atau Google Sheets juga dapat ditempel langsung. Jumlah shot dan narasi pertama ditampilkan sebelum impor. Shot lama dipertahankan kecuali pilihan **Ganti tabel storyboard** dicentang; gunakan **Ctrl+Z** atau tombol **Urungkan** pada toolbar untuk membatalkan. Script dan catatan produksi dipertahankan.

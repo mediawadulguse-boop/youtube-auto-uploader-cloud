@@ -3,7 +3,7 @@ const FORMAT_NAMES = { shorts:'Short', long:'Long', live:'Live', other:'Lainnya'
 const CHECK_NAMES = { script:'Script selesai', video:'Video final siap', thumbnail:'Thumbnail siap', review:'Review selesai' };
 const hub = { view:'dashboard', data:{contents:[],pillars:[]}, date:new Date(), mode:innerWidth<620?'agenda':'month', calendarField:'publish', editing:null, loading:false, loaded:false, timer:null, boardFilters:false, composer:null, columnMenu:null, boardSignature:null, moveCard:null, dragging:false };
 const hubForm = $('#contentForm');
-const richContentFields=['brief','script','productionNotes'];
+const richContentFields=['brief','script','productionNotes','description'];
 for(const key of richContentFields)HubRichText.attach(hubForm.elements.namedItem(key));
 const storyboardEditor=HubStoryboard.attach(formValue('productionNotes'),$('#storyboardSheet'),{notify:toast,changed:markDirty});
 const wibParts = value => Object.fromEntries(new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Jakarta',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).formatToParts(new Date(value)).map(p=>[p.type,p.value]));

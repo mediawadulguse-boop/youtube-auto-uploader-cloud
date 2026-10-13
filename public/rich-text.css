@@ -16,3 +16,13 @@
 @media(max-width:600px){.rich-toolbar{gap:3px;padding:6px}.rich-toolbar button{min-height:40px;min-width:38px}.rich-input{padding:12px;max-height:55vh}.rich-toolbar select.rich-size{min-height:40px}.rich-hint{font-size:11px}}
 
 .rich-source{display:none!important}.rich-field{margin-bottom:16px}.rich-field>label{display:block;margin-bottom:0}
+
+/* One shared toolbar above the document; remains reachable while writing. */
+.rich-editor{overflow:visible}.rich-toolbar{position:sticky;top:0;z-index:3;border-radius:12px 12px 0 0;align-items:center}
+.rich-toolbar .rich-color-control{display:inline-flex!important;align-items:center;gap:5px;margin:0!important;font-size:11px;font-weight:500;color:#526178;white-space:nowrap;flex:none}
+.rich-toolbar .rich-color-control input[type=color]{display:block;width:30px!important;height:30px!important;min-height:30px!important;padding:2px!important;margin:0!important;border:1px solid #cbd5e1;cursor:pointer;background:#fff;border-radius:4px}
+.rich-toolbar select.rich-table-scope{width:76px!important;margin:0!important;padding:5px;min-height:34px;font-size:12px;flex:none}
+.rich-toolbar button,.rich-toolbar select{flex:none}
+@media(max-width:600px){.rich-toolbar{flex-wrap:nowrap;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:thin}.rich-toolbar .rich-color-control input[type=color]{height:34px!important;min-height:34px!important}.rich-toolbar select.rich-table-scope{min-height:40px}}
+
+.rich-mobile-hint{display:none}@media(max-width:600px){.rich-mobile-hint{display:inline}}

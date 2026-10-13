@@ -38,3 +38,15 @@ test('content rich fields preserve history, restore legacy text, duplicate and r
  await assert.rejects(store.update(c.id,{revision:5,richText:{script:false}}),e=>e.status===400);
  c=await store.update(c.id,{revision:5,richText:{hook:'x'.repeat(5001)}});assert.equal(c.hook,'x'.repeat(5001));
 });
+
+test('text and table colors survive sanitization while executable CSS and layout styles are removed',()=>{
+ const html=cleanRichHtml('<p style="color:#d71978;background-color:rgb(255, 242, 168);position:fixed;background-image:url(https://evil.test)">Narasi utuh</p><table><tr><th style="background-color:#e4edff" colspan="2">Kolom</th></tr><tr><td style="background-color:rgba(12, 34, 56, 0.5);color:#123">Isi</td><td style="color:expression(alert(1));background-color:url(x)" rowspan="9999">Data</td></tr></table><font color="#a4ff46" size="5">Teks</font>');
+ assert.match(html,/color:#d71978/);assert.match(html,/background-color:rgb\(255, 242, 168\)/);assert.match(html,/background-color:#e4edff/);assert.match(html,/colspan="2"/);assert.match(html,/color="#a4ff46"/);assert.doesNotMatch(html,/position|url\(|expression|9999|evil/);
+ assert.equal(richPlainText(html),'Narasi utuh\nKolom\nIsi\tData\nTeks');
+});
+test('colored storyboard and publication description persist through restart, history and duplication',async t=>{
+ const dir=await fs.mkdtemp(path.join(os.tmpdir(),'rich-color-'));t.after(()=>fs.rm(dir,{recursive:true,force:true}));const file=path.join(dir,'contents.json'),store=new ContentStore(file),script='VO asli\nTidak berubah.',board='<p>Catatan lama</p><table><tr><td style="background-color:#e4edff"><span style="color:#d71978">Narasi lengkap</span></td></tr></table>',description='<p style="color:#172b4d">Deskripsi YouTube</p>';
+ let c=await store.create({title:'Storyboard editor',script,richText:{productionNotes:board,description}});assert.equal(c.description,'Deskripsi YouTube');assert.equal(c.script,script);assert.equal(c.richText.productionNotes,board);
+ c=await store.update(c.id,{revision:c.revision,richText:{...c.richText,productionNotes:board.replace('#e4edff','#fff2a8')}});assert.equal(c.history[0].richText.productionNotes,board);const restarted=new ContentStore(file),copy=await restarted.duplicate(c.id);assert.deepEqual(copy.richText,c.richText);assert.equal(copy.script,script);
+ c=await restarted.update(c.id,{revision:c.revision,restoreRevision:1});assert.equal(c.richText.productionNotes,board);assert.equal(c.richText.description,description);
+});
