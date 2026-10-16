@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { richField, RICH_FIELDS } from './rich-text.mjs';
 import {fillContentWithEngine,CONTENT_ENGINE_VERSION} from './content-engine.mjs';
 import {publicationFromVideo} from './youtube-publication.mjs';
+import {detectPublicationLink} from './public/publication-links.mjs';
 
 export const CONTENT_STAGES = ['idea', 'script', 'production', 'editing', 'review', 'ready'];
 export const COLUMN_ICONS = ['bulb','pen','camera','scissors','eye','check','cloud','clock','upload','calendar','play','alert'];
@@ -37,7 +38,7 @@ const defaults = () => ({
   ]
 });
 const blank = () => ({
-  youtubeVideoId:'', youtubePublication:null, title: 'Konten baru', stage: 'idea', pillarId: '', format: 'shorts', priority: 'normal', owner: '',
+  youtubeVideoId:'', youtubePublication:null, publicationLinks:[], title: 'Konten baru', stage: 'idea', pillarId: '', format: 'shorts', priority: 'normal', owner: '',
   deadline: null, plannedPublishAt: null, brief: '', audience: '', hook: '', script: '', cta: '',
   productionNotes: '', richText: {}, description: '', tags: '', sources: [], assets: [], archived: false,
   checklist: { script: false, video: false, thumbnail: false, review: false }
@@ -55,6 +56,18 @@ function normalize(input, db, base = blank()) {
     out[key]=rich.text;if(rich.html)out.richText[key]=rich.html;
   }
   if('youtubeVideoId' in input){if(typeof input.youtubeVideoId!=='string'||(input.youtubeVideoId&&!/^[A-Za-z0-9_-]{11}$/.test(input.youtubeVideoId)))throw fail('ID video tidak valid');out.youtubeVideoId=input.youtubeVideoId;}
+  if(Object.hasOwn(input,'publicationLinks')){
+    if(!Array.isArray(input.publicationLinks))throw fail('Daftar link publikasi tidak valid.');
+    const ids=new Set(),urls=new Set();
+    out.publicationLinks=input.publicationLinks.map(item=>{
+      if(!item||typeof item!=='object'||Array.isArray(item))throw fail('Link publikasi tidak valid.');
+      let detected;try{detected=detectPublicationLink(item.url);}catch(error){throw fail(error.message);}
+      if(urls.has(detected.url))throw fail('Link publikasi yang sama sudah ditambahkan.');urls.add(detected.url);
+      const id=typeof item.id==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(item.id)?item.id:crypto.randomUUID();
+      if(ids.has(id))throw fail('Identitas link publikasi tidak boleh sama.');ids.add(id);
+      return {id,...detected};
+    });
+  }
   out.title = out.title.trim();
   if (!out.title) throw fail('Judul konten wajib diisi');
   for (const [key, options] of Object.entries({stage: db.columns.map(c=>c.id), format: ['shorts','long','live','other'], priority: ['low','normal','high']})) {
@@ -213,7 +226,7 @@ export class ContentStore {
       const item = db.contents.find(c => c.id === id);
       if (!item) throw fail('Konten tidak ditemukan', 404);
       const now = new Date().toISOString();
-      const copy = { ...snapshot(item), youtubeVideoId:'', youtubePublication:null, id: crypto.randomUUID(), title: (item.title + ' (salinan)'), stage: db.columns[0].id, archived: false, plannedPublishAt: null, deadline: null, checklist: blank().checklist, revision: 1, createdAt: now, updatedAt: now, history: [] };
+      const copy = { ...snapshot(item), youtubeVideoId:'', youtubePublication:null, publicationLinks:[], id: crypto.randomUUID(), title: (item.title + ' (salinan)'), stage: db.columns[0].id, archived: false, plannedPublishAt: null, deadline: null, checklist: blank().checklist, revision: 1, createdAt: now, updatedAt: now, history: [] };
       db.contents.unshift(copy); return copy;
     });
   }

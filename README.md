@@ -1,6 +1,12 @@
-# YouTube Content Hub v4.36.0
+# YouTube Content Hub v4.37.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
+
+## Publikasi platform lain (4.37.0)
+
+Buka **detail konten → Publikasi**, tempel link Facebook/TikTok/Instagram, lalu pilih **Tambahkan**. Platform dikenali otomatis dari domain; link pendek Facebook/TikTok dan versi mobile juga dikenali. Beberapa link dapat dicatat pada satu konten, dibuka, diedit atau dihapus. Input yang belum ditambahkan tidak memicu autosave. Link yang sama dengan parameter pelacakan berbeda dicegah agar tidak tercatat dua kali.
+
+Data `publicationLinks` disimpan bersama konten menggunakan revisi, autosave, draft lokal serta riwayat. Duplikasi konten mengosongkan tautan publikasi lama. Platform ditentukan ulang di server, tanpa mengambil URL atau memanggil AI/API sosial. Link merupakan catatan publikasi manual; visibilitas postingan pada platform lain belum diverifikasi melalui API. Sinkronisasi status YouTube tetap menggunakan alur yang sudah tersedia.
 
 ## Storyboard editor teks (4.36.0)
 

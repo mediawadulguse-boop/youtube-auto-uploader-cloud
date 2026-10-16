@@ -1,0 +1,19 @@
+import {detectPublicationLink,PUBLICATION_PLATFORMS} from './publication-links.mjs';
+const root=document.querySelector('#otherPublications'),input=document.querySelector('#publicationLinkInput'),status=document.querySelector('#publicationLinkDetection'),button=document.querySelector('#addPublicationLink'),cancel=document.querySelector('#cancelPublicationLink'),list=document.querySelector('#publicationLinkList');
+let editingId=null;
+function detect(){button.disabled=true;status.className='publication-link-detection';if(!input.value.trim()){status.textContent='Facebook, TikTok dan Instagram dikenali otomatis.';return null;}try{const result=detectPublicationLink(input.value);status.textContent=PUBLICATION_PLATFORMS[result.platform]+' terdeteksi';status.classList.add('platform-'+result.platform);button.disabled=false;return result;}catch(error){status.textContent=error.message;status.classList.add('invalid');return null;}}
+function reset(){editingId=null;input.value='';button.textContent='Tambahkan';cancel.hidden=true;detect();}
+function render(){list.replaceChildren();const links=hub.editing?.content.publicationLinks||[];if(!links.length){const empty=document.createElement('p');empty.className='hint publication-links-empty';empty.textContent='Belum ada link publikasi platform lain.';list.append(empty);return;}
+ for(const item of links){let detected;try{detected=detectPublicationLink(item.url);}catch{continue;}
+  const row=document.createElement('div');row.className='publication-link-row';const badge=document.createElement('span');badge.className='publication-platform platform-'+detected.platform;badge.textContent=PUBLICATION_PLATFORMS[detected.platform];
+  const anchor=document.createElement('a');anchor.href=detected.url;anchor.textContent=detected.url;anchor.title=detected.url;anchor.target='_blank';anchor.rel='noopener noreferrer';anchor.className='publication-link-url';
+  const actions=document.createElement('div');actions.className='publication-link-actions';
+  for(const [action,label] of [['edit','Edit'],['remove','Hapus']]){const control=document.createElement('button');control.type='button';control.className='btn mini'+(action==='remove'?' danger':'');control.textContent=label;control.setAttribute('aria-label',label+' link '+PUBLICATION_PLATFORMS[detected.platform]);control.onclick=()=>{if(!hub.editing)return;if(action==='edit'){editingId=item.id;input.value=item.url;button.textContent='Simpan link';cancel.hidden=false;detect();input.focus();}else{hub.editing.content.publicationLinks=(hub.editing.content.publicationLinks||[]).filter(link=>link.id!==item.id);if(editingId===item.id)reset();render();markDirty();}};actions.append(control);}
+  row.append(badge,anchor,actions);list.append(row);
+ }
+}
+function apply(){if(!hub.editing)return;const detected=detect();if(!detected)return;const links=hub.editing.content.publicationLinks||[],duplicate=links.find(link=>link.id!==editingId&&detectPublicationLink(link.url).url===detected.url);if(duplicate){status.textContent='Link ini sudah ditambahkan.';status.classList.add('invalid');return;}
+ const next={id:editingId||crypto.randomUUID(),...detected};hub.editing.content.publicationLinks=editingId?links.map(link=>link.id===editingId?next:link):[...links,next];reset();render();markDirty();toast('Link '+PUBLICATION_PLATFORMS[detected.platform]+' ditambahkan ke publikasi.');
+}
+root.addEventListener('input',event=>event.stopPropagation());root.addEventListener('change',event=>event.stopPropagation());input.addEventListener('input',detect);input.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();apply();}if(event.key==='Escape'&&editingId){event.preventDefault();event.stopPropagation();reset();}});button.onclick=apply;cancel.onclick=reset;
+window.HubPublicationLinksUI={load(){reset();render();}};if(hub.editing)window.HubPublicationLinksUI.load();else detect();
