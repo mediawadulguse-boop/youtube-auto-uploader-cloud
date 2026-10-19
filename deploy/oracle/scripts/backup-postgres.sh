@@ -10,6 +10,6 @@ trap 'rm -f "$tmp"' EXIT
 docker compose exec -T db sh -c 'exec pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --format=custom --no-owner --no-acl' > "$tmp"
 docker compose exec -T db pg_restore --list < "$tmp" >/dev/null
 mv "$tmp" "$DEST/$name"
-sha256sum "$DEST/$name" > "$DEST/$name.sha256"
-echo "Verified local dump: $DEST/$name"
+ (cd "$DEST" && sha256sum "$name" > "$name.sha256")
+echo "Archive index checked (restore drill still required): $DEST/$name"
 echo "Copy an ENCRYPTED copy off the VM and compare SHA256; no old backups were deleted."

@@ -25,7 +25,9 @@ railway volume files --volume a250a168-efc0-4249-8b80-d546d1f6bce2 list /
 railway volume files --volume a250a168-efc0-4249-8b80-d546d1f6bce2 download / .\railway-data --concurrency 8
 ~~~
 
-Simpan berkas terenkripsi, periksa jumlah file, ukuran dan SHA-256. Jangan unggah ke GitHub publik.
+Simpan berkas terenkripsi, periksa jumlah file, ukuran dan SHA-256. Jangan unggah ke GitHub publik. Sebelum recovery, ambil juga salinan fisik seluruh volume PostgreSQL ketika proses server benar-benar berhenti. Salinan tersebut adalah tambahan penyelamatan; backup logis dan uji restore tetap wajib.
+
+Status eksekusi terbaru dan hambatan akses: [MIGRATION-STATUS.md](MIGRATION-STATUS.md).
 
 5. Setelah PostgreSQL sehat, Terminal A:
 
@@ -42,6 +44,10 @@ Get-FileHash .\youtubehub-full.dump -Algorithm SHA256
 ~~~
 
 Gunakan prompt password, jangan ketik di chat. Catat jumlah app_documents, app_backups, checksum dan file /data. Jika DB belum dapat hidup, rencanakan salinan fisik offline yang konsisten; jangan copy PGDATA saat database menulis.
+
+Hentikan seluruh writer dari sebelum inventori database sumber sampai backup final selesai. Jalankan `scripts/database-manifest.sql` dengan `psql -Xq -v ON_ERROR_STOP=1 -f` ke berkas CSV pada sumber dan target sebelum aplikasi dimulai, lalu bandingkan dengan `cmp`. SQL hanya membaca; mencakup setiap baris app_documents, app_backups, dan app_migrations, termasuk revision dan isi JSONB. Manifest MD5 ini untuk pembandingan isi, bukan pengganti SHA-256 arsip.
+
+Gunakan `python3 scripts/data-manifest.py create DATA_ROOT MANIFEST_JSON` pada /data sumber yang tidak sedang ditulis. Simpan manifest di luar DATA_ROOT. Sesudah restore, jalankan `verify` dengan manifest yang sama. File tersembunyi, direktori kosong, symlink dan SHA-256 setiap file turut diperiksa. Hash dari hasil download saja belum membuktikan kesamaan dengan sumber; inventori sumber wajib tersedia.
 
 ## 2. Oracle Cloud Always Free (akun dan login pengguna diperlukan)
 
@@ -83,7 +89,7 @@ docker compose --env-file .env up -d db
 bash scripts/restore-postgres.sh /tmp/youtubehub-full.dump
 ~~~
 
-Script restore hanya menerima database kosong dan memakai satu transaksi. Jangan aktifkan aplikasi lama dan baru secara bersamaan pada saat cutover.
+Script restore hanya menerima database kosong dan memakai satu transaksi. `pg_restore --list` hanya memeriksa indeks arsip; keberhasilan restore dan perbandingan manifest tetap wajib. Jangan aktifkan aplikasi lama dan baru secara bersamaan pada saat cutover.
 
 Bandingkan empat key PostgreSQL: uploads, contents, notes, analytics; juga revision, jumlah job, naskah, kolom, kategori, storyboard, video dan hash file /data. Verifikasi OAuth callback baru pada Google Cloud Console: https://YOUR_DOMAIN/auth/google/callback.
 
@@ -103,7 +109,9 @@ cd /opt/youtube-auto-uploader-cloud/deploy/oracle
 bash scripts/backup-postgres.sh
 ~~~
 
-Wajib membuat salinan terenkripsi di luar Oracle untuk database dan /data. Uji pemulihan berkala. Script tidak menghapus backup historis otomatis.
+Untuk bundel konsisten database DAN seluruh /data setelah migrasi, hentikan app dan writer lain, buat direktori `/srv/youtube-hub/backups`, lalu jalankan `bash scripts/backup-bundle.sh`. Skrip menolak app yang berjalan, memeriksa inventori database sebelum/sesudah dump, menguji ekstraksi /data dan seluruh hash, tanpa menghapus backup historis. Tetap uji restore PostgreSQL ke database kosong secara terpisah dan simpan konfigurasi rahasia secara terenkripsi.
+
+Wajib membuat salinan terenkripsi di luar Oracle untuk database dan /data. Uji pemulihan berkala. Script tidak menghapus backup historis otomatis. Setelah target menerima perubahan, rollback harus menyelamatkan perubahan target dan menyalinkannya kembali; jangan mengaktifkan database Railway yang sudah tertinggal begitu saja.
 
 Sumber:
 - https://docs.railway.com/cli/volume
