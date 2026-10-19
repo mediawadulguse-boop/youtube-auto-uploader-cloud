@@ -8,7 +8,7 @@ Migrasi BELUM selesai. File konfigurasi bukan backup pengguna.
 - PostgreSQL memiliki volume 500 MB; start command live menjalankan inspeksi disk dan `sleep 300`, bukan server PostgreSQL. Status deployment SUCCESS bukan bukti koneksi database sehat.
 - Perubahan start command tertunda mencakup penghapusan file cache dan VACUUM. Perubahan tersebut TIDAK diterapkan.
 - Volume /data masih terpasang pada aplikasi. Belum diekspor; belum ada checksum data produksi maupun uji restore data produksi.
-- Connector Railway hanya mengembalikan nama variabel, tanpa APP_SECRET atau kredensial database. CLI belum tersedia: pengunduhan binary resmi gagal pada koneksi jaringan.
+- Connector Railway hanya mengembalikan nama variabel, tanpa APP_SECRET atau kredensial database. CLI Railway 5.70.0 berhasil diunduh dan dipasang pada percobaan lanjutan. Login browserless sudah dimulai, tetapi masih memerlukan penyelesaian autentikasi pengguna; `whoami` dan daftar file volume masih Unauthorized. Belum ada data produksi diekspor.
 - Dashboard Railway bisa diakses. Pengaturan volume akun saat pemeriksaan hanya menunjukkan kapasitas 500 MB, tanpa kontrol resize atau ekspor.
 - Tab Backups PostgreSQL menyatakan pembuatan backup baru memerlukan Pro. Console PostgreSQL menunjukkan No running instances. Tidak ada upgrade berbayar atau perubahan paket dilakukan.
 - Konsol Oracle cloud.oracle.com menampilkan Site Unavailable, termasuk setelah satu reload. Belum ada OCI config atau VM Oracle yang dapat diakses dari sesi ini.
