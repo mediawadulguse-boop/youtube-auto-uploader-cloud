@@ -105,6 +105,22 @@ async function oldRestorePoints(storage,pool,{daily=14,manual=10,when='2026-10-0
   const bundle={...structuredClone(snapshot.bundle),createdAt:new Date(Date.parse(when)+i++*1000).toISOString()},id=crypto.randomUUID(),digest=checksum(bundle);await pool.query('INSERT INTO app_backups(id,kind,digest,bundle,created_at) VALUES($1,$2,$3,$4::jsonb,$5)',[id,kind,digest,JSON.stringify(encodeBackup(bundle)),bundle.createdAt]);await fs.writeFile(path.join(storage.backupDir,id+'.json.gz'),'old mirror');rows.push({id,kind});
  }return rows;
 }
+test('startup disk-full rollback is followed by ordinary VACUUM and one verified retention retry',()=>setup(async({dir,storage,pool})=>{
+ await storage.initialize(()=>seed(dir));await oldRestorePoints(storage,pool);await storage.mutate('contents',db=>{db.contents[0].script='Naskah terkini terlindungi';});
+ const before=await pool.query('SELECT key,data,revision FROM app_documents ORDER BY key'),events=[];let failed=false;
+ const wrapped={query:async(sql,args)=>{if(sql.startsWith('VACUUM'))events.push(sql);return pool.query(sql,args);},async connect(){const client=await pool.connect();return {...client,query:async(sql,args)=>{events.push(sql.split(' ')[0]);if(sql.startsWith('INSERT INTO app_backups')&&!failed){failed=true;throw Object.assign(Error('disk full'),{code:'53100'});}return client.query(sql,args);}};}};
+ const restarted=new PostgresStorage(wrapped,{backupDir:storage.backupDir});await restarted.initialize(()=>{throw Error('no stale reseed');});
+ assert.ok(events.indexOf('ROLLBACK')<events.indexOf('VACUUM (TRUNCATE ON) app_documents'));assert.equal(events.filter(s=>s==='VACUUM (TRUNCATE ON) app_documents').length,1);
+ assert.deepEqual(await pool.query('SELECT key,data,revision FROM app_documents ORDER BY key'),before);assert.equal((await restarted.listBackups()).length,5);
+ for(const row of await restarted.listBackups())await restarted.getBackup(row.id);
+}));
+test('persistent disk-full startup retries once and preserves all existing restore points and documents',()=>setup(async({dir,storage,pool})=>{
+ await storage.initialize(()=>seed(dir));await oldRestorePoints(storage,pool);await storage.mutate('contents',db=>{db.contents[0].script='Tidak boleh hilang';});
+ const before=await pool.query('SELECT key,data,revision FROM app_documents ORDER BY key');let inserts=0,vacuums=0;
+ const wrapped={query:async(sql,args)=>{if(sql.startsWith('VACUUM'))vacuums++;return pool.query(sql,args);},async connect(){const client=await pool.connect();return {...client,query:async(sql,args)=>{if(sql.startsWith('INSERT INTO app_backups')){inserts++;throw Object.assign(Error('disk full'),{code:'53100'});}return client.query(sql,args);}};}};
+ const restarted=new PostgresStorage(wrapped,{backupDir:storage.backupDir});await assert.rejects(restarted.initialize(()=>{throw Error('no reseed');}),{code:'53100'});
+ assert.equal(inserts,2);assert.equal(vacuums,2);assert.equal((await storage.listBackups()).length,24);assert.deepEqual(await pool.query('SELECT key,data,revision FROM app_documents ORDER BY key'),before);
+}));
 test('old 24-copy policy is reduced to 3 daily and 2 manual only after a fresh full snapshot and gzip verification',()=>setup(async({dir,storage,pool})=>{
  await storage.initialize(()=>seed(dir));await oldRestorePoints(storage,pool);await storage.mutate('contents',db=>{db.contents[0].script='Perubahan terbaru wajib terlindungi';});const before=await pool.query('SELECT key,data,revision FROM app_documents ORDER BY key');
  const point=await storage.backup('manual',{onlyIfOverLimit:true});assert.equal(point.retention.removed,20);assert.equal(point.retention.remaining,5);assert.equal(point.retention.dailyCount,3);assert.equal(point.retention.manualCount,2);assert.equal(point.mirror,'ready');assert.equal(point.warning,null);assert.equal((await storage.getBackup(point.id)).bundle.documents.contents.contents[0].script,'Perubahan terbaru wajib terlindungi');

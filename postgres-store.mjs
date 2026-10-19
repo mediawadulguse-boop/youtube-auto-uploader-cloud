@@ -58,8 +58,16 @@ export class PostgresStorage {
       await fs.writeFile(path.join(dir,'manifest.json'),JSON.stringify(manifest,null,2),{mode:0o600,flag:'wx'});
       await client.query('INSERT INTO app_migrations(id,manifest) VALUES($1,$2::jsonb)',[id,JSON.stringify(manifest)]);
     });
-    await this.backup('manual',{onlyIfOverLimit:true});
-    await this.backup('daily');
+    const startupBackups=async()=>{await this.backup('manual',{onlyIfOverLimit:true});await this.backup('daily');};
+    try{await startupBackups();}
+    catch(error){
+      if(error.code!=='53100')throw error;
+      // A failed insert is rolled back before VACUUM reclaims dead tuples.
+      // Retention still requires a verified fresh snapshot before pruning.
+      console.warn('Storage: reclaiming unused PostgreSQL space before retrying startup backup');
+      await this.maintain();
+      await startupBackups();
+    }
   }
   validate(documents) {
     if(!documents||DOCUMENT_KEYS.some(k=>!documents[k])||Object.keys(documents).some(k=>!DOCUMENT_KEYS.includes(k)))throw Error('Struktur backup tidak valid');

@@ -1,6 +1,10 @@
-# YouTube Content Hub v4.38.0
+# YouTube Content Hub v4.38.1
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
+
+## Pemulihan startup (4.38.1)
+
+Backup startup yang ditolak PostgreSQL karena disk penuh dicoba ulang satu kali sesudah VACUUM membersihkan ruang baris lama. Pemangkasan tetap menunggu snapshot terkini dan verifikasi salinan pemulihan. Lihat DATA-RECOVERY.md untuk konfigurasi pemulihan PostgreSQL.
 
 ## Backup hemat (4.38.0)
 

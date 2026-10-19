@@ -1,4 +1,4 @@
-# Penyimpanan dan pemulihan v4.38.0
+# Penyimpanan dan pemulihan v4.38.1
 
 `DATABASE_URL` mengaktifkan PostgreSQL. Empat model versioned (upload, produksi,
 Note/kategori, Analytics per channel) disimpan sebagai JSONB dengan row lock dan
@@ -55,3 +55,23 @@ Penghapusan baris backup selesai dahulu sebelum mirror lama dibersihkan. Pengunc
 Backup otomatis dengan data identik memakai snapshot valid yang ada walau tanggal berubah. Metadata tanda terima backup yang terus diperbarui tidak dianggap perubahan isi; perubahan folder akun Drive tetap diperhitungkan. Pemakaian ulang file Drive memerlukan verifikasi ulang ukuran, checksum dan folder. Backup manual tetap tersedia, dan riwayat Drive tidak dihapus.
 
 Penghapusan backup tidak menjamin ukuran fisik database langsung turun; PostgreSQL dapat memakai ulang ruang yang telah dibersihkan.
+
+## Startup pada volume PostgreSQL hampir penuh
+
+Jika pembuatan snapshot startup gagal dengan kode PostgreSQL `53100`, transaksi
+dibatalkan terlebih dahulu. Aplikasi menjalankan VACUUM biasa untuk `app_documents`
+dan `app_backups`, kemudian mencoba lagi satu kali. Ini membersihkan baris mati dan
+ruang kosong di ujung tabel, bukan menghapus data aktif. Jika ruang tetap tidak cukup,
+startup tetap gagal tanpa beralih ke database kosong atau memangkas backup tanpa
+verifikasi. VACUUM FULL tidak dijalankan.
+
+Jika PostgreSQL sendiri gagal memulai karena alokasi WAL 16 MB, pengaturan server
+`wal_init_zero=off` dapat membantu pemulihan saat masih tersedia sedikit ruang.
+Pengaturan ini membuat file WAL baru tanpa mengalokasikan seluruh isinya di muka;
+ini tidak menambah kapasitas volume. Gunakan argumen startup PostgreSQL
+`-c wal_init_zero=off`, dengan mempertahankan argumen server lainnya. Pengaturan
+ini tidak menonaktifkan WAL, fsync, maupun full_page_writes. Setelah database
+kembali menerima koneksi, periksa backup, ruang aktual volume dan log aplikasi.
+Jangan menghapus atau mengosongkan file WAL maupun file tabel secara manual.
+
+Referensi: https://www.postgresql.org/docs/18/runtime-config-wal.html#GUC-WAL-INIT-ZERO
