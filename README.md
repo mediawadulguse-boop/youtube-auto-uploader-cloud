@@ -4,7 +4,7 @@ Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script seb
 
 ## Pemulihan startup (4.38.1)
 
-Backup startup yang ditolak PostgreSQL karena disk penuh dicoba ulang satu kali sesudah VACUUM membersihkan ruang baris lama. Pemangkasan tetap menunggu snapshot terkini dan verifikasi salinan pemulihan. Lihat DATA-RECOVERY.md untuk konfigurasi pemulihan PostgreSQL.
+Saat estimasi kapasitas kritis, VACUUM membersihkan ruang baris lama sebelum membuat snapshot. Backup startup yang ditolak PostgreSQL karena disk penuh dicoba ulang satu kali sesudah VACUUM membersihkan ruang baris lama. Pemangkasan tetap menunggu snapshot terkini dan verifikasi salinan pemulihan. Lihat DATA-RECOVERY.md untuk konfigurasi pemulihan PostgreSQL.
 
 ## Backup hemat (4.38.0)
 

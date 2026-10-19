@@ -58,6 +58,8 @@ Penghapusan backup tidak menjamin ukuran fisik database langsung turun; PostgreS
 
 ## Startup pada volume PostgreSQL hampir penuh
 
+Pada estimasi kapasitas kritis (90% atau lebih), VACUUM biasa dijalankan sebelum
+mencoba membuat snapshot baru agar penulisan gagal tidak menghabiskan sisa ruang WAL.
 Jika pembuatan snapshot startup gagal dengan kode PostgreSQL `53100`, transaksi
 dibatalkan terlebih dahulu. Aplikasi menjalankan VACUUM biasa untuk `app_documents`
 dan `app_backups`, kemudian mencoba lagi satu kali. Ini membersihkan baris mati dan

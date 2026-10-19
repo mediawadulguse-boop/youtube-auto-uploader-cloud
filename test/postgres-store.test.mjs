@@ -105,6 +105,13 @@ async function oldRestorePoints(storage,pool,{daily=14,manual=10,when='2026-10-0
   const bundle={...structuredClone(snapshot.bundle),createdAt:new Date(Date.parse(when)+i++*1000).toISOString()},id=crypto.randomUUID(),digest=checksum(bundle);await pool.query('INSERT INTO app_backups(id,kind,digest,bundle,created_at) VALUES($1,$2,$3,$4::jsonb,$5)',[id,kind,digest,JSON.stringify(encodeBackup(bundle)),bundle.createdAt]);await fs.writeFile(path.join(storage.backupDir,id+'.json.gz'),'old mirror');rows.push({id,kind});
  }return rows;
 }
+test('critical startup reclaims dead rows before attempting a new snapshot without changing active documents',()=>setup(async({dir,storage,pool})=>{
+ await storage.initialize(()=>seed(dir));await oldRestorePoints(storage,pool);await storage.mutate('contents',db=>{db.contents[0].script='Data terbaru';});
+ const before=await pool.query('SELECT key,data,revision FROM app_documents ORDER BY key'),events=[];
+ const wrapped={query:async(sql,args)=>{if(sql.startsWith('VACUUM'))events.push('vacuum');return pool.query(sql,args);},async connect(){const client=await pool.connect();return {...client,query:async(sql,args)=>{if(sql.startsWith('INSERT INTO app_backups'))events.push('insert');return client.query(sql,args);}};}};
+ const restarted=new PostgresStorage(wrapped,{backupDir:storage.backupDir});restarted.capacity=async()=>({level:'critical'});
+ await restarted.initialize(()=>{throw Error('no reseed');});assert.deepEqual(events.slice(0,3),['vacuum','vacuum','insert']);assert.equal((await storage.listBackups()).length,5);assert.deepEqual(await pool.query('SELECT key,data,revision FROM app_documents ORDER BY key'),before);
+}));
 test('startup disk-full rollback is followed by ordinary VACUUM and one verified retention retry',()=>setup(async({dir,storage,pool})=>{
  await storage.initialize(()=>seed(dir));await oldRestorePoints(storage,pool);await storage.mutate('contents',db=>{db.contents[0].script='Naskah terkini terlindungi';});
  const before=await pool.query('SELECT key,data,revision FROM app_documents ORDER BY key'),events=[];let failed=false;

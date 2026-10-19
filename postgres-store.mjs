@@ -58,6 +58,9 @@ export class PostgresStorage {
       await fs.writeFile(path.join(dir,'manifest.json'),JSON.stringify(manifest,null,2),{mode:0o600,flag:'wx'});
       await client.query('INSERT INTO app_migrations(id,manifest) VALUES($1,$2::jsonb)',[id,JSON.stringify(manifest)]);
     });
+    // Reclaim dead rows before allocating a new snapshot when headroom is critical.
+    // A disk-full insert can otherwise exhaust WAL space before its rollback.
+    if((await this.capacity(true)).level==='critical')await this.maintain();
     const startupBackups=async()=>{await this.backup('manual',{onlyIfOverLimit:true});await this.backup('daily');};
     try{await startupBackups();}
     catch(error){
