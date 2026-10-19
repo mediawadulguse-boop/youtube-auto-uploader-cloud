@@ -28,3 +28,22 @@ Migrasi BELUM selesai. File konfigurasi bukan backup pengguna.
 - Login, dekripsi token OAuth, konten/naskah/storyboard, Note, analytics dan file video diuji.
 - Sumber berhenti menulis selama backup final sampai pengalihan. Aplikasi target mulai dengan worker mati. Audit antrean sebelum satu worker diaktifkan.
 - Railway tetap disimpan. Setelah Oracle menerima data baru, rollback memerlukan pemindahan perubahan balik; jangan menyalakan sumber lama begitu saja.
+
+## Pemeriksaan lanjutan setelah aktivasi CLI (19 Oktober, 18:55 WIB)
+
+Pengguna telah menyelesaikan langkah aktivasi. Verifikasi CLI dan proses login kemudian terhenti dengan pesan lingkungan: `Network access to https://backboard.railway.com:443 was blocked by policy`. Token pengguna belum tersimpan pada CLI, sehingga autentikasi belum dapat dinyatakan berhasil. Jangan meminta pengguna mengirim token/password atau mengulangi login sebelum akses API tersedia. Connector Railway masih dapat memeriksa konfigurasi platform, tetapi tidak mengekspor isi volume. Kedua volume tetap terpasang dan belum diekspor. Tidak ada tindakan cleanup, restore, cutover atau penghapusan produksi dilakukan.
+
+Ekspor perlu dijalankan dari lingkungan tepercaya yang mengizinkan API Railway. Perintah berikut hanya mengunduh /data; tidak menghapus atau menimpa sumber:
+
+```powershell
+railway login
+railway volume --project e897eb92-f85f-4074-8aee-e604e1f329fa --environment b1006989-38b4-4167-9f5a-b137f3f6e0bb files --volume a250a168-efc0-4249-8b80-d546d1f6bce2 download / .\railway-data --concurrency 8
+```
+
+Untuk salinan fisik PostgreSQL, pastikan server benar-benar berhenti dan tidak akan direstart selama seluruh unduhan. Perintah unduh volume (bukan backup logis atau bukti restore):
+
+```powershell
+railway volume --project e897eb92-f85f-4074-8aee-e604e1f329fa --environment b1006989-38b4-4167-9f5a-b137f3f6e0bb files --volume 74726e84-f235-4979-b29f-ac00385c1c4d download / .\railway-postgres-offline --concurrency 8
+```
+
+Jangan menggunakan folder tujuan yang sudah terisi; jangan tambahkan --overwrite. Simpan hash SHA-256 setiap file, inventori sumber dan metadata unduhan. Hash lokal saja belum memverifikasi kesamaan dengan sumber. Jangan menyalakan server pada salinan fisik sebelum data utuh, permission Linux disiapkan, versi PostgreSQL cocok dan uji restore dilakukan di salinan terpisah.
