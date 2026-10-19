@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import {gzipSync} from 'node:zlib';
-import {checksum} from './postgres-store.mjs';
+import {checksum,backupDataDigest} from './postgres-store.mjs';
 export const DRIVE_SCOPE='https://www.googleapis.com/auth/drive.file';
 const API='https://www.googleapis.com/drive/v3';
 const FIELDS='id,name,size,md5Checksum,webViewLink,parents,trashed';
@@ -18,9 +18,16 @@ export class DriveBackup {
   if(this.busy)throw Object.assign(Error('Backup Drive sedang berjalan.'),{status:409});this.busy=true;this.runVersion=this.getConnectionVersion();
   try {const token=await this.loadToken();if(!token||token.reconnectRequired)throw Object.assign(Error('Hubungkan Google Drive di Data & Backup. Pembersihan Radar ditunda sampai backup Drive terverifikasi.'),{status:409});
    const state=await this.readState();if(force&&this.now()-Date.parse(state.lastAttemptAt||'')<60000)throw Object.assign(Error('Tunggu satu menit sebelum backup Drive berikutnya.'),{status:429});
-   if(!force&&state.lastVerifiedAt&&new Date(this.now()).toISOString().slice(0,10)===state.lastVerifiedAt.slice(0,10))return {...state,skipped:true};
+   if(!force&&(state.lastCheckedAt||state.lastVerifiedAt)&&new Date(this.now()).toISOString().slice(0,10)===(state.lastCheckedAt||state.lastVerifiedAt).slice(0,10))return {...state,skipped:true};
    await this.persist({lastAttemptAt:new Date(this.now()).toISOString()});
    const {bundle,digest}=await this.snapshot();if(checksum(bundle)!==digest)throw Error('Checksum snapshot tidak cocok.');
+   const contentDigest=backupDataDigest(bundle.documents);
+   if(!force&&state.contentDigest===contentDigest&&state.fileId&&state.folderId&&state.md5Checksum){
+    const file=await this.call(API+'/files/'+encodeURIComponent(state.fileId)+'?'+new URLSearchParams({fields:FIELDS})).then(r=>r.json());
+    if(!file.trashed&&Number(file.size)===state.bytes&&file.md5Checksum===state.md5Checksum&&file.parents?.includes(state.folderId)){
+      const lastCheckedAt=new Date(this.now()).toISOString();await this.persist({lastCheckedAt,error:null});this.error=null;return {...state,lastCheckedAt,error:null,skipped:true,unchanged:true};
+    }
+   }
    const body=gzipSync(JSON.stringify({...bundle,digest})),md5=crypto.createHash('md5').update(body).digest('hex'),folderId=await this.folder(state);
    const q="trashed = false and '"+folderId+"' in parents and appProperties has { key='snapshotDigest' and value='"+digest+"' }";
    const existing=await this.call(API+'/files?'+new URLSearchParams({q,fields:'files('+FIELDS+')',pageSize:'1'})).then(r=>r.json());let file=existing.files?.[0];
@@ -32,7 +39,7 @@ export class DriveBackup {
    if(!file?.id)throw Error('File backup Drive belum tersedia.');
    const verified=await this.call(API+'/files/'+encodeURIComponent(file.id)+'?'+new URLSearchParams({fields:FIELDS})).then(r=>r.json());
    if(verified.trashed||Number(verified.size)!==body.length||verified.md5Checksum!==md5||!verified.parents?.includes(folderId))throw Error('Verifikasi ukuran/checksum backup Drive gagal. Pembersihan Radar ditunda.');
-   const receipt={folderId,fileId:verified.id,fileName:verified.name,fileUrl:'https://drive.google.com/file/d/'+encodeURIComponent(verified.id)+'/view',digest,bytes:body.length,lastVerifiedAt:new Date(this.now()).toISOString(),error:null};await this.persist(receipt);this.error=null;return receipt;
+   const receipt={folderId,fileId:verified.id,fileName:verified.name,fileUrl:'https://drive.google.com/file/d/'+encodeURIComponent(verified.id)+'/view',digest,contentDigest,md5Checksum:md5,bytes:body.length,lastCheckedAt:new Date(this.now()).toISOString(),lastVerifiedAt:new Date(this.now()).toISOString(),error:null};await this.persist(receipt);this.error=null;return receipt;
   } catch(error){if(error.code==='drive_connection_changed'){this.error=null;throw error;}this.error=error.status===429||error.status===409?error.message:error.code==='drive_unavailable'?error.message:'Backup Drive belum terverifikasi. Periksa koneksi dan coba lagi; data Radar dipertahankan.';if(error.status!==429)await this.persist({error:this.error}).catch(()=>{});throw Object.assign(Error(this.error),{status:error.status||503});}finally{this.busy=false;this.runVersion=undefined;}
  }
 }

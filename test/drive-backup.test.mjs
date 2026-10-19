@@ -21,3 +21,11 @@ test('Drive state guard also checks after waiting for a database row lock',async
  f.engine.saveState=async(patch,guard)=>{if(patch.lastVerifiedAt)version++;return save(patch,guard);};
  await assert.rejects(f.engine.run(),e=>e.code==='drive_connection_changed');assert.equal(f.state().lastVerifiedAt,undefined);
 });
+
+test('unchanged automatic Drive backups reuse a checksum-verified file across days without renewing its snapshot time',async()=>{
+ const f=fixture();let clock=Date.parse('2026-10-05T12:00:00Z');f.engine.now=()=>clock;f.engine.snapshot=async()=>{const bundle={version:1,createdAt:new Date(clock).toISOString(),documents:{notes:'private test data'}};return {bundle,digest:checksum(bundle)};};
+ const first=await f.engine.run();clock+=86400000;const next=await f.engine.run();assert.equal(next.skipped,true);assert.equal(next.unchanged,true);assert.equal(f.uploads(),1);assert.equal(f.state().lastVerifiedAt,first.lastVerifiedAt);assert.equal(f.state().lastCheckedAt,new Date(clock).toISOString());const calls=f.calls();assert.equal((await f.engine.run()).skipped,true);assert.equal(f.calls(),calls);
+});
+test('a missing previous Drive file never counts as a successful unchanged backup',async()=>{
+ const f=fixture();let clock=Date.parse('2026-10-05T12:00:00Z');f.engine.now=()=>clock;f.engine.snapshot=async()=>{const bundle={version:1,createdAt:new Date(clock).toISOString(),documents:{notes:'private test data'}};return {bundle,digest:checksum(bundle)};};const first=await f.engine.run(),request=f.engine.request;clock+=86400000;f.engine.request=(url,options)=>new URL(url).pathname.endsWith('/files/file')?Promise.resolve(new Response('{}',{status:404})):request(url,options);await assert.rejects(f.engine.run(),e=>e.status===503);assert.equal(f.state().lastVerifiedAt,first.lastVerifiedAt);assert.notEqual(f.state().lastCheckedAt,new Date(clock).toISOString());assert.equal(f.uploads(),1);
+});

@@ -5,11 +5,12 @@ import os from 'node:os';
 import path from 'node:path';
 import {gunzipSync} from 'node:zlib';
 import {PGlite} from '@electric-sql/pglite';
-import {PostgresStorage,checksum} from '../postgres-store.mjs';
+import {PostgresStorage,checksum,encodeBackup,backupDataDigest} from '../postgres-store.mjs';
 import {ContentStore} from '../content-store.mjs';
 import {syncLinkedPublications} from '../youtube-publication.mjs';
 import {NotesStore} from '../notes-store.mjs';
 import {AnalyticsStore} from '../analytics-store.mjs';
+import crypto from 'node:crypto';
 import {EventEmitter} from 'node:events';
 
 // Real PostgreSQL WASM engine; serialize its single connection like a pool.
@@ -48,7 +49,7 @@ test('migration failure rolls back all documents and preserves source files; cor
 test('backup survives restart, verifies checksum, mirrors gzip, keeps bounded restore points, and restores atomically',()=>setup(async({dir,storage})=>{
  await storage.initialize(()=>seed(dir));const backup=await storage.backup('manual'),full=await storage.getBackup(backup.id),gzip=JSON.parse(gunzipSync(await fs.readFile(path.join(dir,'backups',backup.id+'.json.gz'))));assert.equal(gzip.digest,checksum(full.bundle));assert.equal(Object.hasOwn(gzip,'tokens'),false);
  await storage.mutate('notes',db=>{db.notes=[]});await assert.rejects(storage.restore(full.bundle,'bad digest'));assert.equal((await storage.read('notes')).notes.length,0);await storage.restore(full.bundle,full.digest);assert.equal((await storage.read('notes')).notes.length,1);
- for(let i=0;i<12;i++)await storage.backup('manual');const points=await storage.listBackups();assert.equal(points.filter(p=>p.kind==='manual').length,10);assert.equal(points.filter(p=>p.kind==='daily').length,1);const today=points.find(p=>p.kind==='daily');await fs.unlink(path.join(dir,'backups',today.id+'.json.gz'));await storage.backup('daily');assert.ok(await fs.stat(path.join(dir,'backups',today.id+'.json.gz')));
+ for(let i=0;i<12;i++)await storage.backup('manual');const points=await storage.listBackups();assert.equal(points.filter(p=>p.kind==='manual').length,2);assert.equal(points.filter(p=>p.kind==='daily').length,1);const today=points.find(p=>p.kind==='daily');await fs.unlink(path.join(dir,'backups',today.id+'.json.gz'));await storage.backup('daily');assert.ok(await fs.stat(path.join(dir,'backups',today.id+'.json.gz')));
 }));
 test('concurrent daily mirrors do not collide and manual cooldown is atomic across storage clients',()=>setup(async({dir,storage,pool})=>{
  await storage.initialize(()=>seed(dir));await Promise.all([storage.backup('daily'),storage.backup('daily'),storage.backup('daily')]);
@@ -97,3 +98,31 @@ test('publication batch increments the PostgreSQL document once for multiple vid
  const saved=await store.read();let guards=0;await assert.rejects(syncLinkedPublications({store,fetcher,channelId:'owned',force:true,guard:()=>{if(++guards===2)throw Object.assign(Error('Channel berubah'),{status:409});}}),{status:409});
  assert.deepEqual(await store.read(),saved);assert.equal(Number((await pool.query("SELECT revision FROM app_documents WHERE key='contents'")).rows[0].revision),revision);
 }));
+
+async function oldRestorePoints(storage,pool,{daily=14,manual=10,when='2026-10-01T00:00:00Z'}={}){
+ const snapshot=await storage.snapshot();await pool.query('DELETE FROM app_backups');const rows=[];let i=0;
+ for(const [kind,count] of [['daily',daily],['manual',manual]])for(let n=0;n<count;n++){
+  const bundle={...structuredClone(snapshot.bundle),createdAt:new Date(Date.parse(when)+i++*1000).toISOString()},id=crypto.randomUUID(),digest=checksum(bundle);await pool.query('INSERT INTO app_backups(id,kind,digest,bundle,created_at) VALUES($1,$2,$3,$4::jsonb,$5)',[id,kind,digest,JSON.stringify(encodeBackup(bundle)),bundle.createdAt]);await fs.writeFile(path.join(storage.backupDir,id+'.json.gz'),'old mirror');rows.push({id,kind});
+ }return rows;
+}
+test('old 24-copy policy is reduced to 3 daily and 2 manual only after a fresh full snapshot and gzip verification',()=>setup(async({dir,storage,pool})=>{
+ await storage.initialize(()=>seed(dir));await oldRestorePoints(storage,pool);await storage.mutate('contents',db=>{db.contents[0].script='Perubahan terbaru wajib terlindungi';});const before=await pool.query('SELECT key,data,revision FROM app_documents ORDER BY key');
+ const point=await storage.backup('manual',{onlyIfOverLimit:true});assert.equal(point.retention.removed,20);assert.equal(point.retention.remaining,5);assert.equal(point.retention.dailyCount,3);assert.equal(point.retention.manualCount,2);assert.equal(point.mirror,'ready');assert.equal(point.warning,null);assert.equal((await storage.getBackup(point.id)).bundle.documents.contents.contents[0].script,'Perubahan terbaru wajib terlindungi');
+ const files=(await fs.readdir(storage.backupDir)).filter(n=>/^[a-f0-9-]{36}\.json\.gz$/.test(n));assert.equal(files.length,5);assert.deepEqual(await pool.query('SELECT key,data,revision FROM app_documents ORDER BY key'),before);for(const row of await storage.listBackups())await storage.getBackup(row.id);
+ const restarted=new PostgresStorage(pool,{backupDir:storage.backupDir});await restarted.initialize(()=>{throw Error('no reseed');});assert.equal((await restarted.listBackups()).length,5);assert.equal((await restarted.read('contents')).contents[0].script,'Perubahan terbaru wajib terlindungi');
+}));
+test('failed volume verification and corrupt retained snapshots defer all pruning while preserving the fresh database backup',()=>setup(async({dir,storage,pool})=>{
+ await storage.initialize(()=>seed(dir));const old=await oldRestorePoints(storage,pool),mirror=storage.writeBackupMirror.bind(storage);await storage.mutate('contents',db=>{db.contents[0].script='Perubahan terbaru';});storage.writeBackupMirror=async()=>{throw Error('disk unavailable');};const failed=await storage.backup('manual',{onlyIfOverLimit:true});assert.equal(failed.mirror,'error');assert.equal(failed.retention.removed,0);assert.equal((await storage.listBackups()).length,25);for(const row of old)await storage.getBackup(row.id);await storage.getBackup(failed.id);
+ storage.writeBackupMirror=mirror;await pool.query('UPDATE app_backups SET digest=$2 WHERE id=$1',[old.filter(r=>r.kind==='daily').at(-1).id,'bad']);const guarded=await storage.backup('manual',{onlyIfOverLimit:true});assert.equal(guarded.retention.removed,0);assert.match(guarded.warning,/verifikasi/);assert.equal((await storage.listBackups()).length,25);assert.equal(guarded.id,failed.id);await storage.getBackup(guarded.id);
+}));
+test('automatic daily backup reuses identical content across dates but a changed script creates a new restore point',()=>setup(async({dir,storage})=>{
+ let clock=Date.parse('2026-10-01T12:00:00Z');storage.now=()=>clock;await storage.initialize(()=>seed(dir));const initial=(await storage.listBackups())[0];clock+=86400000;const same=await storage.backup('daily');assert.equal(same.id,initial.id);assert.equal(same.unchanged,true);assert.equal((await storage.listBackups()).length,1);
+ await storage.mutate('contents',db=>{db.storageBackup={lastVerifiedAt:'new status',bytes:123};});clock+=86400000;assert.equal((await storage.backup('daily')).id,initial.id);
+ for(let i=0;i<5;i++){clock+=86400000;await storage.mutate('contents',db=>{db.contents[0].script='Narasi versi '+i;});const created=await storage.backup('daily');assert.equal(created.existing,false);await storage.getBackup(created.id);}assert.equal((await storage.listBackups()).length,3);
+}));
+test('new verified point stays protected when older backups have equal or future timestamps',()=>setup(async({dir,storage,pool})=>{
+ storage.now=()=>Date.parse('2026-10-02T00:00:00Z');await storage.initialize(()=>seed(dir));await oldRestorePoints(storage,pool,{daily:3,manual:4,when:'2026-10-03T00:00:00Z'});const result=await storage.backup('manual',{onlyIfOverLimit:true});assert.equal(result.retention.remaining,5);await storage.getBackup(result.id);
+}));
+test('backup fingerprints ignore receipt bookkeeping but preserve account folder and actual data changes',()=>{
+ const first={contents:{contents:[{script:'Utuh'}],storageBackup:{folderId:'one',lastAttemptAt:'old',contentDigest:'old'}}},next=structuredClone(first);next.contents.storageBackup.lastAttemptAt='new';next.contents.storageBackup.contentDigest='new';next.contents.storageBackup.md5Checksum='new';assert.equal(backupDataDigest(first),backupDataDigest(next));next.contents.storageBackup.folderId='two';assert.notEqual(backupDataDigest(first),backupDataDigest(next));next.contents.storageBackup.folderId='one';next.contents.contents[0].script+=' berubah';assert.notEqual(backupDataDigest(first),backupDataDigest(next));assert.equal(first.contents.storageBackup.lastAttemptAt,'old');
+});

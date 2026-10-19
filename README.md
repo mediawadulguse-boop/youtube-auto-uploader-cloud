@@ -1,6 +1,12 @@
-# YouTube Content Hub v4.37.0
+# YouTube Content Hub v4.38.0
 
 Dashboard cloud untuk mengelola konten sejak ide dan riset, menyimpan script sebelum produksi, serta mengunggah video bergantian dengan penjadwalan native YouTube.
+
+## Backup hemat (4.38.0)
+
+Data & Backup menyimpan maksimal **3 backup harian + 2 manual** di PostgreSQL. Aturan lama dikurangi setelah snapshot terkini tersedia, salinan gzip dibaca kembali, dan checksum titik pemulihan yang dipertahankan lolos verifikasi. Jika verifikasi gagal, pemangkasan ditunda. File mirror berlebih dibersihkan sesudah transaksi berhasil; data aktif, video, token dan direktori migrasi tidak dipangkas.
+
+Backup otomatis identik tidak menghasilkan salinan baru. Drive membaca ulang ukuran/checksum/folder file sebelum menggunakannya kembali; tanggal snapshot asli tetap tampil. Riwayat Drive tetap tersedia. Lihat DATA-RECOVERY.md untuk rincian pemulihan dan batas ukuran fisik PostgreSQL.
 
 ## Publikasi platform lain (4.37.0)
 

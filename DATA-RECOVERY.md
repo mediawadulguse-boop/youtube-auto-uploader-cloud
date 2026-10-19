@@ -1,4 +1,4 @@
-# Penyimpanan dan pemulihan v4.6.1
+# Penyimpanan dan pemulihan v4.38.0
 
 `DATABASE_URL` mengaktifkan PostgreSQL. Empat model versioned (upload, produksi,
 Note/kategori, Analytics per channel) disimpan sebagai JSONB dengan row lock dan
@@ -11,7 +11,7 @@ dan membandingkan checksum hasil PostgreSQL. Startup berikutnya memakai database
 file JSON lama tidak diimpor lagi. Koneksi/migrasi gagal menghentikan startup dan
 tidak beralih ke database kosong. File OAuth terenkripsi dan video tetap di `/data`.
 
-Backup harian menyimpan 14 salinan; manual menyimpan 10. Snapshot konsisten memakai
+Backup harian menyimpan maksimal 3 salinan; manual maksimal 2. Snapshot konsisten memakai
 satu SELECT, disimpan dalam tabel `app_backups` dan gzip di volume `/data/backups`.
 Unduhan tersedia lewat menu Data & Backup, hanya setelah login. Backup manual memakai
 cooldown satu menit di dalam transaksi. Proses snapshot dan mirror diserialkan; file
@@ -45,3 +45,13 @@ pengambilan. Snapshot disimpan 30 hari. Subscriber total dapat dibulatkan; tidak
 digunakan untuk menghitung mundur total historis. Perubahan video publik bisa
 menunjukkan upload, penghapusan, atau perubahan visibilitas. Backup dapat berisi
 riwayat lebih lama dan hanya digunakan untuk pemulihan; cache tetap dibatasi saat tampil.
+
+## Retensi hemat dan verifikasi (4.38.0)
+
+Saat ada salinan melebihi batas, snapshot terkini disimpan atau snapshot identik yang valid dipakai ulang. Salinan gzip ditulis ke file sementara, dibaca kembali dan diperiksa checksum-nya sebelum mengganti mirror. Salinan yang akan dipertahankan juga diperiksa. Kegagalan verifikasi mempertahankan backup lama; data produksi tidak dipangkas oleh aturan ini.
+
+Penghapusan baris backup selesai dahulu sebelum mirror lama dibersihkan. Penguncian transaksi melindungi proses backup bersamaan. Direktori migrasi dan berkas data/video/token lain tidak dibersihkan oleh aturan backup ini.
+
+Backup otomatis dengan data identik memakai snapshot valid yang ada walau tanggal berubah. Metadata tanda terima backup yang terus diperbarui tidak dianggap perubahan isi; perubahan folder akun Drive tetap diperhitungkan. Pemakaian ulang file Drive memerlukan verifikasi ulang ukuran, checksum dan folder. Backup manual tetap tersedia, dan riwayat Drive tidak dihapus.
+
+Penghapusan backup tidak menjamin ukuran fisik database langsung turun; PostgreSQL dapat memakai ulang ruang yang telah dibersihkan.
